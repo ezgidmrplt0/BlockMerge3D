@@ -6,6 +6,7 @@ using System.Linq;
 public class DraggablePiece : MonoBehaviour
 {
     public Vector3 HomePosition { get; set; }
+    public Vector3Int PlacedOffset { get; private set; }
 
     private CubeShapeDataHolder holder;
     private GridManager grid;
@@ -16,7 +17,6 @@ public class DraggablePiece : MonoBehaviour
 
     private bool isDragging;
     private bool isPlaced;
-    private Vector3Int placedOffset;
     private Vector3 dragOffset3D;
     private Plane dragPlane;
 
@@ -78,22 +78,22 @@ public class DraggablePiece : MonoBehaviour
         activeDrag          = this;
         secondTouchConsumed = false;
 
-        // Origin dunya pozisyonuna geri döndük
-        dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
+        dragPlane = new Plane(-mainCam.transform.forward, grid.WorldOrigin);
         Ray initRay = mainCam.ScreenPointToRay(Input.mousePosition);
         dragOffset3D = dragPlane.Raycast(initRay, out float initDist)
             ? transform.position - initRay.GetPoint(initDist)
             : Vector3.zero;
 
         transform.localScale = Vector3.one;
+        UpdateChildPositions();
         if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = true;
     }
 
     private void HandleDrag()
     {
-        if (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Space)) 
+        if (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Space))
             RotateAroundY();
-            
+
         if (Input.GetKeyDown(KeyCode.E)) RotateAroundX();
 
         if (Input.touchCount >= 2)
@@ -101,6 +101,8 @@ public class DraggablePiece : MonoBehaviour
             if (!secondTouchConsumed) { RotateAroundY(); secondTouchConsumed = true; }
         }
         else secondTouchConsumed = false;
+
+        UpdateChildPositions();
 
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
         if (dragPlane.Raycast(mouseRay, out float dist))
@@ -121,9 +123,9 @@ public class DraggablePiece : MonoBehaviour
 
         if (grid.TryPlace(currentCells, offset))
         {
-            placedOffset       = offset;
-            isPlaced           = true;
-            transform.position = grid.OffsetToRoot(offset);
+            PlacedOffset         = offset;
+            isPlaced             = true;
+            transform.position   = grid.OffsetToRoot(offset);
             transform.localScale = Vector3.one;
             GameManager.Instance?.CheckWin();
             LevelManager.Instance?.OnPiecePlaced(this);
@@ -132,25 +134,27 @@ public class DraggablePiece : MonoBehaviour
         {
             transform.position   = HomePosition;
             transform.localScale = Vector3.one * slotScale;
+            UpdateChildPositions(Quaternion.identity);
         }
+    }
+
+    // Placed piece'i grid döndükçe güncelle (LevelManager.LateUpdate çağırır)
+    public void RefreshWorldPosition()
+    {
+        if (grid == null) return;
+        transform.position = grid.OffsetToRoot(PlacedOffset);
+        UpdateChildPositions();
     }
 
     private Vector3 PieceWorldCenter()
     {
         if (currentCells == null || currentCells.Count == 0) return transform.position;
-        float step = grid.Step;
+        Quaternion gridRot = (grid?.LocalSpace != null) ? grid.LocalSpace.rotation : Quaternion.identity;
         float half = grid.CellSize * 0.5f;
-
-        int minX = currentCells.Min(c => c.x), maxX = currentCells.Max(c => c.x);
-        int minY = currentCells.Min(c => c.y), maxY = currentCells.Max(c => c.y);
-        int minZ = currentCells.Min(c => c.z), maxZ = currentCells.Max(c => c.z);
-
-        Vector3 localCenter = new Vector3(
-            (minX + maxX + 1) * 0.5f,
-            (minY + maxY + 1) * 0.5f,
-            (minZ + maxZ + 1) * 0.5f) * step;
-
-        return transform.position + (transform.rotation * localCenter);
+        Vector3 sum = Vector3.zero;
+        foreach (var c in currentCells)
+            sum += new Vector3(c.x * grid.Step + half, c.y * grid.Step + half, c.z * grid.Step + half);
+        return transform.position + gridRot * (sum / currentCells.Count);
     }
 
     private void RotateAroundY()
@@ -198,6 +202,12 @@ public class DraggablePiece : MonoBehaviour
 
     private void UpdateChildPositions()
     {
+        Quaternion gridRot = (grid?.LocalSpace != null) ? grid.LocalSpace.rotation : Quaternion.identity;
+        UpdateChildPositions(gridRot);
+    }
+
+    private void UpdateChildPositions(Quaternion gridRot)
+    {
         var children = new List<Transform>();
         foreach (Transform t in transform) children.Add(t);
         if (children.Count != currentCells.Count) return;
@@ -205,7 +215,7 @@ public class DraggablePiece : MonoBehaviour
         for (int i = 0; i < children.Count; i++)
         {
             var c = currentCells[i];
-            children[i].localPosition = new Vector3(
+            children[i].localPosition = gridRot * new Vector3(
                 c.x * grid.Step + half,
                 c.y * grid.Step + half,
                 c.z * grid.Step + half);

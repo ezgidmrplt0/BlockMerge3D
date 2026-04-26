@@ -6,23 +6,21 @@ public class CameraOrbit : MonoBehaviour
 
     [Header("Target")]
     public Transform pivot;
+    public Transform rotatableTarget;
     public float distance = 14f;
 
     [Header("Initial Angle")]
     public float startAzimuth   = 25f;
     public float startElevation = 28f;
 
-    [Header("Swipe Snap")]
+    [Header("Object Rotation")]
     [Tooltip("90° döndürme için gereken minimum yatay swipe mesafesi (pixel)")]
     public float swipeMinPixels = 60f;
-    [Tooltip("Kamera döndürme animasyon hızı")]
+    [Tooltip("Obje döndürme animasyon hızı")]
     public float snapSpeed      = 10f;
 
-    private float azimuth;
-    private float elevation;
-    private float targetAzimuth;
+    private Quaternion targetObjectRotation = Quaternion.identity;
 
-    // Swipe takibi
     private bool    trackingSwipe;
     private bool    swipeCancelled;
     private Vector2 swipeStartPos;
@@ -30,10 +28,9 @@ public class CameraOrbit : MonoBehaviour
 
     private void Awake()
     {
-        Instance       = this;
-        azimuth        = startAzimuth;
-        elevation      = startElevation;
-        targetAzimuth  = startAzimuth;
+        Instance = this;
+        if (rotatableTarget != null)
+            targetObjectRotation = rotatableTarget.rotation;
     }
 
     public void FitInView(Bounds bounds)
@@ -42,7 +39,7 @@ public class CameraOrbit : MonoBehaviour
 
         Camera cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
-        if (cam == null) { ApplyOrbit(); return; }
+        if (cam == null) { ApplyCameraPosition(); return; }
 
         float radius   = bounds.extents.magnitude;
         float vHalfRad = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
@@ -50,23 +47,32 @@ public class CameraOrbit : MonoBehaviour
         float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
 
         distance = (radius / Mathf.Tan(minHalf)) * 1.18f;
-        ApplyOrbit();
+        ApplyCameraPosition();
     }
 
-    private void Start() => ApplyOrbit();
+    private void Start()
+    {
+        if (rotatableTarget == null && LevelManager.Instance != null)
+        {
+            rotatableTarget = LevelManager.Instance.mainCubeLocation;
+            if (rotatableTarget != null)
+                targetObjectRotation = rotatableTarget.rotation;
+        }
+        ApplyCameraPosition();
+    }
 
     private void Update()
     {
-        // Animasyon: azimuth'u hedefine doğru yumuşakça çek
-        if (!Mathf.Approximately(azimuth, targetAzimuth))
+        if (rotatableTarget != null)
         {
-            azimuth = Mathf.LerpAngle(azimuth, targetAzimuth, Time.deltaTime * snapSpeed);
-            if (Mathf.Abs(Mathf.DeltaAngle(azimuth, targetAzimuth)) < 0.1f)
-                azimuth = targetAzimuth;
-            ApplyOrbit();
+            if (Quaternion.Angle(rotatableTarget.rotation, targetObjectRotation) > 0.1f)
+                rotatableTarget.rotation = Quaternion.Slerp(
+                    rotatableTarget.rotation, targetObjectRotation, Time.deltaTime * snapSpeed);
+            else
+                rotatableTarget.rotation = targetObjectRotation;
         }
 
-        if (DraggablePiece.IsDragging || IsLocked) 
+        if (DraggablePiece.IsDragging || IsLocked)
         {
             swipeCancelled = true;
             if (IsLocked) trackingSwipe = false;
@@ -128,15 +134,13 @@ public class CameraOrbit : MonoBehaviour
         if (Mathf.Abs(delta.x) < swipeMinPixels) return;
         if (Mathf.Abs(delta.x) < Mathf.Abs(delta.y)) return;
 
-        targetAzimuth -= Mathf.Sign(delta.x) * 90f;
+        targetObjectRotation = Quaternion.Euler(0f, Mathf.Sign(delta.x) * 90f, 0f) * targetObjectRotation;
     }
 
-    private void ApplyOrbit()
+    private void ApplyCameraPosition()
     {
         if (pivot == null) return;
-        
-        // Kamerayi pivot etrafinda döndürme mantigina geri döndük
-        Quaternion rot = Quaternion.Euler(elevation, azimuth, 0f);
+        Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
         transform.position = pivot.position + rot * new Vector3(0f, 0f, -distance);
         transform.rotation = rot;
     }
