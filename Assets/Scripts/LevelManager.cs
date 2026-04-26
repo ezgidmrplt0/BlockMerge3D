@@ -1,24 +1,39 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 public class LevelManager : MonoBehaviour
 {
+    public static LevelManager Instance { get; private set; }
+
     [Header("Configuration")]
     public Transform spawnPoint;
     public LevelData currentLevel;
 
     [Header("Piece Spawn")]
-    [Range(0f, 0.5f)] public float pieceRowViewportY  = 0.12f; // ekranın kaç %'inde (alttan)
-    [Range(0f, 0.5f)] public float pieceRowMarginX    = 0.12f; // sol/sağ kenar boşluğu
+    public float pieceBelowGap = 1.5f;  // ana şeklin altı ile parça satırı arasındaki boşluk
+    public float pieceGap      = 0.5f;  // parçalar arasındaki yatay boşluk
+
+    [Tooltip("Aynı anda sahnede görünen parça sayısı")]
+    public int maxVisiblePieces = 3;
 
     private GameObject activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
+    private List<GameObject> placedPieces = new List<GameObject>();
     private GridManager gridManager;
     private Material ghostTargetMat;
 
+    // Sıra sistemi
+    private List<GameObject> allPiecePrefabs = new List<GameObject>();
+    private List<float>      allPieceWidths  = new List<float>();
+    private List<float>      allPieceHeights = new List<float>();
+    private List<int>        activePieceDataIndices = new List<int>();
+    private int  nextPieceIndex  = 0;
+    private float cachedPieceTopY = 0f;
+
     private void Awake()
     {
-        // GridManager aynı GameObject'te veya bulunamıyorsa yeni eklenir
+        Instance    = this;
         gridManager = GetComponent<GridManager>();
         if (gridManager == null) gridManager = gameObject.AddComponent<GridManager>();
     }
@@ -34,82 +49,192 @@ public class LevelManager : MonoBehaviour
         if (spawnPoint == null) { Debug.LogError("LevelManager: Spawn Point atanmadı!"); return; }
 
         // ── Ana hedef şekil ──────────────────────────────────────────────────
+        Vector3 gridOrigin = spawnPoint.position;
         if (level.mainShapePrefab != null)
         {
-            Vector3 shapePos = ComputeMainShapePosition();
-            activeMainPiece = Instantiate(level.mainShapePrefab, shapePos, Quaternion.identity);
+            var prefabHolder = level.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
+            Vector3 viewportCenter = ComputeMainShapePosition();
+
+            gridOrigin = viewportCenter;
+            if (prefabHolder != null)
+            {
+                float step = prefabHolder.cellSize + prefabHolder.spacing;
+                Vector3 bc = BoundsCenter(prefabHolder.occupiedCells, step);
+                // XY ortalanmış, Z = 0
+                gridOrigin = new Vector3(
+                    viewportCenter.x - bc.x,
+                    viewportCenter.y - bc.y,
+                    0f);
+            }
+
+            activeMainPiece = Instantiate(level.mainShapePrefab, gridOrigin, Quaternion.identity);
             activeMainPiece.name = "Main_Shape";
 
             var holder = activeMainPiece.GetComponent<CubeShapeDataHolder>();
             if (holder != null)
             {
-                gridManager.Initialize(
-                    holder.occupiedCells,
-                    holder.cellSize,
-                    holder.spacing,
-                    activeMainPiece.transform.position);
-
-                // Ana şekli yarı-saydam hedef görünümüne çevir
+                gridManager.Initialize(holder.occupiedCells, holder.cellSize, holder.spacing, gridOrigin);
                 ApplyTargetGhost(activeMainPiece);
             }
         }
 
         // ── Tamamlayıcı parçalar ─────────────────────────────────────────────
-        int count = level.complementaryPieces.Count;
-        for (int i = 0; i < count; i++)
+        float mainMinY = gridOrigin.y;
+        cachedPieceTopY = mainMinY - pieceBelowGap;
+
+        allPiecePrefabs.Clear();
+        allPieceWidths.Clear();
+        allPieceHeights.Clear();
+        nextPieceIndex = 0;
+
+        foreach (var prefab in level.complementaryPieces)
         {
-            if (level.complementaryPieces[i] == null) continue;
-
-            Vector3 pos = ComputeSpawnPosition(i, count);
-            GameObject piece = Instantiate(level.complementaryPieces[i], pos, Quaternion.identity);
-            piece.name = $"Piece_{i + 1}";
-
-            var drag = piece.AddComponent<DraggablePiece>();
-            drag.HomePosition = pos;
-
-            activePieces.Add(piece);
+            if (prefab == null) continue;
+            var ph = prefab.GetComponent<CubeShapeDataHolder>();
+            allPiecePrefabs.Add(prefab);
+            if (ph != null)
+            {
+                float step = ph.cellSize + ph.spacing;
+                int maxX = 0, maxY = 0;
+                foreach (var c in ph.occupiedCells)
+                {
+                    if (c.x > maxX) maxX = c.x;
+                    if (c.y > maxY) maxY = c.y;
+                }
+                allPieceWidths.Add((maxX + 1) * step);
+                allPieceHeights.Add((maxY + 1) * step);
+            }
+            else
+            {
+                allPieceWidths.Add(2f);
+                allPieceHeights.Add(2f);
+            }
         }
+
+        // İlk maxVisiblePieces parçayı spawn et
+        int toSpawn = Mathf.Min(maxVisiblePieces, allPiecePrefabs.Count);
+        for (int i = 0; i < toSpawn; i++)
+        {
+            SpawnPieceAtIndex(nextPieceIndex);
+            nextPieceIndex++;
+        }
+        RecomputeHomePositions();
+        FitCameraToScene();
+    }
+
+    private void SpawnPieceAtIndex(int index)
+    {
+        // Geçici pozisyonda spawn et; RecomputeHomePositions gerçek yeri atar
+        GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(9999f, 9999f, 0f), Quaternion.identity);
+        piece.name = $"Piece_{index + 1}";
+        var drag = piece.AddComponent<DraggablePiece>();
+        drag.HomePosition = new Vector3(9999f, 9999f, 0f);
+        activePieces.Add(piece);
+        activePieceDataIndices.Add(index);
+    }
+
+    private void RecomputeHomePositions()
+    {
+        if (activePieces.Count == 0) return;
+
+        float totalWidth = 0f;
+        for (int i = 0; i < activePieces.Count; i++)
+        {
+            int di = activePieceDataIndices[i];
+            totalWidth += allPieceWidths[di];
+            if (i > 0) totalWidth += pieceGap;
+        }
+
+        float curX = spawnPoint.position.x - totalWidth * 0.5f;
+        for (int i = 0; i < activePieces.Count; i++)
+        {
+            int di = activePieceDataIndices[i];
+            float w = allPieceWidths[di];
+            float h = allPieceHeights[di];
+            Vector3 newHome = new Vector3(curX, cachedPieceTopY - h, 0f);
+
+            var drag = activePieces[i].GetComponent<DraggablePiece>();
+            if (drag != null)
+            {
+                drag.HomePosition = newHome;
+                if (!drag.IsBeingDragged && !drag.IsPlaced)
+                    activePieces[i].transform.position = newHome;
+            }
+            curX += w + pieceGap;
+        }
+    }
+
+    public void OnPiecePlaced(DraggablePiece piece)
+    {
+        int idx = activePieces.IndexOf(piece.gameObject);
+        if (idx < 0) return;
+
+        placedPieces.Add(activePieces[idx]);
+        activePieces.RemoveAt(idx);
+        activePieceDataIndices.RemoveAt(idx);
+
+        if (nextPieceIndex < allPiecePrefabs.Count)
+        {
+            SpawnPieceAtIndex(nextPieceIndex);
+            nextPieceIndex++;
+        }
+        RecomputeHomePositions();
     }
 
     public void ClearCurrentLevel()
     {
-        if (activeMainPiece != null)
-        {
-            Destroy(activeMainPiece);
-            activeMainPiece = null;
-        }
+        if (activeMainPiece != null) { Destroy(activeMainPiece); activeMainPiece = null; }
         foreach (var p in activePieces) if (p != null) Destroy(p);
         activePieces.Clear();
-
+        activePieceDataIndices.Clear();
+        foreach (var p in placedPieces) if (p != null) Destroy(p);
+        placedPieces.Clear();
         if (ghostTargetMat != null) { Destroy(ghostTargetMat); ghostTargetMat = null; }
+        allPiecePrefabs.Clear();
+        allPieceWidths.Clear();
+        allPieceHeights.Clear();
+        nextPieceIndex = 0;
     }
 
-    // Main shape'i ekranın ortasına yerleştirir (spawnPoint'in kamera uzaklığını korur)
-    private Vector3 ComputeMainShapePosition()
+    // Ana şekil spawnPoint'te sabit doğar
+    private Vector3 ComputeMainShapePosition() => spawnPoint.position;
+
+    private void FitCameraToScene()
     {
-        var cam = Camera.main;
-        if (cam == null) return spawnPoint.position;
-        float depth = Vector3.Distance(cam.transform.position, spawnPoint.position);
-        return cam.ViewportToWorldPoint(new Vector3(0.5f, 0.58f, depth));
+        if (CameraOrbit.Instance == null) return;
+
+        bool first = true;
+        Bounds total = new Bounds();
+
+        void Include(GameObject go)
+        {
+            if (go == null) return;
+            foreach (var r in go.GetComponentsInChildren<Renderer>())
+            {
+                if (first) { total = r.bounds; first = false; }
+                else total.Encapsulate(r.bounds);
+            }
+        }
+
+        Include(activeMainPiece);
+        foreach (var p in activePieces) Include(p);
+
+        if (!first) CameraOrbit.Instance.FitInView(total);
     }
 
-    // Parçaları ekranın altında yatay sıra hâlinde konumlandırır (viewport koordinatları)
-    private Vector3 ComputeSpawnPosition(int index, int total)
+    // Hücre grubunun sınır kutusunun merkezini dünya birimiyle döndürür
+    private static Vector3 BoundsCenter(List<Vector3Int> cells, float step)
     {
-        var cam = Camera.main;
-        if (cam == null) return spawnPoint.position + Vector3.right * index * 2f;
-
-        // Main shape ile aynı kamera uzaklığı
-        float depth = Vector3.Distance(cam.transform.position, spawnPoint.position);
-
-        float vx = total == 1
-            ? 0.5f
-            : Mathf.Lerp(pieceRowMarginX, 1f - pieceRowMarginX, (float)index / (total - 1));
-
-        return cam.ViewportToWorldPoint(new Vector3(vx, pieceRowViewportY, depth));
+        if (cells.Count == 0) return Vector3.zero;
+        int minX = cells.Min(c => c.x), maxX = cells.Max(c => c.x);
+        int minY = cells.Min(c => c.y), maxY = cells.Max(c => c.y);
+        int minZ = cells.Min(c => c.z), maxZ = cells.Max(c => c.z);
+        return new Vector3(
+            (minX + maxX + 1) * 0.5f,
+            (minY + maxY + 1) * 0.5f,
+            (minZ + maxZ + 1) * 0.5f) * step;
     }
 
-    // Ana şeklin tüm Renderer'larını yarı-saydam mavi ghost materyalle değiştirir
     private void ApplyTargetGhost(GameObject shape)
     {
         ghostTargetMat = new Material(Shader.Find("Standard"));
@@ -128,7 +253,6 @@ public class LevelManager : MonoBehaviour
             r.sharedMaterials = mats;
         }
 
-        // Ana şekle tıklanamaz (Collider'lar devre dışı)
         foreach (var col in shape.GetComponentsInChildren<Collider>())
             col.enabled = false;
     }

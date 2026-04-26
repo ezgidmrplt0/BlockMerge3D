@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 [RequireComponent(typeof(CubeShapeDataHolder))]
@@ -11,30 +10,39 @@ public class DraggablePiece : MonoBehaviour
     private GridManager grid;
     private Camera mainCam;
 
-    // Mevcut hücreler (rotasyon uygulanmış)
     private List<Vector3Int> currentCells;
-    private int rotationStep = 0; // 0–3, her biri 90° Y dönüşü
+    private Quaternion currentRotation = Quaternion.identity;
 
     private bool isDragging;
     private bool isPlaced;
     private Vector3Int placedOffset;
-    private int dragYLevel;
+    private Vector3 dragOffset3D;
+    private Plane dragPlane;
 
-    // Ghost (yerleştirme önizlemesi)
+    // Ghost
     private GameObject ghost;
     private List<Transform> ghostCubes = new List<Transform>();
     private Material ghostValidMat;
     private Material ghostInvalidMat;
 
-    // Aynı anda yalnızca bir parça sürüklenebilir
+    // Multi-touch rotate
+    private bool secondTouchConsumed;
+
     private static DraggablePiece activeDrag;
+    public static bool IsDragging => activeDrag != null;
+
+    public bool IsBeingDragged => isDragging;
+    public bool IsPlaced       => isPlaced;
+
+    public static void RequestRotateY() { if (activeDrag != null) activeDrag.RotateAroundY(); }
+    public static void RequestRotateX() { if (activeDrag != null) activeDrag.RotateAroundX(); }
 
     // ─── Unity ────────────────────────────────────────────────────────────────
 
     private void Awake()
     {
-        holder     = GetComponent<CubeShapeDataHolder>();
-        mainCam    = Camera.main;
+        holder       = GetComponent<CubeShapeDataHolder>();
+        mainCam      = Camera.main;
         currentCells = new List<Vector3Int>(holder.occupiedCells);
     }
 
@@ -42,15 +50,14 @@ public class DraggablePiece : MonoBehaviour
     {
         grid = GridManager.Instance;
         if (grid == null) { Debug.LogError("GridManager bulunamadı!"); return; }
-
         if (HomePosition == Vector3.zero) HomePosition = transform.position;
         BuildGhost();
     }
 
     private void OnDestroy()
     {
-        if (ghost          != null) Destroy(ghost);
-        if (ghostValidMat  != null) Destroy(ghostValidMat);
+        if (ghost           != null) Destroy(ghost);
+        if (ghostValidMat   != null) Destroy(ghostValidMat);
         if (ghostInvalidMat != null) Destroy(ghostInvalidMat);
         if (activeDrag == this) activeDrag = null;
     }
@@ -76,39 +83,43 @@ public class DraggablePiece : MonoBehaviour
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
         if (!hit.transform.IsChildOf(transform) && hit.transform != transform) return;
 
-        if (isPlaced)
-        {
-            grid.Remove(currentCells, placedOffset);
-            isPlaced = false;
-        }
+        if (isPlaced) { grid.Remove(currentCells, placedOffset); isPlaced = false; }
 
-        isDragging  = true;
-        activeDrag  = this;
-        // Başlangıç Y: parça şu an hangi katmanda?
-        dragYLevel = Mathf.RoundToInt((transform.position.y - grid.Origin.y) / grid.Step);
-        dragYLevel = Mathf.Max(0, dragYLevel);
+        isDragging          = true;
+        activeDrag          = this;
+        secondTouchConsumed = false;
+
+        // Tüm parçalar grid origin'den geçen aynı referans düzleminde hareket eder
+        dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
+        Ray initRay = mainCam.ScreenPointToRay(Input.mousePosition);
+        dragOffset3D = dragPlane.Raycast(initRay, out float initDist)
+            ? transform.position - initRay.GetPoint(initDist)
+            : Vector3.zero;
+
         ghost.SetActive(true);
     }
 
     private void HandleDrag()
     {
-        // Scroll → Y katmanı değiştir
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (scroll > 0.01f)       dragYLevel++;
-        else if (scroll < -0.01f) dragYLevel = Mathf.Max(0, dragYLevel - 1);
+        if (Input.GetKeyDown(KeyCode.R)) RotateAroundY();
+        if (Input.GetKeyDown(KeyCode.E)) RotateAroundX();
 
-        // R → Y ekseninde 90° döndür
-        if (Input.GetKeyDown(KeyCode.R)) RotateY();
-
-        // Mouse → XZ düzleminde takip et (dragYLevel yüksekliğinde)
-        Ray ray = mainCam.ScreenPointToRay(Input.mousePosition);
-        float planeY = grid.Origin.y + dragYLevel * grid.Step;
-        var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
-        if (plane.Raycast(ray, out float dist))
+        if (Input.touchCount >= 2)
         {
-            Vector3 hit = ray.GetPoint(dist);
-            transform.position = new Vector3(hit.x, planeY, hit.z);
+            if (!secondTouchConsumed) { RotateAroundY(); secondTouchConsumed = true; }
         }
+        else secondTouchConsumed = false;
+
+        // Serbest hareket
+        // Serbest hareket (drag plane boyunca)
+        Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
+        if (dragPlane.Raycast(mouseRay, out float dist))
+            transform.position = mouseRay.GetPoint(dist) + dragOffset3D;
+
+        // Kamera açısından parça merkezi üzerinden ekran-uzay snap
+        Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
+        if (grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
+            transform.position = grid.OffsetToRoot(snapOff);
 
         RefreshGhost();
     }
@@ -120,7 +131,6 @@ public class DraggablePiece : MonoBehaviour
         ghost.SetActive(false);
 
         Vector3Int offset = grid.RootToOffset(transform.position);
-        offset.y = dragYLevel;
 
         if (grid.TryPlace(currentCells, offset))
         {
@@ -128,58 +138,88 @@ public class DraggablePiece : MonoBehaviour
             isPlaced           = true;
             transform.position = grid.OffsetToRoot(offset);
             GameManager.Instance?.CheckWin();
+            LevelManager.Instance?.OnPiecePlaced(this);
         }
         else
         {
-            // Geçersiz → eve dön
             transform.position = HomePosition;
         }
     }
 
-    // ─── Rotasyon ─────────────────────────────────────────────────────────────
-
-    private void RotateY()
+    private Vector3 PieceWorldCenter()
     {
-        rotationStep = (rotationStep + 1) % 4;
-
-        if (rotationStep == 0)
-        {
-            // 4 tam tur → orijinale dön
-            currentCells = new List<Vector3Int>(holder.occupiedCells);
-        }
-        else
-        {
-            currentCells = ApplyRotationY(currentCells);
-        }
-
-        UpdateChildPositions();
+        float half = grid.CellSize * 0.5f;
+        Vector3 sum = Vector3.zero;
+        foreach (var c in currentCells)
+            sum += new Vector3(c.x * grid.Step + half, c.y * grid.Step + half, c.z * grid.Step + half);
+        return transform.position + sum / currentCells.Count;
     }
 
-    // (x, y, z) → (-z, y, x) — Unity sol-el sistemi, Y etrafında 90° CCW
-    private static List<Vector3Int> ApplyRotationY(List<Vector3Int> cells)
+    // ─── Rotasyon ─────────────────────────────────────────────────────────────
+
+    private void RotateAroundY()
+    {
+        currentRotation = Quaternion.Euler(0f, 90f, 0f) * currentRotation;
+        RebuildCells();
+    }
+
+    private void RotateAroundX()
+    {
+        currentRotation = Quaternion.Euler(90f, 0f, 0f) * currentRotation;
+        RebuildCells();
+    }
+
+    private void RebuildCells()
+    {
+        currentCells = RotateCells(holder.occupiedCells, currentRotation);
+        UpdateChildPositions();
+        while (ghostCubes.Count < currentCells.Count) AddGhostCube();
+        while (ghostCubes.Count > currentCells.Count)
+        {
+            Destroy(ghostCubes[ghostCubes.Count - 1].gameObject);
+            ghostCubes.RemoveAt(ghostCubes.Count - 1);
+        }
+    }
+
+    private static List<Vector3Int> RotateCells(List<Vector3Int> cells, Quaternion q)
     {
         var result = new List<Vector3Int>(cells.Count);
         foreach (var c in cells)
-            result.Add(new Vector3Int(-c.z, c.y, c.x));
+        {
+            Vector3 v = q * new Vector3(c.x, c.y, c.z);
+            result.Add(new Vector3Int(
+                Mathf.RoundToInt(v.x),
+                Mathf.RoundToInt(v.y),
+                Mathf.RoundToInt(v.z)));
+        }
 
-        int minX = result.Min(c => c.x);
-        int minZ = result.Min(c => c.z);
+        int minX = int.MaxValue, minY = int.MaxValue, minZ = int.MaxValue;
+        foreach (var c in result)
+        {
+            if (c.x < minX) minX = c.x;
+            if (c.y < minY) minY = c.y;
+            if (c.z < minZ) minZ = c.z;
+        }
         for (int i = 0; i < result.Count; i++)
-            result[i] -= new Vector3Int(minX, 0, minZ);
+            result[i] -= new Vector3Int(minX, minY, minZ);
 
         return result;
     }
 
-    // Child transform'larını currentCells'e göre yeniden konumlandır
     private void UpdateChildPositions()
     {
         var children = new List<Transform>();
         foreach (Transform t in transform) children.Add(t);
         if (children.Count != currentCells.Count) return;
-
+        float half = grid.CellSize * 0.5f;
         for (int i = 0; i < children.Count; i++)
-            children[i].localPosition =
-                (Vector3)currentCells[i] * grid.Step + Vector3.one * (grid.CellSize * 0.5f);
+        {
+            var c = currentCells[i];
+            children[i].localPosition = new Vector3(
+                c.x * grid.Step + half,
+                c.y * grid.Step + half,
+                c.z * grid.Step + half);
+        }
     }
 
     // ─── Ghost ────────────────────────────────────────────────────────────────
@@ -188,12 +228,9 @@ public class DraggablePiece : MonoBehaviour
     {
         ghost = new GameObject("Ghost_" + name);
         ghost.SetActive(false);
-
         ghostValidMat   = MakeTransparentMat(new Color(0.2f, 1f,   0.3f, 0.4f));
         ghostInvalidMat = MakeTransparentMat(new Color(1f,   0.2f, 0.2f, 0.4f));
-
-        for (int i = 0; i < currentCells.Count; i++)
-            AddGhostCube();
+        for (int i = 0; i < currentCells.Count; i++) AddGhostCube();
     }
 
     private void AddGhostCube()
@@ -207,17 +244,7 @@ public class DraggablePiece : MonoBehaviour
 
     private void RefreshGhost()
     {
-        // Rotasyon sonrası hücre sayısı değişmediyse bu bloğa girmez,
-        // ama güvenli olması için sync ediyoruz
-        while (ghostCubes.Count < currentCells.Count) AddGhostCube();
-        while (ghostCubes.Count > currentCells.Count)
-        {
-            Destroy(ghostCubes[ghostCubes.Count - 1].gameObject);
-            ghostCubes.RemoveAt(ghostCubes.Count - 1);
-        }
-
         Vector3Int offset = grid.RootToOffset(transform.position);
-        offset.y = dragYLevel;
         bool valid = grid.CanPlace(currentCells, offset);
         Material mat = valid ? ghostValidMat : ghostInvalidMat;
 
@@ -227,8 +254,6 @@ public class DraggablePiece : MonoBehaviour
             ghostCubes[i].GetComponent<Renderer>().sharedMaterial = mat;
         }
     }
-
-    // ─── Materyal ─────────────────────────────────────────────────────────────
 
     private static Material MakeTransparentMat(Color color)
     {
