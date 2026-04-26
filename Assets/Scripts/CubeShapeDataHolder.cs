@@ -7,13 +7,11 @@ public class CubeShapeDataHolder : MonoBehaviour
     public string shapeName;
     public Vector3Int gridSize;
     public float cellSize;
-    
+    public float spacing;
+
     [Header("Occupied Cells")]
     public List<Vector3Int> occupiedCells = new List<Vector3Int>();
 
-    /// <summary>
-    /// Checks if a specific grid coordinate is occupied.
-    /// </summary>
     public bool IsCellOccupied(Vector3Int gridPos)
     {
         return occupiedCells.Contains(gridPos);

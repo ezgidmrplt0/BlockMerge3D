@@ -4,19 +4,16 @@ using System.Collections.Generic;
 public class LevelManager : MonoBehaviour
 {
     [Header("Configuration")]
-    public Transform spawnPoint; // Parçaların çıkacağı boş GameObject
+    public Transform spawnPoint;
     public LevelData currentLevel;
 
-    [Header("Runtime Info")]
     private GameObject activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
 
     void Start()
     {
         if (currentLevel != null)
-        {
             LoadLevel(currentLevel);
-        }
     }
 
     public void LoadLevel(LevelData level)
@@ -29,16 +26,12 @@ public class LevelManager : MonoBehaviour
             return;
         }
 
-        // Ana parçayı spawn et
         if (level.mainShapePrefab != null)
         {
             activeMainPiece = Instantiate(level.mainShapePrefab, spawnPoint.position, Quaternion.identity, spawnPoint);
             activeMainPiece.name = "Main_Shape";
         }
 
-        // Tamamlayıcı parçaları spawn et
-        // Bunları yan yana veya farklı pozisyonlarda spawn etmek isteyebilirsin
-        // Şimdilik üst üste binmemeleri için küçük bir offset ekliyorum
         float offset = 5f;
         for (int i = 0; i < level.complementaryPieces.Count; i++)
         {
@@ -54,7 +47,11 @@ public class LevelManager : MonoBehaviour
 
     public void ClearCurrentLevel()
     {
-        if (activeMainPiece != null) Destroy(activeMainPiece);
+        if (activeMainPiece != null)
+        {
+            Destroy(activeMainPiece);
+            activeMainPiece = null;
+        }
         foreach (var p in activePieces) Destroy(p);
         activePieces.Clear();
     }

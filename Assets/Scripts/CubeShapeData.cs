@@ -7,6 +7,7 @@ public class CubeShapeData : ScriptableObject
     public string shapeName;
     public Vector3Int gridSize;
     public float cellSize;
+    public float spacing;
     public List<Vector3Int> occupiedCells = new List<Vector3Int>();
     public GameObject cubePrefab;
 }
