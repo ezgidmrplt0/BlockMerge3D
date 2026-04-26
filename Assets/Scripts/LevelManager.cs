@@ -68,7 +68,7 @@ public class LevelManager : MonoBehaviour
             if (holder != null)
             {
                 // Dunya pozisyonu ile baslatmaya geri döndük
-                gridManager.Initialize(holder.occupiedCells, holder.cellSize, holder.spacing, activeMainPiece.transform.localPosition, mainCubeLocation);
+                gridManager.Initialize(holder.occupiedCells, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
                 ApplyTargetGhost(activeMainPiece);
             }
         }
@@ -164,7 +164,7 @@ public class LevelManager : MonoBehaviour
         int idx = activePieces.IndexOf(piece.gameObject);
         if (idx < 0) return;
 
-        piece.transform.SetParent(null);
+        piece.transform.SetParent(null); // Parent-child iliskisini kestik
 
         placedPieces.Add(activePieces[idx]);
         activePieces.RemoveAt(idx);
@@ -176,15 +176,6 @@ public class LevelManager : MonoBehaviour
             nextPieceIndex++;
         }
         RecomputeHomePositions();
-    }
-
-    private void LateUpdate()
-    {
-        foreach (var p in placedPieces)
-        {
-            if (p == null) continue;
-            p.GetComponent<DraggablePiece>()?.RefreshWorldPosition();
-        }
     }
 
     public void ClearCurrentLevel()
