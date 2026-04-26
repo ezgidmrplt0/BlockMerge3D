@@ -44,7 +44,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private Material hoveredMaterial;  // hovered occupied cube in ADD mode (yellow)
     private Material removeMaterial;   // hovered occupied cube in REMOVE mode (red)
 
-    private const string GENERATED_PATH = "Assets/GeneratedShapes";
+    private const string GENERATED_PATH = "Assets/Shapes";
     private const string EDITOR_OBJECT_NAME = "Shape_Editor_Object";
 
     [MenuItem("BlockMerge3D/Cube Shape Builder Pro")]
