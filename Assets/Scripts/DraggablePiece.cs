@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 
 [RequireComponent(typeof(CubeShapeDataHolder))]
 public class DraggablePiece : MonoBehaviour
@@ -19,13 +20,8 @@ public class DraggablePiece : MonoBehaviour
     private Vector3 dragOffset3D;
     private Plane dragPlane;
 
-    // Ghost
-    private GameObject ghost;
-    private List<Transform> ghostCubes = new List<Transform>();
-    private Material ghostValidMat;
-    private Material ghostInvalidMat;
+    [HideInInspector] public float slotScale = 0.6f;
 
-    // Multi-touch rotate
     private bool secondTouchConsumed;
 
     private static DraggablePiece activeDrag;
@@ -36,8 +32,6 @@ public class DraggablePiece : MonoBehaviour
 
     public static void RequestRotateY() { if (activeDrag != null) activeDrag.RotateAroundY(); }
     public static void RequestRotateX() { if (activeDrag != null) activeDrag.RotateAroundX(); }
-
-    // ─── Unity ────────────────────────────────────────────────────────────────
 
     private void Awake()
     {
@@ -51,14 +45,10 @@ public class DraggablePiece : MonoBehaviour
         grid = GridManager.Instance;
         if (grid == null) { Debug.LogError("GridManager bulunamadı!"); return; }
         if (HomePosition == Vector3.zero) HomePosition = transform.position;
-        BuildGhost();
     }
 
     private void OnDestroy()
     {
-        if (ghost           != null) Destroy(ghost);
-        if (ghostValidMat   != null) Destroy(ghostValidMat);
-        if (ghostInvalidMat != null) Destroy(ghostInvalidMat);
         if (activeDrag == this) activeDrag = null;
     }
 
@@ -67,6 +57,7 @@ public class DraggablePiece : MonoBehaviour
         if (isDragging)
         {
             HandleDrag();
+            if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = true;
             if (Input.GetMouseButtonUp(0)) EndDrag();
         }
         else if (activeDrag == null && Input.GetMouseButtonDown(0))
@@ -75,33 +66,34 @@ public class DraggablePiece : MonoBehaviour
         }
     }
 
-    // ─── Drag ─────────────────────────────────────────────────────────────────
-
     private void TryBeginDrag()
     {
+        if (isPlaced) return;
+
         Ray ray = mainCam.ScreenPointToRay(Input.mousePosition);
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
         if (!hit.transform.IsChildOf(transform) && hit.transform != transform) return;
-
-        if (isPlaced) { grid.Remove(currentCells, placedOffset); isPlaced = false; }
 
         isDragging          = true;
         activeDrag          = this;
         secondTouchConsumed = false;
 
-        // Tüm parçalar grid origin'den geçen aynı referans düzleminde hareket eder
+        // Origin dunya pozisyonuna geri döndük
         dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
         Ray initRay = mainCam.ScreenPointToRay(Input.mousePosition);
         dragOffset3D = dragPlane.Raycast(initRay, out float initDist)
             ? transform.position - initRay.GetPoint(initDist)
             : Vector3.zero;
 
-        ghost.SetActive(true);
+        transform.localScale = Vector3.one;
+        if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = true;
     }
 
     private void HandleDrag()
     {
-        if (Input.GetKeyDown(KeyCode.R)) RotateAroundY();
+        if (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Space)) 
+            RotateAroundY();
+            
         if (Input.GetKeyDown(KeyCode.E)) RotateAroundX();
 
         if (Input.touchCount >= 2)
@@ -110,25 +102,20 @@ public class DraggablePiece : MonoBehaviour
         }
         else secondTouchConsumed = false;
 
-        // Serbest hareket
-        // Serbest hareket (drag plane boyunca)
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
         if (dragPlane.Raycast(mouseRay, out float dist))
             transform.position = mouseRay.GetPoint(dist) + dragOffset3D;
 
-        // Kamera açısından parça merkezi üzerinden ekran-uzay snap
         Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
         if (grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
             transform.position = grid.OffsetToRoot(snapOff);
-
-        RefreshGhost();
     }
 
     private void EndDrag()
     {
         isDragging = false;
         activeDrag = null;
-        ghost.SetActive(false);
+        if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = false;
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 
@@ -137,25 +124,34 @@ public class DraggablePiece : MonoBehaviour
             placedOffset       = offset;
             isPlaced           = true;
             transform.position = grid.OffsetToRoot(offset);
+            transform.localScale = Vector3.one;
             GameManager.Instance?.CheckWin();
             LevelManager.Instance?.OnPiecePlaced(this);
         }
         else
         {
-            transform.position = HomePosition;
+            transform.position   = HomePosition;
+            transform.localScale = Vector3.one * slotScale;
         }
     }
 
     private Vector3 PieceWorldCenter()
     {
+        if (currentCells == null || currentCells.Count == 0) return transform.position;
+        float step = grid.Step;
         float half = grid.CellSize * 0.5f;
-        Vector3 sum = Vector3.zero;
-        foreach (var c in currentCells)
-            sum += new Vector3(c.x * grid.Step + half, c.y * grid.Step + half, c.z * grid.Step + half);
-        return transform.position + sum / currentCells.Count;
-    }
 
-    // ─── Rotasyon ─────────────────────────────────────────────────────────────
+        int minX = currentCells.Min(c => c.x), maxX = currentCells.Max(c => c.x);
+        int minY = currentCells.Min(c => c.y), maxY = currentCells.Max(c => c.y);
+        int minZ = currentCells.Min(c => c.z), maxZ = currentCells.Max(c => c.z);
+
+        Vector3 localCenter = new Vector3(
+            (minX + maxX + 1) * 0.5f,
+            (minY + maxY + 1) * 0.5f,
+            (minZ + maxZ + 1) * 0.5f) * step;
+
+        return transform.position + (transform.rotation * localCenter);
+    }
 
     private void RotateAroundY()
     {
@@ -173,12 +169,6 @@ public class DraggablePiece : MonoBehaviour
     {
         currentCells = RotateCells(holder.occupiedCells, currentRotation);
         UpdateChildPositions();
-        while (ghostCubes.Count < currentCells.Count) AddGhostCube();
-        while (ghostCubes.Count > currentCells.Count)
-        {
-            Destroy(ghostCubes[ghostCubes.Count - 1].gameObject);
-            ghostCubes.RemoveAt(ghostCubes.Count - 1);
-        }
     }
 
     private static List<Vector3Int> RotateCells(List<Vector3Int> cells, Quaternion q)
@@ -220,51 +210,5 @@ public class DraggablePiece : MonoBehaviour
                 c.y * grid.Step + half,
                 c.z * grid.Step + half);
         }
-    }
-
-    // ─── Ghost ────────────────────────────────────────────────────────────────
-
-    private void BuildGhost()
-    {
-        ghost = new GameObject("Ghost_" + name);
-        ghost.SetActive(false);
-        ghostValidMat   = MakeTransparentMat(new Color(0.2f, 1f,   0.3f, 0.4f));
-        ghostInvalidMat = MakeTransparentMat(new Color(1f,   0.2f, 0.2f, 0.4f));
-        for (int i = 0; i < currentCells.Count; i++) AddGhostCube();
-    }
-
-    private void AddGhostCube()
-    {
-        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        Destroy(cube.GetComponent<Collider>());
-        cube.transform.SetParent(ghost.transform, false);
-        cube.transform.localScale = Vector3.one * grid.CellSize * 0.88f;
-        ghostCubes.Add(cube.transform);
-    }
-
-    private void RefreshGhost()
-    {
-        Vector3Int offset = grid.RootToOffset(transform.position);
-        bool valid = grid.CanPlace(currentCells, offset);
-        Material mat = valid ? ghostValidMat : ghostInvalidMat;
-
-        for (int i = 0; i < ghostCubes.Count; i++)
-        {
-            ghostCubes[i].position = grid.CellToWorld(currentCells[i] + offset);
-            ghostCubes[i].GetComponent<Renderer>().sharedMaterial = mat;
-        }
-    }
-
-    private static Material MakeTransparentMat(Color color)
-    {
-        var mat = new Material(Shader.Find("Standard"));
-        mat.color = color;
-        mat.SetFloat("_Mode", 3f);
-        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        mat.SetInt("_ZWrite", 0);
-        mat.EnableKeyword("_ALPHABLEND_ON");
-        mat.renderQueue = 3000;
-        return mat;
     }
 }

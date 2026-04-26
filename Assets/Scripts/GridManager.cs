@@ -16,11 +16,6 @@ public class GridManager : MonoBehaviour
     public int TotalCells   => targetCells.Count;
     public int PlacedCells  => occupiedCells.Count;
 
-    public int MaxCellY
-    {
-        get { int m = 0; foreach (var c in targetCells) if (c.y > m) m = c.y; return m; }
-    }
-
     private void Awake() { Instance = this; }
 
     public void Initialize(List<Vector3Int> cells, float cellSize, float spacing, Vector3 origin)
@@ -32,11 +27,9 @@ public class GridManager : MonoBehaviour
         Origin   = origin;
     }
 
-    // Dünya konumundan grid hücresinin merkezi
     public Vector3 CellToWorld(Vector3Int cell)
         => Origin + new Vector3(cell.x, cell.y, cell.z) * Step + Vector3.one * (CellSize * 0.5f);
 
-    // Parça root'unun dünya konumundan grid offset'i
     public Vector3Int RootToOffset(Vector3 rootWorld)
     {
         Vector3 local = (rootWorld - Origin) / Step;
@@ -46,15 +39,13 @@ public class GridManager : MonoBehaviour
             Mathf.RoundToInt(local.z));
     }
 
-    // Grid offset'inden parça root'unun dünya konumu
     public Vector3 OffsetToRoot(Vector3Int offset)
         => Origin + new Vector3(offset.x, offset.y, offset.z) * Step;
 
-    // Kamera ışınına en yakın geçerli yerleşim offset'ini bulur (ekran-uzay snap)
     public bool TryFindSnapOffset(List<Vector3Int> cells, Ray ray, float maxDist, out Vector3Int result)
     {
         result = Vector3Int.zero;
-        float best = maxDist;
+        float minD = 5.0f; 
         bool found = false;
 
         var seen = new HashSet<Vector3Int>();
@@ -67,7 +58,7 @@ public class GridManager : MonoBehaviour
                 if (!CanPlace(cells, off)) continue;
 
                 float d = Vector3.Cross(ray.direction, OffsetToRoot(off) - ray.origin).magnitude;
-                if (d < best) { best = d; result = off; found = true; }
+                if (d < minD) { minD = d; result = off; found = true; }
             }
         }
         return found;

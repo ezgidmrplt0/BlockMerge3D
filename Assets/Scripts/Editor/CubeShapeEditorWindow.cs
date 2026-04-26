@@ -25,6 +25,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private Vector3Int? hoveredCell = null;
     private Vector3Int? placementCell = null;
     private bool isEditing = false;
+    private bool inPreviewBlock = false; // Çizim durumunu takip et
 
     // --- UI Styling ---
     private GUIStyle headerStyle;
@@ -83,10 +84,32 @@ public class CubeShapeEditorWindow : EditorWindow
     private void OnDisable()
     {
         SceneView.duringSceneGui -= OnSceneGUI;
-        if (previewUtility != null) previewUtility.Cleanup();
+        if (previewUtility != null)
+        {
+            // Eğer çizim bloğu açık kalmışsa zorla kapat
+            if (inPreviewBlock)
+            {
+                try { previewUtility.EndPreview(); } catch { }
+                inPreviewBlock = false;
+            }
+            previewUtility.Cleanup();
+        }
+        
+        // Tüm oluşturulan materyalleri yok et
+        if (cubeMaterial != null) DestroyImmediate(cubeMaterial);
+        if (gizmoMaterial != null) DestroyImmediate(gizmoMaterial);
         if (hoverMaterial != null) DestroyImmediate(hoverMaterial);
         if (hoveredMaterial != null) DestroyImmediate(hoveredMaterial);
         if (removeMaterial != null) DestroyImmediate(removeMaterial);
+    }
+
+    private void EnsureMaterials()
+    {
+        if (cubeMaterial == null) { cubeMaterial = new Material(Shader.Find("Unlit/Color")); cubeMaterial.color = new Color(0.62f, 0.66f, 0.72f); }
+        if (gizmoMaterial == null) gizmoMaterial = new Material(Shader.Find("Unlit/Color"));
+        if (hoverMaterial == null) { hoverMaterial = new Material(Shader.Find("Unlit/Color")); hoverMaterial.color = new Color(0.2f, 0.9f, 1f, 0.6f); }
+        if (hoveredMaterial == null) { hoveredMaterial = new Material(Shader.Find("Unlit/Color")); hoveredMaterial.color = new Color(1f, 0.9f, 0.1f, 0.8f); }
+        if (removeMaterial == null) { removeMaterial = new Material(Shader.Find("Unlit/Color")); removeMaterial.color = new Color(1f, 0.2f, 0.1f, 0.85f); }
     }
 
     private void FindExistingEditorObject()
@@ -119,11 +142,19 @@ public class CubeShapeEditorWindow : EditorWindow
     private void OnGUI()
     {
         InitializeStyles();
+        EnsureMaterials(); // Materyallerin geçerli olduğundan emin ol
+
         EditorGUILayout.BeginHorizontal();
-        DrawLeftSidebar();
-        DrawCenterPanel();
-        DrawRightSidebar();
-        EditorGUILayout.EndHorizontal();
+        try
+        {
+            DrawLeftSidebar();
+            DrawCenterPanel();
+            DrawRightSidebar();
+        }
+        finally
+        {
+            EditorGUILayout.EndHorizontal();
+        }
         DrawStatusBar();
     }
 
@@ -181,37 +212,43 @@ public class CubeShapeEditorWindow : EditorWindow
     private void DrawCenterPanel()
     {
         EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true));
-        Rect rect = GUILayoutUtility.GetRect(200, 200, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
-        HandleViewportInput(rect);
-        Draw3DPreview(rect);
-
-        GUILayout.Space(-75);
-        EditorGUILayout.BeginHorizontal();
-        GUILayout.Space(10);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(220));
-        EditorGUILayout.LabelField("VIEWPORT STATS", headerStyle);
-        EditorGUILayout.LabelField($"Cubes: {(dataHolder != null ? dataHolder.occupiedCells.Count : 0)}", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"View: {(useOrthographic ? "Iso" : "Persp")}", EditorStyles.miniLabel);
-        string hoverInfo = hoveredCell.HasValue ? $"Hover: {hoveredCell.Value}" : (placementCell.HasValue ? $"Place: {placementCell.Value}" : "—");
-        EditorGUILayout.LabelField(hoverInfo, EditorStyles.miniLabel);
-        EditorGUILayout.EndVertical();
-        GUILayout.FlexibleSpace();
-        EditorGUILayout.EndHorizontal();
-        GUILayout.Space(10);
-
-        if (!isEditing)
+        try
         {
-            GUILayout.FlexibleSpace();
+            Rect rect = GUILayoutUtility.GetRect(200, 200, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+            HandleViewportInput(rect);
+            Draw3DPreview(rect);
+
+            GUILayout.Space(-75);
             EditorGUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            GUI.backgroundColor = new Color(0.4f, 1f, 0.4f, 0.7f);
-            if (GUILayout.Button("START NEW DESIGN", GUILayout.Width(350), GUILayout.Height(70))) CreateNewShape();
-            GUI.backgroundColor = Color.white;
+            GUILayout.Space(10);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(220));
+            EditorGUILayout.LabelField("VIEWPORT STATS", headerStyle);
+            EditorGUILayout.LabelField($"Cubes: {(dataHolder != null ? dataHolder.occupiedCells.Count : 0)}", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"View: {(useOrthographic ? "Iso" : "Persp")}", EditorStyles.miniLabel);
+            string hoverInfo = hoveredCell.HasValue ? $"Hover: {hoveredCell.Value}" : (placementCell.HasValue ? $"Place: {placementCell.Value}" : "—");
+            EditorGUILayout.LabelField(hoverInfo, EditorStyles.miniLabel);
+            EditorGUILayout.EndVertical();
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
-            GUILayout.FlexibleSpace();
+            GUILayout.Space(10);
+
+            if (!isEditing)
+            {
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                GUI.backgroundColor = new Color(0.4f, 1f, 0.4f, 0.7f);
+                if (GUILayout.Button("START NEW DESIGN", GUILayout.Width(350), GUILayout.Height(70))) CreateNewShape();
+                GUI.backgroundColor = Color.white;
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
+                GUILayout.FlexibleSpace();
+            }
         }
-        EditorGUILayout.EndVertical();
+        finally
+        {
+            EditorGUILayout.EndVertical();
+        }
     }
 
     private void HandleViewportInput(Rect rect)
@@ -291,53 +328,72 @@ public class CubeShapeEditorWindow : EditorWindow
     private void Draw3DPreview(Rect rect)
     {
         if (previewUtility == null) return;
+        
+        // Önceki bir hatadan dolayı açık kalmışsa kapat
+        if (inPreviewBlock) { try { previewUtility.EndPreview(); } catch { } inPreviewBlock = false; }
+
         previewUtility.BeginPreview(rect, GUIStyle.none);
+        inPreviewBlock = true;
 
-        previewUtility.camera.orthographic = useOrthographic;
-        if (useOrthographic) previewUtility.camera.orthographicSize = previewDistance * 0.4f;
-        Quaternion camRot = Quaternion.Euler(previewDir.y, previewDir.x, 0);
-        previewUtility.camera.transform.position = camRot * (Vector3.back * previewDistance);
-        previewUtility.camera.transform.rotation = camRot;
-        previewUtility.camera.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 1f);
-        previewUtility.camera.clearFlags = CameraClearFlags.Color;
-        previewUtility.lights[0].intensity = 0f;
-        previewUtility.lights[1].intensity = 0f;
-
-        DrawPreviewGridHUD();
-
-        if (dataHolder != null)
+        try
         {
-            float step = cellSize + spacing;
-            Vector3 offset = -(Vector3)gridSize * step * 0.5f;
-            float cubeScale = cellSize * 0.82f; // gap between cubes makes each one individually identifiable
+            previewUtility.camera.orthographic = useOrthographic;
+            if (useOrthographic) previewUtility.camera.orthographicSize = previewDistance * 0.4f;
+            Quaternion camRot = Quaternion.Euler(previewDir.y, previewDir.x, 0);
+            previewUtility.camera.transform.position = camRot * (Vector3.back * previewDistance);
+            previewUtility.camera.transform.rotation = camRot;
+            previewUtility.camera.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 1f);
+            previewUtility.camera.clearFlags = CameraClearFlags.Color;
+            previewUtility.lights[0].intensity = 0f;
+            previewUtility.lights[1].intensity = 0f;
 
-            foreach (var cell in dataHolder.occupiedCells)
+            DrawPreviewGridHUD();
+
+            if (dataHolder != null)
             {
-                Vector3 pos = offset + (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
-                previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), cubeMaterial, 0);
-                DrawCubeEdges(pos, cubeScale);
+                float step = cellSize + spacing;
+                Vector3 offset = -(Vector3)gridSize * step * 0.5f;
+                float cubeScale = cellSize * 0.82f;
+
+                foreach (var cell in dataHolder.occupiedCells)
+                {
+                    Vector3 pos = offset + (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+                    previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), cubeMaterial, 0);
+                    DrawCubeEdges(pos, cubeScale);
+                }
+
+                if (hoveredCell.HasValue)
+                {
+                    Vector3 pos = offset + (Vector3)hoveredCell.Value * step + Vector3.one * (cellSize * 0.5f);
+                    Material hm = (e_isRemoveActive()) ? removeMaterial : hoveredMaterial;
+                    previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * (cubeScale + 0.06f)), hm, 0);
+                }
+
+                if (placementCell.HasValue && currentTool == ToolMode.Add)
+                {
+                    Vector3 pos = offset + (Vector3)placementCell.Value * step + Vector3.one * (cellSize * 0.5f);
+                    previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), hoverMaterial, 0);
+                }
             }
 
-            // Hovered occupied cube: yellow in ADD mode, red in REMOVE mode
-            if (hoveredCell.HasValue)
-            {
-                Vector3 pos = offset + (Vector3)hoveredCell.Value * step + Vector3.one * (cellSize * 0.5f);
-                Material hm = (e_isRemoveActive()) ? removeMaterial : hoveredMaterial;
-                previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * (cubeScale + 0.06f)), hm, 0);
-            }
+            DrawAxisGizmoHUD(camRot);
+            previewUtility.camera.Render();
+            
+            Texture result = previewUtility.EndPreview();
+            inPreviewBlock = false; // Başarıyla kapandı
 
-            // Placement ghost: cyan
-            if (placementCell.HasValue && currentTool == ToolMode.Add)
-            {
-                Vector3 pos = offset + (Vector3)placementCell.Value * step + Vector3.one * (cellSize * 0.5f);
-                previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), hoverMaterial, 0);
-            }
+            GUI.DrawTexture(rect, result, ScaleMode.StretchToFill, false);
+            DrawOrientationOverlay(rect, camRot);
         }
-
-        DrawAxisGizmoHUD(camRot);
-        previewUtility.camera.Render();
-        GUI.DrawTexture(rect, previewUtility.EndPreview(), ScaleMode.StretchToFill, false);
-        DrawOrientationOverlay(rect, camRot);
+        catch (System.Exception ex)
+        {
+            if (inPreviewBlock)
+            {
+                previewUtility.EndPreview();
+                inPreviewBlock = false;
+            }
+            Debug.LogException(ex);
+        }
     }
 
     private bool e_isRemoveActive() => currentTool == ToolMode.Remove || (Event.current != null && Event.current.shift);

@@ -18,10 +18,6 @@ public class CameraOrbit : MonoBehaviour
     [Tooltip("Kamera döndürme animasyon hızı")]
     public float snapSpeed      = 10f;
 
-    [Header("Auto-Fit")]
-    [Tooltip("Sahne sığıştırılırken kenar boşluğu (oran)")]
-    public float fitPadding = 1.18f;
-
     private float azimuth;
     private float elevation;
     private float targetAzimuth;
@@ -30,6 +26,7 @@ public class CameraOrbit : MonoBehaviour
     private bool    trackingSwipe;
     private bool    swipeCancelled;
     private Vector2 swipeStartPos;
+    public bool     IsLocked { get; set; }
 
     private void Awake()
     {
@@ -39,7 +36,6 @@ public class CameraOrbit : MonoBehaviour
         targetAzimuth  = startAzimuth;
     }
 
-    /// <summary>Verilen bounds'u ekrana tam sığıdıracak şekilde kamerayı konumlandırır (portrait uyumlu).</summary>
     public void FitInView(Bounds bounds)
     {
         if (pivot != null) pivot.position = bounds.center;
@@ -53,7 +49,7 @@ public class CameraOrbit : MonoBehaviour
         float hHalfRad = Mathf.Atan(Mathf.Tan(vHalfRad) * cam.aspect);
         float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
 
-        distance = (radius / Mathf.Tan(minHalf)) * fitPadding;
+        distance = (radius / Mathf.Tan(minHalf)) * 1.18f;
         ApplyOrbit();
     }
 
@@ -70,14 +66,15 @@ public class CameraOrbit : MonoBehaviour
             ApplyOrbit();
         }
 
-        // Parça sürükleniyorsa swipe iptal
-        if (DraggablePiece.IsDragging) swipeCancelled = true;
+        if (DraggablePiece.IsDragging || IsLocked) 
+        {
+            swipeCancelled = true;
+            if (IsLocked) trackingSwipe = false;
+        }
 
         HandleMouseSwipe();
         HandleTouchSwipe();
     }
-
-    // ── Mouse swipe ───────────────────────────────────────────────────────────
 
     private void HandleMouseSwipe()
     {
@@ -98,8 +95,6 @@ public class CameraOrbit : MonoBehaviour
             }
         }
     }
-
-    // ── Touch swipe ───────────────────────────────────────────────────────────
 
     private void HandleTouchSwipe()
     {
@@ -128,22 +123,19 @@ public class CameraOrbit : MonoBehaviour
         }
     }
 
-    // ── Snap logic ────────────────────────────────────────────────────────────
-
     private void TrySnapFromSwipe(Vector2 delta)
     {
-        // Yalnızca baskın yatay harekette tetikle
         if (Mathf.Abs(delta.x) < swipeMinPixels) return;
         if (Mathf.Abs(delta.x) < Mathf.Abs(delta.y)) return;
 
-        // Sağa sürükle → obje sağa döner → azimuth -90
-        // Sola sürükle → obje sola döner → azimuth +90
         targetAzimuth -= Mathf.Sign(delta.x) * 90f;
     }
 
     private void ApplyOrbit()
     {
         if (pivot == null) return;
+        
+        // Kamerayi pivot etrafinda döndürme mantigina geri döndük
         Quaternion rot = Quaternion.Euler(elevation, azimuth, 0f);
         transform.position = pivot.position + rot * new Vector3(0f, 0f, -distance);
         transform.rotation = rot;

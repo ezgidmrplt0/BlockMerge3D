@@ -6,16 +6,16 @@ public class LevelManager : MonoBehaviour
 {
     public static LevelManager Instance { get; private set; }
 
-    [Header("Configuration")]
-    public Transform spawnPoint;
+    [Header("Level Configuration")]
     public LevelData currentLevel;
 
-    [Header("Piece Spawn")]
-    public float pieceBelowGap = 1.5f;  // ana şeklin altı ile parça satırı arasındaki boşluk
-    public float pieceGap      = 0.5f;  // parçalar arasındaki yatay boşluk
+    [Header("Scene Locations")]
+    public Transform mainCubeLocation;
+    public List<Transform> pieceSlots = new List<Transform>();
 
-    [Tooltip("Aynı anda sahnede görünen parça sayısı")]
-    public int maxVisiblePieces = 3;
+    [Header("Visual Settings")]
+    public int   maxVisiblePieces = 3;
+    public float pieceSlotScale   = 0.6f;
 
     private GameObject activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
@@ -23,13 +23,12 @@ public class LevelManager : MonoBehaviour
     private GridManager gridManager;
     private Material ghostTargetMat;
 
-    // Sıra sistemi
     private List<GameObject> allPiecePrefabs = new List<GameObject>();
     private List<float>      allPieceWidths  = new List<float>();
     private List<float>      allPieceHeights = new List<float>();
+    private List<float>      allPieceDepths  = new List<float>();
     private List<int>        activePieceDataIndices = new List<int>();
     private int  nextPieceIndex  = 0;
-    private float cachedPieceTopY = 0f;
 
     private void Awake()
     {
@@ -46,45 +45,38 @@ public class LevelManager : MonoBehaviour
     public void LoadLevel(LevelData level)
     {
         ClearCurrentLevel();
-        if (spawnPoint == null) { Debug.LogError("LevelManager: Spawn Point atanmadı!"); return; }
+        if (mainCubeLocation == null) { Debug.LogError("LevelManager: MainCubeLocation atanmadı!"); return; }
 
-        // ── Ana hedef şekil ──────────────────────────────────────────────────
-        Vector3 gridOrigin = spawnPoint.position;
         if (level.mainShapePrefab != null)
         {
             var prefabHolder = level.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
-            Vector3 viewportCenter = ComputeMainShapePosition();
+            Vector3 bc = Vector3.zero;
+            float step = 1f;
 
-            gridOrigin = viewportCenter;
             if (prefabHolder != null)
             {
-                float step = prefabHolder.cellSize + prefabHolder.spacing;
-                Vector3 bc = BoundsCenter(prefabHolder.occupiedCells, step);
-                // XY ortalanmış, Z = 0
-                gridOrigin = new Vector3(
-                    viewportCenter.x - bc.x,
-                    viewportCenter.y - bc.y,
-                    0f);
+                step = prefabHolder.cellSize + prefabHolder.spacing;
+                bc = BoundsCenter(prefabHolder.occupiedCells, step);
             }
 
-            activeMainPiece = Instantiate(level.mainShapePrefab, gridOrigin, Quaternion.identity);
+            activeMainPiece = Instantiate(level.mainShapePrefab, mainCubeLocation);
             activeMainPiece.name = "Main_Shape";
+            activeMainPiece.transform.localPosition = -bc;
+            DisableShadows(activeMainPiece);
 
             var holder = activeMainPiece.GetComponent<CubeShapeDataHolder>();
             if (holder != null)
             {
-                gridManager.Initialize(holder.occupiedCells, holder.cellSize, holder.spacing, gridOrigin);
+                // Dunya pozisyonu ile baslatmaya geri döndük
+                gridManager.Initialize(holder.occupiedCells, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
                 ApplyTargetGhost(activeMainPiece);
             }
         }
 
-        // ── Tamamlayıcı parçalar ─────────────────────────────────────────────
-        float mainMinY = gridOrigin.y;
-        cachedPieceTopY = mainMinY - pieceBelowGap;
-
         allPiecePrefabs.Clear();
         allPieceWidths.Clear();
         allPieceHeights.Clear();
+        allPieceDepths.Clear();
         nextPieceIndex = 0;
 
         foreach (var prefab in level.complementaryPieces)
@@ -95,23 +87,25 @@ public class LevelManager : MonoBehaviour
             if (ph != null)
             {
                 float step = ph.cellSize + ph.spacing;
-                int maxX = 0, maxY = 0;
+                int maxX = 0, maxY = 0, maxZ = 0;
                 foreach (var c in ph.occupiedCells)
                 {
                     if (c.x > maxX) maxX = c.x;
                     if (c.y > maxY) maxY = c.y;
+                    if (c.z > maxZ) maxZ = c.z;
                 }
                 allPieceWidths.Add((maxX + 1) * step);
                 allPieceHeights.Add((maxY + 1) * step);
+                allPieceDepths.Add((maxZ + 1) * step);
             }
             else
             {
                 allPieceWidths.Add(2f);
                 allPieceHeights.Add(2f);
+                allPieceDepths.Add(2f);
             }
         }
 
-        // İlk maxVisiblePieces parçayı spawn et
         int toSpawn = Mathf.Min(maxVisiblePieces, allPiecePrefabs.Count);
         for (int i = 0; i < toSpawn; i++)
         {
@@ -124,43 +118,44 @@ public class LevelManager : MonoBehaviour
 
     private void SpawnPieceAtIndex(int index)
     {
-        // Geçici pozisyonda spawn et; RecomputeHomePositions gerçek yeri atar
-        GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(9999f, 9999f, 0f), Quaternion.identity);
+        GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(0, -100, 0), Quaternion.identity);
         piece.name = $"Piece_{index + 1}";
+        DisableShadows(piece);
         var drag = piece.AddComponent<DraggablePiece>();
-        drag.HomePosition = new Vector3(9999f, 9999f, 0f);
+        drag.slotScale = pieceSlotScale;
         activePieces.Add(piece);
         activePieceDataIndices.Add(index);
     }
 
     private void RecomputeHomePositions()
     {
-        if (activePieces.Count == 0) return;
+        if (activePieces.Count == 0 || pieceSlots.Count == 0) return;
 
-        float totalWidth = 0f;
         for (int i = 0; i < activePieces.Count; i++)
         {
-            int di = activePieceDataIndices[i];
-            totalWidth += allPieceWidths[di];
-            if (i > 0) totalWidth += pieceGap;
-        }
-
-        float curX = spawnPoint.position.x - totalWidth * 0.5f;
-        for (int i = 0; i < activePieces.Count; i++)
-        {
-            int di = activePieceDataIndices[i];
-            float w = allPieceWidths[di];
-            float h = allPieceHeights[di];
-            Vector3 newHome = new Vector3(curX, cachedPieceTopY - h, 0f);
-
-            var drag = activePieces[i].GetComponent<DraggablePiece>();
-            if (drag != null)
+            if (i < pieceSlots.Count && pieceSlots[i] != null)
             {
-                drag.HomePosition = newHome;
-                if (!drag.IsBeingDragged && !drag.IsPlaced)
-                    activePieces[i].transform.position = newHome;
+                activePieces[i].transform.SetParent(pieceSlots[i]);
+
+                int di = activePieceDataIndices[i];
+                float w = allPieceWidths[di];
+                float h = allPieceHeights[di];
+                float d = allPieceDepths[di];
+
+                Vector3 localOffset = -new Vector3(w * 0.5f, h * 0.5f, d * 0.5f);
+
+                var drag = activePieces[i].GetComponent<DraggablePiece>();
+                if (drag != null)
+                {
+                    drag.HomePosition = pieceSlots[i].TransformPoint(localOffset);
+                    if (!drag.IsBeingDragged && !drag.IsPlaced)
+                    {
+                        activePieces[i].transform.localPosition = localOffset;
+                        activePieces[i].transform.localRotation = Quaternion.identity;
+                        activePieces[i].transform.localScale    = Vector3.one * pieceSlotScale;
+                    }
+                }
             }
-            curX += w + pieceGap;
         }
     }
 
@@ -168,6 +163,8 @@ public class LevelManager : MonoBehaviour
     {
         int idx = activePieces.IndexOf(piece.gameObject);
         if (idx < 0) return;
+
+        piece.transform.SetParent(null); // Parent-child iliskisini kestik
 
         placedPieces.Add(activePieces[idx]);
         activePieces.RemoveAt(idx);
@@ -193,11 +190,9 @@ public class LevelManager : MonoBehaviour
         allPiecePrefabs.Clear();
         allPieceWidths.Clear();
         allPieceHeights.Clear();
+        allPieceDepths.Clear();
         nextPieceIndex = 0;
     }
-
-    // Ana şekil spawnPoint'te sabit doğar
-    private Vector3 ComputeMainShapePosition() => spawnPoint.position;
 
     private void FitCameraToScene()
     {
@@ -222,7 +217,6 @@ public class LevelManager : MonoBehaviour
         if (!first) CameraOrbit.Instance.FitInView(total);
     }
 
-    // Hücre grubunun sınır kutusunun merkezini dünya birimiyle döndürür
     private static Vector3 BoundsCenter(List<Vector3Int> cells, float step)
     {
         if (cells.Count == 0) return Vector3.zero;
@@ -233,6 +227,16 @@ public class LevelManager : MonoBehaviour
             (minX + maxX + 1) * 0.5f,
             (minY + maxY + 1) * 0.5f,
             (minZ + maxZ + 1) * 0.5f) * step;
+    }
+
+    private void DisableShadows(GameObject go)
+    {
+        if (go == null) return;
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
+        {
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.receiveShadows = false;
+        }
     }
 
     private void ApplyTargetGhost(GameObject shape)
@@ -248,6 +252,8 @@ public class LevelManager : MonoBehaviour
 
         foreach (var r in shape.GetComponentsInChildren<Renderer>())
         {
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.receiveShadows = false;
             var mats = new Material[r.sharedMaterials.Length];
             for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMat;
             r.sharedMaterials = mats;
