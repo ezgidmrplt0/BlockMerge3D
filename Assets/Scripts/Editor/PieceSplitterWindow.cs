@@ -23,7 +23,9 @@ public class PieceSplitterWindow : EditorWindow
     private Dictionary<Vector3Int, int> cellPieceMap = new Dictionary<Vector3Int, int>();
     private int activePiece = 0;
     private int pieceCount = 2;
-    private string levelName = "NewLevel";
+    private string levelName   = "NewLevel";
+    private float  levelTime   = 60f;
+    private int    levelTarget = 100;
     private GameObject cubePrefab;
 
     // --- UI ---
@@ -277,8 +279,10 @@ public class PieceSplitterWindow : EditorWindow
 
         EditorGUILayout.LabelField("EXPORT", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        levelName = EditorGUILayout.TextField("Level Adı", levelName);
-        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Cube Prefab", cubePrefab, typeof(GameObject), false);
+        levelName   = EditorGUILayout.TextField("Level Adı",   levelName);
+        levelTime   = EditorGUILayout.FloatField("Süre (sn)",   levelTime);
+        levelTarget = EditorGUILayout.IntField("Hedef Puan",   levelTarget);
+        cubePrefab  = (GameObject)EditorGUILayout.ObjectField("Cube Prefab", cubePrefab, typeof(GameObject), false);
         EditorGUILayout.Space(5);
 
         if (sourceShape != null)
@@ -624,9 +628,11 @@ public class PieceSplitterWindow : EditorWindow
 
         // LevelData asset
         LevelData levelData = ScriptableObject.CreateInstance<LevelData>();
-        levelData.levelName          = levelName;
-        levelData.mainShapePrefab    = savedFull;
+        levelData.levelName           = levelName;
+        levelData.mainShapePrefab     = savedFull;
         levelData.complementaryPieces = piecePrefabs;
+        levelData.timeLimit           = levelTime;
+        levelData.targetScore         = levelTarget;
         AssetDatabase.CreateAsset(levelData, $"{levelDir}/{levelName}_LevelData.asset");
 
         AssetDatabase.SaveAssets();

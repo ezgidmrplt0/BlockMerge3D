@@ -38,9 +38,11 @@ public class CubeShapeEditorWindow : EditorWindow
     // --- Piece Assignment ---
     private bool                     pieceAssignmentMode = false;
     private Dictionary<Vector3Int,int> cellPieceMap = new Dictionary<Vector3Int,int>();
-    private int    activePiece = 0;
-    private int    pieceCount  = 2;
-    private string levelName   = "NewLevel";
+    private int    activePiece  = 0;
+    private int    pieceCount   = 2;
+    private string levelName    = "NewLevel";
+    private float  levelTime    = 60f;
+    private int    levelTarget  = 100;
 
     private GameObject          cubePrefab;
     private GameObject          currentShapeObject;
@@ -249,7 +251,9 @@ public class CubeShapeEditorWindow : EditorWindow
             if (pieceAssignmentMode)
             {
                 EditorGUILayout.LabelField("Level Adı:", EditorStyles.miniLabel);
-                levelName = EditorGUILayout.TextField(levelName);
+                levelName   = EditorGUILayout.TextField(levelName);
+                levelTime   = EditorGUILayout.FloatField("Süre (sn)", levelTime);
+                levelTarget = EditorGUILayout.IntField("Hedef Puan", levelTarget);
                 EditorGUILayout.Space(4);
                 DrawPieceList();
 
@@ -1004,6 +1008,8 @@ public class CubeShapeEditorWindow : EditorWindow
         ld.levelName              = levelName;
         ld.mainShapePrefab        = savedFull;
         ld.complementaryPieces    = piecePrefabs;
+        ld.timeLimit              = levelTime;
+        ld.targetScore            = levelTarget;
         AssetDatabase.CreateAsset(ld, $"{levelDir}/{levelName}_LevelData.asset");
         AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
         EditorUtility.DisplayDialog("Export Tamamlandı!",

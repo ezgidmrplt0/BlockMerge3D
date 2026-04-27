@@ -29,7 +29,6 @@ public class LevelManager : MonoBehaviour
     private List<float>      allPieceHeights = new List<float>();
     private List<float>      allPieceDepths  = new List<float>();
     private List<int>        activePieceDataIndices = new List<int>();
-    private int  nextPieceIndex  = 0;
 
     private void Awake()
     {
@@ -75,7 +74,6 @@ public class LevelManager : MonoBehaviour
         allPieceWidths.Clear();
         allPieceHeights.Clear();
         allPieceDepths.Clear();
-        nextPieceIndex = 0;
 
         foreach (var prefab in level.complementaryPieces)
         {
@@ -206,7 +204,6 @@ public class LevelManager : MonoBehaviour
         allPieceWidths.Clear();
         allPieceHeights.Clear();
         allPieceDepths.Clear();
-        nextPieceIndex = 0;
     }
 
     private void FitCameraToScene()

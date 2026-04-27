@@ -12,6 +12,7 @@ public class LevelData : ScriptableObject
     [Header("Complementary Pieces")]
     public List<GameObject> complementaryPieces = new List<GameObject>();
     
-    [Header("Level Settings")]
-    public int levelIndex;
+    [Header("Win Conditions")]
+    public float timeLimit   = 60f;   // saniye; 0 = süresiz
+    public int   targetScore = 100;   // 0 = eski grid-tamamlama mantığı
 }
