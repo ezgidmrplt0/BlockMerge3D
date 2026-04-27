@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using DG.Tweening;
@@ -15,6 +16,11 @@ public class GridManager : MonoBehaviour
     public float  Spacing  { get; private set; }
     public float  Step     => CellSize + Spacing;
     public Vector3 Origin  { get; private set; }
+
+    public bool GetCellColor(Vector3Int cell, out Color color)
+    {
+        return cellColors.TryGetValue(cell, out color);
+    }
 
     public int TotalCells   => targetCells.Count;
     public int PlacedCells  => occupiedCells.Count;
@@ -57,8 +63,12 @@ public class GridManager : MonoBehaviour
 
     public void RegisterCell(Vector3Int cell, GameObject cube, Color color)
     {
+        occupiedCells.Add(cell);
         cellObjects[cell] = cube;
-        cellColors[cell]  = color;
+        cellColors[cell] = color;
+        
+        // Yerlestirme animasyonu (Juicy Bump)
+        StartCoroutine(BumpAnimation(cube.transform));
     }
 
     public (int cleared, int bonusLines) CheckAndClearLines()
@@ -101,7 +111,7 @@ public class GridManager : MonoBehaviour
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
-                AnimateAndDestroy(go, i * 0.01f, true);
+                StartCoroutine(AnimateRoutine(go, i * 0.01f, true));
             }
         }
 
@@ -146,37 +156,7 @@ public class GridManager : MonoBehaviour
         foreach (var c in square) toClear.Add(c);
         return 1;
     }
-
-
-
-    private List<Vector3Int> BuildLine(int a, int b, bool xAxis, bool yAxis, bool zAxis)
-    {
-        var line = new List<Vector3Int>();
-        int lo = xAxis ? gridMinX : (yAxis ? gridMinY : gridMinZ);
-        int hi = xAxis ? gridMaxX : (yAxis ? gridMaxY : gridMaxZ);
-        for (int v = lo; v <= hi; v++)
-        {
-            Vector3Int cell = xAxis ? new Vector3Int(v, a, b)
-                            : yAxis  ? new Vector3Int(a, v, b)
-                                     : new Vector3Int(a, b, v);
-            if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) return null;
-            line.Add(cell);
-        }
-        return line.Count > 0 ? line : null;
-    }
-
-    private bool IsLineMonochrome(List<Vector3Int> line)
-    {
-        if (!cellColors.TryGetValue(line[0], out Color first)) return false;
-        for (int i = 1; i < line.Count; i++)
-        {
-            if (!cellColors.TryGetValue(line[i], out Color c)) return false;
-            if (!ColorsApproxEqual(c, first)) return false;
-        }
-        return true;
-    }
-
-    private static bool ColorsApproxEqual(Color a, Color b)
+    public static bool ColorsApproxEqual(Color a, Color b)
         => Mathf.Abs(a.r - b.r) < 0.05f
         && Mathf.Abs(a.g - b.g) < 0.05f
         && Mathf.Abs(a.b - b.b) < 0.05f;
@@ -186,33 +166,46 @@ public class GridManager : MonoBehaviour
         foreach (var go in cellObjects.Values)
         {
             if (go == null) continue;
-            DOTween.Kill(go.transform);
             Object.Destroy(go);
         }
         cellObjects.Clear();
         cellColors.Clear();
     }
 
-    private static void AnimateAndDestroy(GameObject go, float delay, bool isBonus)
+    private IEnumerator BumpAnimation(Transform target)
     {
-        var t = go.transform;
-        float drift  = isBonus ? 0.65f : 0.35f;
-        float upMin  = isBonus ? 0.35f : 0.15f;
-        float upMax  = isBonus ? 0.90f : 0.55f;
-        float scaleUp = isBonus ? 1.6f  : 1.3f;
+        Vector3 originalScale = Vector3.one * CellSize;
+        float duration = 0.2f;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            float scale = 1f + Mathf.Sin(t * Mathf.PI) * 0.2f;
+            target.localScale = originalScale * scale;
+            yield return null;
+        }
+        target.localScale = originalScale;
+    }
 
-        Vector3 d = new Vector3(
-            Random.Range(-drift, drift),
-            Random.Range(upMin, upMax),
-            Random.Range(-drift, drift));
+    private IEnumerator AnimateRoutine(GameObject go, float delay, bool cleared)
+    {
+        yield return new WaitForSeconds(delay);
+        if (go == null) yield break;
 
-        var seq = DOTween.Sequence().SetLink(go);
-        if (delay > 0f) seq.AppendInterval(delay);
-        seq.Append(t.DOScale(t.localScale * scaleUp, isBonus ? 0.10f : 0.07f).SetEase(Ease.OutElastic));
-        seq.Join(t.DOMove(t.position + d, isBonus ? 0.38f : 0.28f).SetEase(Ease.OutCubic));
-        if (isBonus) seq.AppendInterval(0.04f);
-        seq.Append(t.DOScale(Vector3.zero, isBonus ? 0.20f : 0.16f).SetEase(Ease.InBack));
-        seq.OnComplete(() => { if (go != null) Object.Destroy(go); });
+        float duration = 0.35f;
+        float elapsed = 0f;
+        Vector3 startScale = go.transform.localScale;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            float scaleMultiplier = (t < 0.3f) ? Mathf.Lerp(1f, 1.3f, t / 0.3f) : Mathf.Lerp(1.3f, 0f, (t - 0.3f) / 0.7f);
+            if (go != null) go.transform.localScale = startScale * scaleMultiplier;
+            yield return null;
+        }
+        Destroy(go);
     }
 
     public Vector3 CellToWorld(Vector3Int cell)

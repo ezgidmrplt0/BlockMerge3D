@@ -111,33 +111,43 @@ public class LevelManager : MonoBehaviour
         FitCameraToScene();
     }
 
-    private static readonly Color[] PIECE_PALETTE =
+    public static readonly Color[] PIECE_PALETTE = new Color[]
     {
-        new Color(0.95f, 0.33f, 0.33f),
-        new Color(0.33f, 0.75f, 0.38f),
-        new Color(0.33f, 0.55f, 0.95f),
-        new Color(0.95f, 0.82f, 0.22f),
-        new Color(0.82f, 0.33f, 0.88f),
-        new Color(0.26f, 0.85f, 0.85f),
-        new Color(0.95f, 0.55f, 0.20f),
+        new Color(1f, 0.05f, 0.5f),      // Bright Neon Pink
+        new Color(0.2f, 1f, 0.2f),       // Bright Lime Green
+        new Color(0f, 0.9f, 1f),         // Electric Cyan/Blue
+        new Color(1f, 0.5f, 0f),         // Bright Orange
+        new Color(0.7f, 0.2f, 1f),       // Vivid Purple
+        new Color(1f, 0.9f, 0f),         // Sunny Bright Yellow
+        new Color(0.1f, 1f, 0.6f)        // Spring Green
     };
 
     private void SpawnRandomPiece()
     {
         if (allPiecePrefabs.Count == 0) return;
 
-        // Sahadaki smart parca sayisini kontrol et
+        // Grid doluluk oranini kontrol et
+        float fullness = (float)GridManager.Instance.PlacedCells / GridManager.Instance.TotalCells;
+        
+        // Eger saha %70'den fazlaysa bir tane 1x1 "Joker" uretelim (veya en kucuk parca)
+        bool needsHelper = (fullness > 0.7f);
+        
         int smartCount = 0;
         foreach (bool s in activeIsSmart) if (s) smartCount++;
 
-        // Eger sahada hic smart parca yoksa (veya 3. yuvayi dolduruyorsak ve hala yoksa), zorla smart spawn et
         bool forceSmart = (smartCount == 0);
         bool shouldBeSmart = forceSmart || (Random.value < smartSpawnProbability);
 
-        if (shouldBeSmart)
+        if (needsHelper && Random.value < 0.5f) // Yardimci parca modu
+        {
+            int index = FindSmallestPieceIndex();
+            activeIsSmart.Add(true); // Yardimci parca her zaman iyidir
+            SpawnPieceAtIndex(index, Quaternion.identity, GetDominantColorOnGrid());
+        }
+        else if (shouldBeSmart)
         {
             int index = FindBestPieceIndex(out Quaternion rot, out Color? recCol, out bool foundMerge);
-            activeIsSmart.Add(foundMerge); // Sadece gercekten bir merge bulduysa smart kabul et
+            activeIsSmart.Add(foundMerge); 
             SpawnPieceAtIndex(index, rot, recCol);
         }
         else
@@ -146,6 +156,29 @@ public class LevelManager : MonoBehaviour
             activeIsSmart.Add(false);
             SpawnPieceAtIndex(index, Quaternion.identity, null);
         }
+    }
+
+    private int FindSmallestPieceIndex()
+    {
+        int bestIdx = 0;
+        int minCells = int.MaxValue;
+        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        {
+            var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+            if (h != null && h.occupiedCells.Count < minCells)
+            {
+                minCells = h.occupiedCells.Count;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
+
+    private Color? GetDominantColorOnGrid()
+    {
+        // Sahada en cok hangi renkten varsa onu dondur (Joker icin)
+        // GridManager'dan bir sekilde almaliyiz, simdilik rastgele paletten
+        return PIECE_PALETTE[Random.Range(0, PIECE_PALETTE.Length)];
     }
 
     private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge)
@@ -206,25 +239,66 @@ public class LevelManager : MonoBehaviour
             return choice.index;
         }
 
-        // 2. Sadece yerlesebilir parca varsa onu sec
-        if (placeableIndices.Count > 0)
+        // 2. Merge bulunamadiysa, "En cok komsu renk eslesmesi" saglayani bul (Progress score)
+        int bestMatchScore = -1;
+        int bestIdx = -1;
+        Quaternion bestRot = Quaternion.identity;
+        Color? bestCol = null;
+
+        for (int i = 0; i < allPiecePrefabs.Count; i++)
         {
-            int idx = placeableIndices[Random.Range(0, placeableIndices.Count)];
-            var h = allPiecePrefabs[idx].GetComponent<CubeShapeDataHolder>();
-            // Yerlesebilir bir rotasyon bul
+            var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+            if (h == null) continue;
             foreach (var rot in possibleRotations)
             {
-                if (gridManager.GetPossibleOffsets(GridManager.RotateCells(h.occupiedCells, rot)).Count > 0)
+                var rotatedCells = GridManager.RotateCells(h.occupiedCells, rot);
+                var offsets = gridManager.GetPossibleOffsets(rotatedCells);
+                if (offsets.Count == 0) continue;
+
+                foreach (var paletteCol in PIECE_PALETTE)
                 {
-                    rotation = rot;
-                    break;
+                    foreach (var off in offsets)
+                    {
+                        int score = CalculateMatchScore(rotatedCells, off, paletteCol);
+                        if (score > bestMatchScore)
+                        {
+                            bestMatchScore = score;
+                            bestIdx = i;
+                            bestRot = rot;
+                            bestCol = paletteCol;
+                        }
+                    }
                 }
             }
-            return idx;
         }
 
-        // 3. Fallback: Tamamen rastgele
+        if (bestIdx != -1)
+        {
+            rotation = bestRot;
+            recommendedColor = bestCol;
+            foundMerge = (bestMatchScore > 0);
+            return bestIdx;
+        }
+
         return Random.Range(0, allPiecePrefabs.Count);
+    }
+
+    private int CalculateMatchScore(List<Vector3Int> cells, Vector3Int offset, Color color)
+    {
+        int score = 0;
+        foreach (var c in cells)
+        {
+            Vector3Int pos = c + offset;
+            Vector3Int[] neighbors = { Vector3Int.left, Vector3Int.right, Vector3Int.up, Vector3Int.down, new Vector3Int(0,0,1), new Vector3Int(0,0,-1) };
+            foreach (var n in neighbors)
+            {
+                if (gridManager.GetCellColor(pos + n, out Color neighborCol))
+                {
+                    if (GridManager.ColorsApproxEqual(color, neighborCol)) score++;
+                }
+            }
+        }
+        return score;
     }
 
     private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Color? forcedColor = null)
