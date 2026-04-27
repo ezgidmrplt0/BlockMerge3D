@@ -35,9 +35,15 @@ public class DraggablePiece : MonoBehaviour
 
     private void Awake()
     {
-        holder       = GetComponent<CubeShapeDataHolder>();
-        mainCam      = Camera.main;
-        currentCells = new List<Vector3Int>(holder.occupiedCells);
+        holder          = GetComponent<CubeShapeDataHolder>();
+        mainCam         = Camera.main;
+        currentRotation = transform.rotation;
+        
+        // Baslangic rotasyonuna gore hucreleri hesapla
+        if (currentRotation != Quaternion.identity)
+            currentCells = GridManager.RotateCells(holder.occupiedCells, currentRotation);
+        else
+            currentCells = new List<Vector3Int>(holder.occupiedCells);
     }
 
     private void Start()
@@ -45,6 +51,9 @@ public class DraggablePiece : MonoBehaviour
         grid = GridManager.Instance;
         if (grid == null) { Debug.LogError("GridManager bulunamadı!"); return; }
         if (HomePosition == Vector3.zero) HomePosition = transform.position;
+        
+        // Cocuk objeleri dogru pozisyona cek
+        UpdateChildPositions();
     }
 
     private void OnDestroy()
@@ -182,34 +191,10 @@ public class DraggablePiece : MonoBehaviour
 
     private void RebuildCells()
     {
-        currentCells = RotateCells(holder.occupiedCells, currentRotation);
+        currentCells = GridManager.RotateCells(holder.occupiedCells, currentRotation);
         UpdateChildPositions();
     }
 
-    private static List<Vector3Int> RotateCells(List<Vector3Int> cells, Quaternion q)
-    {
-        var result = new List<Vector3Int>(cells.Count);
-        foreach (var c in cells)
-        {
-            Vector3 v = q * new Vector3(c.x, c.y, c.z);
-            result.Add(new Vector3Int(
-                Mathf.RoundToInt(v.x),
-                Mathf.RoundToInt(v.y),
-                Mathf.RoundToInt(v.z)));
-        }
-
-        int minX = int.MaxValue, minY = int.MaxValue, minZ = int.MaxValue;
-        foreach (var c in result)
-        {
-            if (c.x < minX) minX = c.x;
-            if (c.y < minY) minY = c.y;
-            if (c.z < minZ) minZ = c.z;
-        }
-        for (int i = 0; i < result.Count; i++)
-            result[i] -= new Vector3Int(minX, minY, minZ);
-
-        return result;
-    }
 
     private void UpdateChildPositions()
     {

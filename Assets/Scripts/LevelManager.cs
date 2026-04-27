@@ -17,6 +17,9 @@ public class LevelManager : MonoBehaviour
     [Header("Visual Settings")]
     public int   maxVisiblePieces = 3;
     public float pieceSlotScale   = 0.6f;
+    [Range(0f, 1f)] public float smartSpawnProbability = 0.5f;
+    
+    private List<bool> activeIsSmart = new List<bool>();
 
     private GameObject activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
@@ -122,15 +125,120 @@ public class LevelManager : MonoBehaviour
     private void SpawnRandomPiece()
     {
         if (allPiecePrefabs.Count == 0) return;
-        SpawnPieceAtIndex(Random.Range(0, allPiecePrefabs.Count));
+
+        // Sahadaki smart parca sayisini kontrol et
+        int smartCount = 0;
+        foreach (bool s in activeIsSmart) if (s) smartCount++;
+
+        // Eger sahada hic smart parca yoksa (veya 3. yuvayi dolduruyorsak ve hala yoksa), zorla smart spawn et
+        bool forceSmart = (smartCount == 0);
+        bool shouldBeSmart = forceSmart || (Random.value < smartSpawnProbability);
+
+        if (shouldBeSmart)
+        {
+            int index = FindBestPieceIndex(out Quaternion rot, out Color? recCol, out bool foundMerge);
+            activeIsSmart.Add(foundMerge); // Sadece gercekten bir merge bulduysa smart kabul et
+            SpawnPieceAtIndex(index, rot, recCol);
+        }
+        else
+        {
+            int index = Random.Range(0, allPiecePrefabs.Count);
+            activeIsSmart.Add(false);
+            SpawnPieceAtIndex(index, Quaternion.identity, null);
+        }
     }
 
-    private void SpawnPieceAtIndex(int index)
+    private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge)
     {
-        GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(0, -100, 0), Quaternion.identity);
+        rotation = Quaternion.identity;
+        recommendedColor = null;
+        foundMerge = false;
+
+        if (allPiecePrefabs.Count == 0) return -1;
+
+        Quaternion[] possibleRotations = new Quaternion[]
+        {
+            Quaternion.identity,
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0),
+            Quaternion.Euler(90, 0, 0),
+            Quaternion.Euler(270, 0, 0)
+        };
+
+        List<int> placeableIndices = new List<int>();
+        var mergeOpportunities = new List<(int index, Quaternion rot, Color col)>();
+
+        // Tum prefablari ve rotasyonlari tara
+        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        {
+            var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+            if (h == null) continue;
+
+            foreach (var rot in possibleRotations)
+            {
+                var rotatedCells = GridManager.RotateCells(h.occupiedCells, rot);
+                var offsets = gridManager.GetPossibleOffsets(rotatedCells);
+                
+                if (offsets.Count > 0)
+                {
+                    if (!placeableIndices.Contains(i)) placeableIndices.Add(i);
+
+                    foreach (var off in offsets)
+                    {
+                        var mCol = gridManager.GetMergeColor(rotatedCells, off);
+                        if (mCol.HasValue)
+                        {
+                            mergeOpportunities.Add((i, rot, mCol.Value));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. Merge firsati varsa onu kullan
+        if (mergeOpportunities.Count > 0)
+        {
+            var choice = mergeOpportunities[Random.Range(0, mergeOpportunities.Count)];
+            rotation = choice.rot;
+            recommendedColor = choice.col;
+            foundMerge = true;
+            return choice.index;
+        }
+
+        // 2. Sadece yerlesebilir parca varsa onu sec
+        if (placeableIndices.Count > 0)
+        {
+            int idx = placeableIndices[Random.Range(0, placeableIndices.Count)];
+            var h = allPiecePrefabs[idx].GetComponent<CubeShapeDataHolder>();
+            // Yerlesebilir bir rotasyon bul
+            foreach (var rot in possibleRotations)
+            {
+                if (gridManager.GetPossibleOffsets(GridManager.RotateCells(h.occupiedCells, rot)).Count > 0)
+                {
+                    rotation = rot;
+                    break;
+                }
+            }
+            return idx;
+        }
+
+        // 3. Fallback: Tamamen rastgele
+        return Random.Range(0, allPiecePrefabs.Count);
+    }
+
+    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Color? forcedColor = null)
+    {
+        if (index < 0 || index >= allPiecePrefabs.Count) return;
+
+        GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(0, -100, 0), initialRot ?? Quaternion.identity);
         piece.name = $"Piece_{index + 1}";
         DisableShadows(piece);
-        ApplyColorToPiece(piece, PIECE_PALETTE[Random.Range(0, PIECE_PALETTE.Length)]);
+        
+        // Bu parca icin bir renk sec (zorunlu renk yoksa rastgele)
+        Color col = forcedColor ?? PIECE_PALETTE[Random.Range(0, PIECE_PALETTE.Length)];
+        ApplyColorToPiece(piece, col);
+
         var drag = piece.AddComponent<DraggablePiece>();
         drag.slotScale = pieceSlotScale;
         activePieces.Add(piece);
@@ -180,11 +288,12 @@ public class LevelManager : MonoBehaviour
         int idx = activePieces.IndexOf(piece.gameObject);
         if (idx < 0) return;
 
-        piece.transform.SetParent(null); // Parent-child iliskisini kestik
+        piece.transform.SetParent(null); 
 
         placedPieces.Add(activePieces[idx]);
         activePieces.RemoveAt(idx);
         activePieceDataIndices.RemoveAt(idx);
+        activeIsSmart.RemoveAt(idx);
 
         SpawnRandomPiece();
         RecomputeHomePositions();

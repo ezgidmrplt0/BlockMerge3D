@@ -19,7 +19,8 @@ public class GridManager : MonoBehaviour
     public int TotalCells   => targetCells.Count;
     public int PlacedCells  => occupiedCells.Count;
 
-    public bool lineClearEnabled;
+    public bool lineClearEnabled = true;
+    public int  mergeSize = 2;
 
     private int gridMinX, gridMaxX, gridMinY, gridMaxY, gridMinZ, gridMaxZ;
 
@@ -42,6 +43,16 @@ public class GridManager : MonoBehaviour
             if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
             if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
         }
+
+        // Merge boyutu otomatik ayarlanir (0.6 oraninda, min 2)
+        int width  = (gridMaxX - gridMinX) + 1;
+        int height = (gridMaxY - gridMinY) + 1;
+        int depth  = (gridMaxZ - gridMinZ) + 1;
+        int maxDim = Mathf.Max(width, Mathf.Max(height, depth));
+
+        mergeSize = Mathf.Max(2, Mathf.FloorToInt(maxDim * 0.6f));
+        
+        Debug.Log($"Grid Init: {width}x{height}x{depth}, Merge Size: {mergeSize}");
     }
 
     public void RegisterCell(Vector3Int cell, GameObject cube, Color color)
@@ -54,44 +65,31 @@ public class GridManager : MonoBehaviour
     {
         if (!lineClearEnabled) return (0, 0);
 
-        // --- Adım 1: Dolu çizgileri bul ---
-        var allLines = new List<List<Vector3Int>>();
-
-        for (int y = gridMinY; y <= gridMaxY; y++)
-            for (int z = gridMinZ; z <= gridMaxZ; z++)
-            {
-                var line = BuildLine(y, z, true, false, false);
-                if (line != null) allLines.Add(line);
-            }
-        for (int x = gridMinX; x <= gridMaxX; x++)
-            for (int z = gridMinZ; z <= gridMaxZ; z++)
-            {
-                var line = BuildLine(x, z, false, true, false);
-                if (line != null) allLines.Add(line);
-            }
-        for (int x = gridMinX; x <= gridMaxX; x++)
-            for (int y = gridMinY; y <= gridMaxY; y++)
-            {
-                var line = BuildLine(x, y, false, false, true);
-                if (line != null) allLines.Add(line);
-            }
-
-        if (allLines.Count == 0) return (0, 0);
-
-        // --- Adım 2: Sadece tek renkli dolu çizgiler temizlenir ---
-        int bonusLineCount = 0;
         var toClear = new HashSet<Vector3Int>();
+        int bonusCount = 0;
+        int size = mergeSize;
 
-        foreach (var line in allLines)
-        {
-            if (!IsLineMonochrome(line)) continue;
-            bonusLineCount++;
-            foreach (var cell in line) toClear.Add(cell);
-        }
+        // Her üç düzlemde (XY, YZ, XZ) kare taraması yap
+        // XY Düzlemleri
+        for (int z = gridMinZ; z <= gridMaxZ; z++)
+            for (int x = gridMinX; x <= gridMaxX - size + 1; x++)
+                for (int y = gridMinY; y <= gridMaxY - size + 1; y++)
+                    bonusCount += CheckAndAddSquare(x, y, z, size, true, true, false, toClear);
+
+        // YZ Düzlemleri
+        for (int x = gridMinX; x <= gridMaxX; x++)
+            for (int y = gridMinY; y <= gridMaxY - size + 1; y++)
+                for (int z = gridMinZ; z <= gridMaxZ - size + 1; z++)
+                    bonusCount += CheckAndAddSquare(y, z, x, size, false, true, true, toClear);
+
+        // XZ Düzlemleri
+        for (int y = gridMinY; y <= gridMaxY; y++)
+            for (int x = gridMinX; x <= gridMaxX - size + 1; x++)
+                for (int z = gridMinZ; z <= gridMaxZ - size + 1; z++)
+                    bonusCount += CheckAndAddSquare(x, z, y, size, true, false, true, toClear);
 
         if (toClear.Count == 0) return (0, 0);
 
-        // --- Adım 3: Sıralanmış animasyon + temizlik ---
         var sorted = new List<Vector3Int>(toClear);
         sorted.Sort((a, b) => (a.x + a.y + a.z).CompareTo(b.x + b.y + b.z));
 
@@ -103,12 +101,53 @@ public class GridManager : MonoBehaviour
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
-                AnimateAndDestroy(go, i * 0.025f, true);
+                AnimateAndDestroy(go, i * 0.01f, true);
             }
         }
 
-        return (sorted.Count, bonusLineCount);
+        return (sorted.Count, bonusCount);
     }
+
+    private int CheckAndAddVolume(int x, int y, int z, int size, HashSet<Vector3Int> toClear)
+    {
+        var cube = new List<Vector3Int>();
+        Color? firstCol = null;
+        for (int dx = 0; dx < size; dx++)
+            for (int dy = 0; dy < size; dy++)
+                for (int dz = 0; dz < size; dz++)
+                {
+                    var cell = new Vector3Int(x + dx, y + dy, z + dz);
+                    if (!occupiedCells.Contains(cell) || !cellColors.TryGetValue(cell, out Color c)) return 0;
+                    if (!firstCol.HasValue) firstCol = c;
+                    else if (!ColorsApproxEqual(c, firstCol.Value)) return 0;
+                    cube.Add(cell);
+                }
+        foreach (var c in cube) toClear.Add(c);
+        return 1;
+    }
+
+    private int CheckAndAddSquare(int v1, int v2, int constV, int size, bool useX, bool useY, bool useZ, HashSet<Vector3Int> toClear)
+    {
+        var square = new List<Vector3Int>();
+        Color? firstCol = null;
+        for (int di = 0; di < size; di++)
+            for (int dj = 0; dj < size; dj++)
+            {
+                Vector3Int cell = Vector3Int.zero;
+                if (useX && useY) cell = new Vector3Int(v1 + di, v2 + dj, constV);
+                else if (useY && useZ) cell = new Vector3Int(constV, v1 + di, v2 + dj);
+                else if (useX && useZ) cell = new Vector3Int(v1 + di, constV, v2 + dj);
+
+                if (!occupiedCells.Contains(cell) || !cellColors.TryGetValue(cell, out Color c)) return 0;
+                if (!firstCol.HasValue) firstCol = c;
+                else if (!ColorsApproxEqual(c, firstCol.Value)) return 0;
+                square.Add(cell);
+            }
+        foreach (var c in square) toClear.Add(c);
+        return 1;
+    }
+
+
 
     private List<Vector3Int> BuildLine(int a, int b, bool xAxis, bool yAxis, bool zAxis)
     {
@@ -237,4 +276,107 @@ public class GridManager : MonoBehaviour
 
     public bool IsComplete()
         => targetCells.Count > 0 && occupiedCells.SetEquals(targetCells);
+
+    // --- Smart Spawn Helpers ---
+
+    public static List<Vector3Int> RotateCells(List<Vector3Int> cells, Quaternion q)
+    {
+        var result = new List<Vector3Int>(cells.Count);
+        foreach (var c in cells)
+        {
+            Vector3 v = q * new Vector3(c.x, c.y, c.z);
+            result.Add(new Vector3Int(
+                Mathf.RoundToInt(v.x),
+                Mathf.RoundToInt(v.y),
+                Mathf.RoundToInt(v.z)));
+        }
+
+        int minX = int.MaxValue, minY = int.MaxValue, minZ = int.MaxValue;
+        foreach (var c in result)
+        {
+            if (c.x < minX) minX = c.x;
+            if (c.y < minY) minY = c.y;
+            if (c.z < minZ) minZ = c.z;
+        }
+        for (int i = 0; i < result.Count; i++)
+            result[i] -= new Vector3Int(minX, minY, minZ);
+
+        return result;
+    }
+
+    public List<Vector3Int> GetPossibleOffsets(List<Vector3Int> cells)
+    {
+        var valid = new List<Vector3Int>();
+        var seen  = new HashSet<Vector3Int>();
+        foreach (var t in targetCells)
+        {
+            if (occupiedCells.Contains(t)) continue;
+            foreach (var c in cells)
+            {
+                var off = t - c;
+                if (!seen.Add(off)) continue;
+                if (CanPlace(cells, off)) valid.Add(off);
+            }
+        }
+        return valid;
+    }
+
+    public Color? GetMergeColor(List<Vector3Int> cells, Vector3Int offset)
+    {
+        var tempPlaced = new HashSet<Vector3Int>();
+        foreach (var c in cells) tempPlaced.Add(c + offset);
+
+        int size = mergeSize;
+        
+        // Parcanin her hucresi icin etrafinda bir size x size kare olusuyor mu bak (3 duzlemde)
+        foreach (var pPos in tempPlaced)
+        {
+            // XY
+            var colXY = CheckSquareAt(tempPlaced, pPos, size, true, true, false);
+            if (colXY.HasValue) return colXY;
+            // YZ
+            var colYZ = CheckSquareAt(tempPlaced, pPos, size, false, true, true);
+            if (colYZ.HasValue) return colYZ;
+            // XZ
+            var colXZ = CheckSquareAt(tempPlaced, pPos, size, true, false, true);
+            if (colXZ.HasValue) return colXZ;
+        }
+
+        return null;
+    }
+
+    private Color? CheckSquareAt(HashSet<Vector3Int> newCells, Vector3Int pPos, int size, bool useX, bool useY, bool useZ)
+    {
+        for (int o1 = -size + 1; o1 <= 0; o1++)
+            for (int o2 = -size + 1; o2 <= 0; o2++)
+            {
+                Color? foundCol = null;
+                bool valid = true;
+                bool hasNew = false;
+                for (int d1 = 0; d1 < size; d1++)
+                {
+                    for (int d2 = 0; d2 < size; d2++)
+                    {
+                        Vector3Int cell = Vector3Int.zero;
+                        if (useX && useY) cell = pPos + new Vector3Int(o1 + d1, o2 + d2, 0);
+                        else if (useY && useZ) cell = pPos + new Vector3Int(0, o1 + d1, o2 + d2);
+                        else if (useX && useZ) cell = pPos + new Vector3Int(o1 + d1, 0, o2 + d2);
+
+                        if (newCells.Contains(cell)) hasNew = true;
+                        else if (occupiedCells.Contains(cell))
+                        {
+                            if (cellColors.TryGetValue(cell, out Color c))
+                            {
+                                if (!foundCol.HasValue) foundCol = c;
+                                else if (!ColorsApproxEqual(c, foundCol.Value)) { valid = false; break; }
+                            }
+                        }
+                        else { valid = false; break; }
+                    }
+                    if (!valid) break;
+                }
+                if (valid && hasNew) return foundCol ?? Color.white;
+            }
+        return null;
+    }
 }
