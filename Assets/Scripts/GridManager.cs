@@ -9,6 +9,7 @@ public class GridManager : MonoBehaviour
     private HashSet<Vector3Int> targetCells   = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
     private Dictionary<Vector3Int, GameObject> cellObjects = new Dictionary<Vector3Int, GameObject>();
+    private Dictionary<Vector3Int, Color>      cellColors  = new Dictionary<Vector3Int, Color>();
 
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
@@ -43,69 +44,103 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    public void RegisterCell(Vector3Int cell, GameObject cube) => cellObjects[cell] = cube;
-
-    public int CheckAndClearLines()
+    public void RegisterCell(Vector3Int cell, GameObject cube, Color color)
     {
-        if (!lineClearEnabled) return 0;
+        cellObjects[cell] = cube;
+        cellColors[cell]  = color;
+    }
 
-        var toClear = new HashSet<Vector3Int>();
+    public (int cleared, int bonusLines) CheckAndClearLines()
+    {
+        if (!lineClearEnabled) return (0, 0);
+
+        // --- Adım 1: Dolu çizgileri bul ---
+        var allLines = new List<List<Vector3Int>>();
 
         for (int y = gridMinY; y <= gridMaxY; y++)
             for (int z = gridMinZ; z <= gridMaxZ; z++)
             {
-                bool full = true;
-                for (int x = gridMinX; x <= gridMaxX; x++)
-                {
-                    var cell = new Vector3Int(x, y, z);
-                    if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) { full = false; break; }
-                }
-                if (full)
-                    for (int x = gridMinX; x <= gridMaxX; x++) toClear.Add(new Vector3Int(x, y, z));
+                var line = BuildLine(y, z, true, false, false);
+                if (line != null) allLines.Add(line);
             }
-
         for (int x = gridMinX; x <= gridMaxX; x++)
             for (int z = gridMinZ; z <= gridMaxZ; z++)
             {
-                bool full = true;
-                for (int y = gridMinY; y <= gridMaxY; y++)
-                {
-                    var cell = new Vector3Int(x, y, z);
-                    if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) { full = false; break; }
-                }
-                if (full)
-                    for (int y = gridMinY; y <= gridMaxY; y++) toClear.Add(new Vector3Int(x, y, z));
+                var line = BuildLine(x, z, false, true, false);
+                if (line != null) allLines.Add(line);
             }
-
         for (int x = gridMinX; x <= gridMaxX; x++)
             for (int y = gridMinY; y <= gridMaxY; y++)
             {
-                bool full = true;
-                for (int z = gridMinZ; z <= gridMaxZ; z++)
-                {
-                    var cell = new Vector3Int(x, y, z);
-                    if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) { full = false; break; }
-                }
-                if (full)
-                    for (int z = gridMinZ; z <= gridMaxZ; z++) toClear.Add(new Vector3Int(x, y, z));
+                var line = BuildLine(x, y, false, false, true);
+                if (line != null) allLines.Add(line);
             }
 
-        var sortedClear = new List<Vector3Int>(toClear);
-        sortedClear.Sort((a, b) => (a.x + a.y + a.z).CompareTo(b.x + b.y + b.z));
+        if (allLines.Count == 0) return (0, 0);
 
-        for (int i = 0; i < sortedClear.Count; i++)
+        // --- Adım 2: Sadece tek renkli dolu çizgiler temizlenir ---
+        int bonusLineCount = 0;
+        var toClear = new HashSet<Vector3Int>();
+
+        foreach (var line in allLines)
         {
-            var cell = sortedClear[i];
+            if (!IsLineMonochrome(line)) continue;
+            bonusLineCount++;
+            foreach (var cell in line) toClear.Add(cell);
+        }
+
+        if (toClear.Count == 0) return (0, 0);
+
+        // --- Adım 3: Sıralanmış animasyon + temizlik ---
+        var sorted = new List<Vector3Int>(toClear);
+        sorted.Sort((a, b) => (a.x + a.y + a.z).CompareTo(b.x + b.y + b.z));
+
+        for (int i = 0; i < sorted.Count; i++)
+        {
+            var cell = sorted[i];
             occupiedCells.Remove(cell);
+            cellColors.Remove(cell);
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
-                AnimateAndDestroy(go, i * 0.025f);
+                AnimateAndDestroy(go, i * 0.025f, true);
             }
         }
 
-        return toClear.Count;
+        return (sorted.Count, bonusLineCount);
     }
+
+    private List<Vector3Int> BuildLine(int a, int b, bool xAxis, bool yAxis, bool zAxis)
+    {
+        var line = new List<Vector3Int>();
+        int lo = xAxis ? gridMinX : (yAxis ? gridMinY : gridMinZ);
+        int hi = xAxis ? gridMaxX : (yAxis ? gridMaxY : gridMaxZ);
+        for (int v = lo; v <= hi; v++)
+        {
+            Vector3Int cell = xAxis ? new Vector3Int(v, a, b)
+                            : yAxis  ? new Vector3Int(a, v, b)
+                                     : new Vector3Int(a, b, v);
+            if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) return null;
+            line.Add(cell);
+        }
+        return line.Count > 0 ? line : null;
+    }
+
+    private bool IsLineMonochrome(List<Vector3Int> line)
+    {
+        if (!cellColors.TryGetValue(line[0], out Color first)) return false;
+        for (int i = 1; i < line.Count; i++)
+        {
+            if (!cellColors.TryGetValue(line[i], out Color c)) return false;
+            if (!ColorsApproxEqual(c, first)) return false;
+        }
+        return true;
+    }
+
+    private static bool ColorsApproxEqual(Color a, Color b)
+        => Mathf.Abs(a.r - b.r) < 0.05f
+        && Mathf.Abs(a.g - b.g) < 0.05f
+        && Mathf.Abs(a.b - b.b) < 0.05f;
 
     public void ClearAllCellObjects()
     {
@@ -116,21 +151,28 @@ public class GridManager : MonoBehaviour
             Object.Destroy(go);
         }
         cellObjects.Clear();
+        cellColors.Clear();
     }
 
-    private static void AnimateAndDestroy(GameObject go, float delay)
+    private static void AnimateAndDestroy(GameObject go, float delay, bool isBonus)
     {
         var t = go.transform;
-        Vector3 drift = new Vector3(
-            Random.Range(-0.35f, 0.35f),
-            Random.Range(0.15f, 0.55f),
-            Random.Range(-0.35f, 0.35f));
+        float drift  = isBonus ? 0.65f : 0.35f;
+        float upMin  = isBonus ? 0.35f : 0.15f;
+        float upMax  = isBonus ? 0.90f : 0.55f;
+        float scaleUp = isBonus ? 1.6f  : 1.3f;
+
+        Vector3 d = new Vector3(
+            Random.Range(-drift, drift),
+            Random.Range(upMin, upMax),
+            Random.Range(-drift, drift));
 
         var seq = DOTween.Sequence().SetLink(go);
         if (delay > 0f) seq.AppendInterval(delay);
-        seq.Append(t.DOScale(t.localScale * 1.3f, 0.07f).SetEase(Ease.OutQuad));
-        seq.Join(t.DOMove(t.position + drift, 0.28f).SetEase(Ease.OutCubic));
-        seq.Append(t.DOScale(Vector3.zero, 0.16f).SetEase(Ease.InBack));
+        seq.Append(t.DOScale(t.localScale * scaleUp, isBonus ? 0.10f : 0.07f).SetEase(Ease.OutElastic));
+        seq.Join(t.DOMove(t.position + d, isBonus ? 0.38f : 0.28f).SetEase(Ease.OutCubic));
+        if (isBonus) seq.AppendInterval(0.04f);
+        seq.Append(t.DOScale(Vector3.zero, isBonus ? 0.20f : 0.16f).SetEase(Ease.InBack));
         seq.OnComplete(() => { if (go != null) Object.Destroy(go); });
     }
 

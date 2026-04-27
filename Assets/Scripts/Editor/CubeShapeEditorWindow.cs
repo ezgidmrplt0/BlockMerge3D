@@ -26,7 +26,9 @@ public class CubeShapeEditorWindow : EditorWindow
     private Vector3Int gridSize  = new Vector3Int(5, 5, 5);
     private float      cellSize  = 1.0f;
     private float      spacing   = 0.1f;
+    private int        xSlice    = -1;
     private int        ySlice    = -1;
+    private int        zSlice    = -1;
     private GridOrigin gridOrigin  = GridOrigin.BottomLeft;
     private ToolMode   currentTool = ToolMode.Add;
     private string     shapeName   = "NewCubeShape";
@@ -67,6 +69,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private Material hoveredMaterial;
     private Material removeMaterial;
     private Material unassignedMaterial;
+    private Material ghostSliceMaterial;
     private Material[] pieceMaterials;
 
     private const string GENERATED_PATH    = "Assets/Shapes";
@@ -114,6 +117,7 @@ public class CubeShapeEditorWindow : EditorWindow
         hoveredMaterial    = Mat(1f, 0.9f, 0.1f);
         removeMaterial     = Mat(1f, 0.2f, 0.1f);
         unassignedMaterial = Mat(0.32f, 0.32f, 0.36f);
+        ghostSliceMaterial = Mat(0.14f, 0.14f, 0.17f);
         pieceMaterials = new Material[PIECE_COLORS.Length];
         for (int i = 0; i < PIECE_COLORS.Length; i++)
             pieceMaterials[i] = Mat(PIECE_COLORS[i]);
@@ -123,7 +127,7 @@ public class CubeShapeEditorWindow : EditorWindow
     {
         void D(Material m) { if (m) DestroyImmediate(m); }
         D(cubeMaterial); D(gizmoMaterial); D(hoverMaterial);
-        D(hoveredMaterial); D(removeMaterial); D(unassignedMaterial);
+        D(hoveredMaterial); D(removeMaterial); D(unassignedMaterial); D(ghostSliceMaterial);
         if (pieceMaterials != null) foreach (var m in pieceMaterials) D(m);
     }
 
@@ -220,7 +224,16 @@ public class CubeShapeEditorWindow : EditorWindow
         EditorGUILayout.Space(15);
         EditorGUILayout.LabelField("VIEW OPTIONS", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        ySlice = EditorGUILayout.IntSlider("Y-Slice Filter", ySlice, -1, gridSize.y - 1);
+        EditorGUILayout.LabelField("Dilim Filtresi  (-1 = tümü)", EditorStyles.miniLabel);
+        EditorGUI.BeginChangeCheck();
+        xSlice = EditorGUILayout.IntSlider("X", xSlice, -1, Mathf.Max(0, gridSize.x - 1));
+        ySlice = EditorGUILayout.IntSlider("Y", ySlice, -1, Mathf.Max(0, gridSize.y - 1));
+        zSlice = EditorGUILayout.IntSlider("Z", zSlice, -1, Mathf.Max(0, gridSize.z - 1));
+        if (EditorGUI.EndChangeCheck()) Repaint();
+        if (xSlice != -1 || ySlice != -1 || zSlice != -1)
+            if (GUILayout.Button("Sıfırla", EditorStyles.miniButton))
+                { xSlice = -1; ySlice = -1; zSlice = -1; Repaint(); }
+        EditorGUILayout.Space(4);
         useOrthographic = EditorGUILayout.Toggle("Orthographic", useOrthographic);
         if (GUILayout.Button("Focus Viewport")) FocusCamera();
         EditorGUILayout.EndVertical();
@@ -405,6 +418,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
         foreach (var cell in dataHolder.occupiedCells)
         {
+            if (!PassesSlice(cell)) continue;
             Vector3 center = origin + (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
             if (!new Bounds(center, Vector3.one * cellSize).IntersectRay(ray, out float d) || d >= bestDist) continue;
             bestDist    = d;
@@ -466,6 +480,13 @@ public class CubeShapeEditorWindow : EditorWindow
                 foreach (var cell in dataHolder.occupiedCells)
                 {
                     Vector3 pos = offset + (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+                    bool inSlice = PassesSlice(cell);
+
+                    if (!inSlice)
+                    {
+                        previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * (cubeScale * 0.35f)), ghostSliceMaterial, 0);
+                        continue;
+                    }
 
                     Material mat;
                     if (pieceAssignmentMode)
@@ -508,6 +529,14 @@ public class CubeShapeEditorWindow : EditorWindow
     }
 
     private bool e_isRemoveActive() => currentTool == ToolMode.Remove || (Event.current != null && Event.current.shift);
+
+    private bool PassesSlice(Vector3Int cell)
+    {
+        if (xSlice >= 0 && cell.x != xSlice) return false;
+        if (ySlice >= 0 && cell.y != ySlice) return false;
+        if (zSlice >= 0 && cell.z != zSlice) return false;
+        return true;
+    }
 
     private void DrawCubeEdges(Vector3 center, float size)
     {
@@ -635,16 +664,33 @@ public class CubeShapeEditorWindow : EditorWindow
                 continue;
             }
 
-            Rect r = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none,
-                GUILayout.Height(54), GUILayout.ExpandWidth(true));
-            if (Event.current.type == EventType.Repaint)
-                DrawPieceGrid2D(r, cells, pc);
+            var yLayers = cells.GroupBy(c => c.y).OrderBy(g => g.Key).ToList();
+            bool multiLayer = yLayers.Count > 1;
+
+            foreach (var layer in yLayers)
+            {
+                var layerCells = layer.Select(c => c).ToList();
+
+                if (multiLayer)
+                {
+                    var yLabelStyle = new GUIStyle(EditorStyles.miniLabel);
+                    yLabelStyle.normal.textColor = new Color(pc.r, pc.g, pc.b, 0.7f);
+                    EditorGUILayout.LabelField($"  Y = {layer.Key}", yLabelStyle);
+                }
+
+                Rect r = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none,
+                    GUILayout.Height(48), GUILayout.ExpandWidth(true));
+                if (Event.current.type == EventType.Repaint)
+                    DrawPieceLayerGrid(r, layerCells, pc);
+
+                EditorGUILayout.Space(2);
+            }
 
             EditorGUILayout.Space(6);
         }
     }
 
-    private void DrawPieceGrid2D(Rect rect, List<Vector3Int> cells, Color pieceColor)
+    private void DrawPieceLayerGrid(Rect rect, List<Vector3Int> cells, Color pieceColor)
     {
         int minX = cells.Min(c => c.x), maxX = cells.Max(c => c.x);
         int minZ = cells.Min(c => c.z), maxZ = cells.Max(c => c.z);
@@ -665,17 +711,11 @@ public class CubeShapeEditorWindow : EditorWindow
         for (int z = 0; z <= d; z++)
             EditorGUI.DrawRect(new Rect(ox, oy + z * cellPx, totalW, 1), new Color(0.22f, 0.22f, 0.25f));
 
-        int minY   = cells.Min(c => c.y);
-        int yRange = Mathf.Max(1, cells.Max(c => c.y) - minY);
-
-        foreach (var grp in cells.GroupBy(c => (c.x - minX, c.z - minZ)))
+        foreach (var c in cells)
         {
-            int   topY       = grp.Max(c => c.y);
-            float brightness = 0.55f + 0.45f * (float)(topY - minY) / yRange;
-            Color col        = new Color(pieceColor.r * brightness, pieceColor.g * brightness, pieceColor.b * brightness);
-            float cx = ox + grp.Key.Item1 * cellPx + 1.5f;
-            float cy = oy + grp.Key.Item2 * cellPx + 1.5f;
-            EditorGUI.DrawRect(new Rect(cx, cy, cellPx - 3, cellPx - 3), col);
+            float cx = ox + (c.x - minX) * cellPx + 1.5f;
+            float cy = oy + (c.z - minZ) * cellPx + 1.5f;
+            EditorGUI.DrawRect(new Rect(cx, cy, cellPx - 3, cellPx - 3), pieceColor);
         }
     }
 
@@ -735,7 +775,8 @@ public class CubeShapeEditorWindow : EditorWindow
         Handles.color = new Color(1, 1, 1, 0.1f);
         for (int x = 0; x <= gridSize.x; x++)
             for (int y = 0; y <= gridSize.y; y++)
-                if (ySlice == -1 || y == ySlice || y == ySlice + 1)
+                if ((ySlice == -1 || y == ySlice || y == ySlice + 1) &&
+                    (xSlice == -1 || x == xSlice || x == xSlice + 1))
                     Handles.DrawLine(o + new Vector3(x * s, y * s, 0), o + new Vector3(x * s, y * s, gridSize.z * s));
 
         if (!pieceAssignmentMode && placementCell.HasValue && currentTool == ToolMode.Add)

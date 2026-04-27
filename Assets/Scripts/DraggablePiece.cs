@@ -128,7 +128,10 @@ public class DraggablePiece : MonoBehaviour
                 var child = children[i];
                 child.SetParent(null);
                 foreach (var col in child.GetComponents<Collider>()) col.enabled = false;
-                grid.RegisterCell(currentCells[i] + offset, child.gameObject);
+
+                var rend  = child.GetComponentInChildren<Renderer>();
+                Color col2 = rend != null ? rend.sharedMaterial?.color ?? rend.material.color : Color.white;
+                grid.RegisterCell(currentCells[i] + offset, child.gameObject, col2);
             }
 
             placedOffset       = offset;
@@ -137,7 +140,8 @@ public class DraggablePiece : MonoBehaviour
             transform.localScale = Vector3.one;
             GameManager.Instance?.CheckWin();
             LevelManager.Instance?.OnPiecePlaced(this);
-            grid.CheckAndClearLines();
+            var (cleared, bonusLines) = grid.CheckAndClearLines();
+            if (cleared > 0) GameManager.Instance?.OnLinesCleared(cleared, bonusLines);
         }
         else
         {

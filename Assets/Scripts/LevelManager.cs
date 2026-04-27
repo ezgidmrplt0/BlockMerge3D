@@ -2,6 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 
+[DefaultExecutionOrder(-10)] // GameManager'dan önce Awake çalışır, Instance hazır olur
 public class LevelManager : MonoBehaviour
 {
     public static LevelManager Instance { get; private set; }
@@ -37,10 +38,7 @@ public class LevelManager : MonoBehaviour
         if (gridManager == null) gridManager = gameObject.AddComponent<GridManager>();
     }
 
-    private void Start()
-    {
-        if (currentLevel != null) LoadLevel(currentLevel);
-    }
+    private void Start() { }
 
     public void LoadLevel(LevelData level)
     {
@@ -106,14 +104,27 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        int toSpawn = Mathf.Min(maxVisiblePieces, allPiecePrefabs.Count);
-        for (int i = 0; i < toSpawn; i++)
-        {
-            SpawnPieceAtIndex(nextPieceIndex);
-            nextPieceIndex++;
-        }
+        for (int i = 0; i < maxVisiblePieces; i++)
+            SpawnRandomPiece();
         RecomputeHomePositions();
         FitCameraToScene();
+    }
+
+    private static readonly Color[] PIECE_PALETTE =
+    {
+        new Color(0.95f, 0.33f, 0.33f),
+        new Color(0.33f, 0.75f, 0.38f),
+        new Color(0.33f, 0.55f, 0.95f),
+        new Color(0.95f, 0.82f, 0.22f),
+        new Color(0.82f, 0.33f, 0.88f),
+        new Color(0.26f, 0.85f, 0.85f),
+        new Color(0.95f, 0.55f, 0.20f),
+    };
+
+    private void SpawnRandomPiece()
+    {
+        if (allPiecePrefabs.Count == 0) return;
+        SpawnPieceAtIndex(Random.Range(0, allPiecePrefabs.Count));
     }
 
     private void SpawnPieceAtIndex(int index)
@@ -121,10 +132,17 @@ public class LevelManager : MonoBehaviour
         GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(0, -100, 0), Quaternion.identity);
         piece.name = $"Piece_{index + 1}";
         DisableShadows(piece);
+        ApplyColorToPiece(piece, PIECE_PALETTE[Random.Range(0, PIECE_PALETTE.Length)]);
         var drag = piece.AddComponent<DraggablePiece>();
         drag.slotScale = pieceSlotScale;
         activePieces.Add(piece);
         activePieceDataIndices.Add(index);
+    }
+
+    private static void ApplyColorToPiece(GameObject piece, Color color)
+    {
+        foreach (var r in piece.GetComponentsInChildren<Renderer>())
+            r.material.color = color;
     }
 
     private void RecomputeHomePositions()
@@ -170,11 +188,7 @@ public class LevelManager : MonoBehaviour
         activePieces.RemoveAt(idx);
         activePieceDataIndices.RemoveAt(idx);
 
-        if (nextPieceIndex < allPiecePrefabs.Count)
-        {
-            SpawnPieceAtIndex(nextPieceIndex);
-            nextPieceIndex++;
-        }
+        SpawnRandomPiece();
         RecomputeHomePositions();
     }
 
