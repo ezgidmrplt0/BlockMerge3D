@@ -121,12 +121,23 @@ public class DraggablePiece : MonoBehaviour
 
         if (grid.TryPlace(currentCells, offset))
         {
+            var children = new List<Transform>();
+            foreach (Transform t in transform) children.Add(t);
+            for (int i = 0; i < currentCells.Count && i < children.Count; i++)
+            {
+                var child = children[i];
+                child.SetParent(null);
+                foreach (var col in child.GetComponents<Collider>()) col.enabled = false;
+                grid.RegisterCell(currentCells[i] + offset, child.gameObject);
+            }
+
             placedOffset       = offset;
             isPlaced           = true;
             transform.position = grid.OffsetToRoot(offset);
             transform.localScale = Vector3.one;
             GameManager.Instance?.CheckWin();
             LevelManager.Instance?.OnPiecePlaced(this);
+            grid.CheckAndClearLines();
         }
         else
         {

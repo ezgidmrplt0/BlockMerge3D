@@ -180,6 +180,7 @@ public class LevelManager : MonoBehaviour
 
     public void ClearCurrentLevel()
     {
+        gridManager?.ClearAllCellObjects();
         if (activeMainPiece != null) { Destroy(activeMainPiece); activeMainPiece = null; }
         foreach (var p in activePieces) if (p != null) Destroy(p);
         activePieces.Clear();

@@ -818,7 +818,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a86cc234e2c65a04d9f607df74257cae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  currentLevel: {fileID: 11400000, guid: 74bdea0f310e34c98b3282f720db6c83, type: 2}
+  currentLevel: {fileID: 0}
   mainCubeLocation: {fileID: 1732730562}
   pieceSlots:
   - {fileID: 850508291}
@@ -867,6 +867,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bb8136c627cdca17da635696bc40e6c2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  lineClearEnabled: 1
 --- !u!1 &1005434341
 GameObject:
   m_ObjectHideFlags: 0
@@ -1055,7 +1056,6 @@ MonoBehaviour:
   startElevation: 30
   swipeMinPixels: 60
   snapSpeed: 10
-  fitPadding: 1.18
 --- !u!1 &1732730561
 GameObject:
   m_ObjectHideFlags: 0
