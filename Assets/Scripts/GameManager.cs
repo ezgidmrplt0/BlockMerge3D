@@ -77,12 +77,18 @@ public class GameManager : MonoBehaviour
         Debug.Log($"Level {currentLevelIndex + 1} tamamlandı! Puan: {Score}");
     }
 
-    private void OnTimerExpired()
+    public void GameOver()
     {
         if (levelComplete) return;
         levelComplete = true;
+        timerRunning = false;
         UIManager.Instance?.ShowLosePanel(Score);
-        Debug.Log($"Süre doldu! Puan: {Score} / Hedef: {currentTargetScore}");
+        Debug.Log("Oyun Bitti! Yerlestirilecek yer kalmadi veya sure doldu.");
+    }
+
+    private void OnTimerExpired()
+    {
+        GameOver();
     }
 
     // ─── Navigation ──────────────────────────────────────────────────────────

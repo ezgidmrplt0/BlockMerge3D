@@ -113,36 +113,55 @@ public class LevelManager : MonoBehaviour
 
     public static readonly Color[] PIECE_PALETTE = new Color[]
     {
-        new Color(1f, 0.05f, 0.5f),      // Bright Neon Pink
-        new Color(0.2f, 1f, 0.2f),       // Bright Lime Green
-        new Color(0f, 0.9f, 1f),         // Electric Cyan/Blue
-        new Color(1f, 0.5f, 0f),         // Bright Orange
-        new Color(0.7f, 0.2f, 1f),       // Vivid Purple
-        new Color(1f, 0.9f, 0f),         // Sunny Bright Yellow
-        new Color(0.1f, 1f, 0.6f)        // Spring Green
+        new Color(1.0f, 0.0f, 0.45f),    // Ultra Neon Pink
+        new Color(0.0f, 1.0f, 0.25f),    // Electric Lime
+        new Color(0.0f, 0.85f, 1.0f),    // Cyber Cyan
+        new Color(1.0f, 0.45f, 0.0f),    // Blaze Orange
+        new Color(0.6f, 0.0f, 1.0f),     // Deep Purple Neon
+        new Color(1.0f, 0.95f, 0.0f),    // Acid Yellow
+        new Color(0.0f, 1.0f, 0.65f)     // Mint Glow
     };
 
     private void SpawnRandomPiece()
     {
         if (allPiecePrefabs.Count == 0) return;
 
-        // Grid doluluk oranini kontrol et
         float fullness = (float)GridManager.Instance.PlacedCells / GridManager.Instance.TotalCells;
         
-        // Eger saha %70'den fazlaysa bir tane 1x1 "Joker" uretelim (veya en kucuk parca)
-        bool needsHelper = (fullness > 0.7f);
+        // 1. Yerlesebilir parcalari bul
+        List<int> validIndices = new List<int>();
+        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        {
+            var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+            if (h == null) continue;
+            
+            // Herhangi bir rotasyonda sigiyor mu?
+            bool canFitAnywhere = false;
+            Quaternion[] rots = { Quaternion.identity, Quaternion.Euler(0,90,0), Quaternion.Euler(90,0,0) };
+            foreach(var r in rots)
+            {
+                if (GridManager.Instance.GetPossibleOffsets(GridManager.RotateCells(h.occupiedCells, r)).Count > 0)
+                {
+                    canFitAnywhere = true;
+                    break;
+                }
+            }
+            if (canFitAnywhere) validIndices.Add(i);
+        }
+
+        // Eger hicbir parca sigmiyorsa veya saha cok doluysa, en kucuk parcayi zorla
+        bool forceSmall = (validIndices.Count == 0 || fullness > 0.8f);
         
         int smartCount = 0;
         foreach (bool s in activeIsSmart) if (s) smartCount++;
 
-        bool forceSmart = (smartCount == 0);
-        bool shouldBeSmart = forceSmart || (Random.value < smartSpawnProbability);
+        bool shouldBeSmart = (smartCount == 0) || (Random.value < smartSpawnProbability);
 
-        if (needsHelper && Random.value < 0.5f) // Yardimci parca modu
+        if (forceSmall)
         {
-            int index = FindSmallestPieceIndex();
-            activeIsSmart.Add(true); // Yardimci parca her zaman iyidir
-            SpawnPieceAtIndex(index, Quaternion.identity, GetDominantColorOnGrid());
+            int smallIdx = FindSmallestPieceIndex();
+            activeIsSmart.Add(true);
+            SpawnPieceAtIndex(smallIdx, Quaternion.identity, GetDominantColorOnGrid());
         }
         else if (shouldBeSmart)
         {
@@ -152,10 +171,13 @@ public class LevelManager : MonoBehaviour
         }
         else
         {
-            int index = Random.Range(0, allPiecePrefabs.Count);
+            int index = validIndices[Random.Range(0, validIndices.Count)];
             activeIsSmart.Add(false);
             SpawnPieceAtIndex(index, Quaternion.identity, null);
         }
+
+        // Parca uretildikten sonra hala hamle var mi bak
+        CheckGameOver();
     }
 
     private int FindSmallestPieceIndex()
@@ -371,6 +393,43 @@ public class LevelManager : MonoBehaviour
 
         SpawnRandomPiece();
         RecomputeHomePositions();
+
+        CheckGameOver();
+    }
+
+    private void CheckGameOver()
+    {
+        if (activePieces.Count == 0) return;
+
+        bool anyMovePossible = false;
+        foreach (var pieceGO in activePieces)
+        {
+            if (pieceGO == null) continue;
+            var h = pieceGO.GetComponent<CubeShapeDataHolder>();
+            if (h == null) continue;
+
+            Quaternion[] possibleRots = { 
+                Quaternion.identity, 
+                Quaternion.Euler(0, 90, 0), Quaternion.Euler(0, 180, 0), Quaternion.Euler(0, 270, 0),
+                Quaternion.Euler(90, 0, 0), Quaternion.Euler(270, 0, 0)
+            };
+
+            foreach (var rot in possibleRots)
+            {
+                var rotatedCells = GridManager.RotateCells(h.occupiedCells, rot);
+                if (gridManager.GetPossibleOffsets(rotatedCells).Count > 0)
+                {
+                    anyMovePossible = true;
+                    break;
+                }
+            }
+            if (anyMovePossible) break;
+        }
+
+        if (!anyMovePossible)
+        {
+            GameManager.Instance?.GameOver();
+        }
     }
 
     public void ClearCurrentLevel()
