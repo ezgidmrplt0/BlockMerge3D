@@ -26,7 +26,6 @@ public class GridManager : MonoBehaviour
     public int PlacedCells  => occupiedCells.Count;
 
     public bool lineClearEnabled = true;
-    public int  mergeSize = 2;
 
     private int gridMinX, gridMaxX, gridMinY, gridMaxY, gridMinZ, gridMaxZ;
 
@@ -49,16 +48,6 @@ public class GridManager : MonoBehaviour
             if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
             if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
         }
-
-        // Merge boyutu otomatik ayarlanir (0.6 oraninda, min 2)
-        int width  = (gridMaxX - gridMinX) + 1;
-        int height = (gridMaxY - gridMinY) + 1;
-        int depth  = (gridMaxZ - gridMinZ) + 1;
-        int maxDim = Mathf.Max(width, Mathf.Max(height, depth));
-
-        mergeSize = Mathf.Max(2, Mathf.FloorToInt(maxDim * 0.6f));
-        
-        Debug.Log($"Grid Init: {width}x{height}x{depth}, Merge Size: {mergeSize}");
     }
 
     public void RegisterCell(Vector3Int cell, GameObject cube, Color color)
@@ -66,8 +55,7 @@ public class GridManager : MonoBehaviour
         occupiedCells.Add(cell);
         cellObjects[cell] = cube;
         cellColors[cell] = color;
-        
-        // Yerlestirme animasyonu (Juicy Bump)
+
         StartCoroutine(BumpAnimation(cube.transform));
     }
 
@@ -75,28 +63,38 @@ public class GridManager : MonoBehaviour
     {
         if (!lineClearEnabled) return (0, 0);
 
-        var toClear = new HashSet<Vector3Int>();
-        int bonusCount = 0;
-        int size = mergeSize;
+        var allLines = new List<List<Vector3Int>>();
 
-        // Her üç düzlemde (XY, YZ, XZ) kare taraması yap
-        // XY Düzlemleri
-        for (int z = gridMinZ; z <= gridMaxZ; z++)
-            for (int x = gridMinX; x <= gridMaxX - size + 1; x++)
-                for (int y = gridMinY; y <= gridMaxY - size + 1; y++)
-                    bonusCount += CheckAndAddSquare(x, y, z, size, true, true, false, toClear);
-
-        // YZ Düzlemleri
-        for (int x = gridMinX; x <= gridMaxX; x++)
-            for (int y = gridMinY; y <= gridMaxY - size + 1; y++)
-                for (int z = gridMinZ; z <= gridMaxZ - size + 1; z++)
-                    bonusCount += CheckAndAddSquare(y, z, x, size, false, true, true, toClear);
-
-        // XZ Düzlemleri
         for (int y = gridMinY; y <= gridMaxY; y++)
-            for (int x = gridMinX; x <= gridMaxX - size + 1; x++)
-                for (int z = gridMinZ; z <= gridMaxZ - size + 1; z++)
-                    bonusCount += CheckAndAddSquare(x, z, y, size, true, false, true, toClear);
+            for (int z = gridMinZ; z <= gridMaxZ; z++)
+            {
+                var line = BuildLine(y, z, true, false, false);
+                if (line != null) allLines.Add(line);
+            }
+        for (int x = gridMinX; x <= gridMaxX; x++)
+            for (int z = gridMinZ; z <= gridMaxZ; z++)
+            {
+                var line = BuildLine(x, z, false, true, false);
+                if (line != null) allLines.Add(line);
+            }
+        for (int x = gridMinX; x <= gridMaxX; x++)
+            for (int y = gridMinY; y <= gridMaxY; y++)
+            {
+                var line = BuildLine(x, y, false, false, true);
+                if (line != null) allLines.Add(line);
+            }
+
+        if (allLines.Count == 0) return (0, 0);
+
+        int bonusLineCount = 0;
+        var toClear = new HashSet<Vector3Int>();
+
+        foreach (var line in allLines)
+        {
+            if (!IsLineMonochrome(line)) continue;
+            bonusLineCount++;
+            foreach (var cell in line) toClear.Add(cell);
+        }
 
         if (toClear.Count == 0) return (0, 0);
 
@@ -111,51 +109,40 @@ public class GridManager : MonoBehaviour
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
-                StartCoroutine(AnimateRoutine(go, i * 0.01f, true));
+                AnimateAndDestroy(go, i * 0.025f, true);
             }
         }
 
-        return (sorted.Count, bonusCount);
+        return (sorted.Count, bonusLineCount);
     }
 
-    private int CheckAndAddVolume(int x, int y, int z, int size, HashSet<Vector3Int> toClear)
+    private List<Vector3Int> BuildLine(int a, int b, bool xAxis, bool yAxis, bool zAxis)
     {
-        var cube = new List<Vector3Int>();
-        Color? firstCol = null;
-        for (int dx = 0; dx < size; dx++)
-            for (int dy = 0; dy < size; dy++)
-                for (int dz = 0; dz < size; dz++)
-                {
-                    var cell = new Vector3Int(x + dx, y + dy, z + dz);
-                    if (!occupiedCells.Contains(cell) || !cellColors.TryGetValue(cell, out Color c)) return 0;
-                    if (!firstCol.HasValue) firstCol = c;
-                    else if (!ColorsApproxEqual(c, firstCol.Value)) return 0;
-                    cube.Add(cell);
-                }
-        foreach (var c in cube) toClear.Add(c);
-        return 1;
+        var line = new List<Vector3Int>();
+        int lo = xAxis ? gridMinX : (yAxis ? gridMinY : gridMinZ);
+        int hi = xAxis ? gridMaxX : (yAxis ? gridMaxY : gridMaxZ);
+        for (int v = lo; v <= hi; v++)
+        {
+            Vector3Int cell = xAxis ? new Vector3Int(v, a, b)
+                            : yAxis  ? new Vector3Int(a, v, b)
+                                     : new Vector3Int(a, b, v);
+            if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) return null;
+            line.Add(cell);
+        }
+        return line.Count > 0 ? line : null;
     }
 
-    private int CheckAndAddSquare(int v1, int v2, int constV, int size, bool useX, bool useY, bool useZ, HashSet<Vector3Int> toClear)
+    private bool IsLineMonochrome(List<Vector3Int> line)
     {
-        var square = new List<Vector3Int>();
-        Color? firstCol = null;
-        for (int di = 0; di < size; di++)
-            for (int dj = 0; dj < size; dj++)
-            {
-                Vector3Int cell = Vector3Int.zero;
-                if (useX && useY) cell = new Vector3Int(v1 + di, v2 + dj, constV);
-                else if (useY && useZ) cell = new Vector3Int(constV, v1 + di, v2 + dj);
-                else if (useX && useZ) cell = new Vector3Int(v1 + di, constV, v2 + dj);
-
-                if (!occupiedCells.Contains(cell) || !cellColors.TryGetValue(cell, out Color c)) return 0;
-                if (!firstCol.HasValue) firstCol = c;
-                else if (!ColorsApproxEqual(c, firstCol.Value)) return 0;
-                square.Add(cell);
-            }
-        foreach (var c in square) toClear.Add(c);
-        return 1;
+        if (!cellColors.TryGetValue(line[0], out Color first)) return false;
+        for (int i = 1; i < line.Count; i++)
+        {
+            if (!cellColors.TryGetValue(line[i], out Color c)) return false;
+            if (!ColorsApproxEqual(c, first)) return false;
+        }
+        return true;
     }
+
     public static bool ColorsApproxEqual(Color a, Color b)
         => Mathf.Abs(a.r - b.r) < 0.05f
         && Mathf.Abs(a.g - b.g) < 0.05f
@@ -166,6 +153,7 @@ public class GridManager : MonoBehaviour
         foreach (var go in cellObjects.Values)
         {
             if (go == null) continue;
+            DOTween.Kill(go.transform);
             Object.Destroy(go);
         }
         cellObjects.Clear();
@@ -188,24 +176,26 @@ public class GridManager : MonoBehaviour
         target.localScale = originalScale;
     }
 
-    private IEnumerator AnimateRoutine(GameObject go, float delay, bool cleared)
+    private static void AnimateAndDestroy(GameObject go, float delay, bool isBonus)
     {
-        yield return new WaitForSeconds(delay);
-        if (go == null) yield break;
+        var t = go.transform;
+        float drift   = isBonus ? 0.65f : 0.35f;
+        float upMin   = isBonus ? 0.35f : 0.15f;
+        float upMax   = isBonus ? 0.90f : 0.55f;
+        float scaleUp = isBonus ? 1.6f  : 1.3f;
 
-        float duration = 0.35f;
-        float elapsed = 0f;
-        Vector3 startScale = go.transform.localScale;
+        Vector3 d = new Vector3(
+            Random.Range(-drift, drift),
+            Random.Range(upMin, upMax),
+            Random.Range(-drift, drift));
 
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float t = elapsed / duration;
-            float scaleMultiplier = (t < 0.3f) ? Mathf.Lerp(1f, 1.3f, t / 0.3f) : Mathf.Lerp(1.3f, 0f, (t - 0.3f) / 0.7f);
-            if (go != null) go.transform.localScale = startScale * scaleMultiplier;
-            yield return null;
-        }
-        Destroy(go);
+        var seq = DOTween.Sequence().SetLink(go);
+        if (delay > 0f) seq.AppendInterval(delay);
+        seq.Append(t.DOScale(t.localScale * scaleUp, isBonus ? 0.10f : 0.07f).SetEase(Ease.OutElastic));
+        seq.Join(t.DOMove(t.position + d, isBonus ? 0.38f : 0.28f).SetEase(Ease.OutCubic));
+        if (isBonus) seq.AppendInterval(0.04f);
+        seq.Append(t.DOScale(Vector3.zero, isBonus ? 0.20f : 0.16f).SetEase(Ease.InBack));
+        seq.OnComplete(() => { if (go != null) Object.Destroy(go); });
     }
 
     public Vector3 CellToWorld(Vector3Int cell)
@@ -226,7 +216,7 @@ public class GridManager : MonoBehaviour
     public bool TryFindSnapOffset(List<Vector3Int> cells, Ray ray, float maxDist, out Vector3Int result)
     {
         result = Vector3Int.zero;
-        float minD = 5.0f; 
+        float minD = 5.0f;
         bool found = false;
 
         var seen = new HashSet<Vector3Int>();
@@ -319,57 +309,60 @@ public class GridManager : MonoBehaviour
         var tempPlaced = new HashSet<Vector3Int>();
         foreach (var c in cells) tempPlaced.Add(c + offset);
 
-        int size = mergeSize;
-        
-        // Parcanin her hucresi icin etrafinda bir size x size kare olusuyor mu bak (3 duzlemde)
-        foreach (var pPos in tempPlaced)
-        {
-            // XY
-            var colXY = CheckSquareAt(tempPlaced, pPos, size, true, true, false);
-            if (colXY.HasValue) return colXY;
-            // YZ
-            var colYZ = CheckSquareAt(tempPlaced, pPos, size, false, true, true);
-            if (colYZ.HasValue) return colYZ;
-            // XZ
-            var colXZ = CheckSquareAt(tempPlaced, pPos, size, true, false, true);
-            if (colXZ.HasValue) return colXZ;
-        }
+        for (int y = gridMinY; y <= gridMaxY; y++)
+            for (int z = gridMinZ; z <= gridMaxZ; z++)
+            {
+                var col = CheckLineForMerge(tempPlaced, y, z, true, false, false);
+                if (col.HasValue) return col;
+            }
+        for (int x = gridMinX; x <= gridMaxX; x++)
+            for (int z = gridMinZ; z <= gridMaxZ; z++)
+            {
+                var col = CheckLineForMerge(tempPlaced, x, z, false, true, false);
+                if (col.HasValue) return col;
+            }
+        for (int x = gridMinX; x <= gridMaxX; x++)
+            for (int y = gridMinY; y <= gridMaxY; y++)
+            {
+                var col = CheckLineForMerge(tempPlaced, x, y, false, false, true);
+                if (col.HasValue) return col;
+            }
 
         return null;
     }
 
-    private Color? CheckSquareAt(HashSet<Vector3Int> newCells, Vector3Int pPos, int size, bool useX, bool useY, bool useZ)
+    private Color? CheckLineForMerge(HashSet<Vector3Int> newCells, int a, int b, bool xAxis, bool yAxis, bool zAxis)
     {
-        for (int o1 = -size + 1; o1 <= 0; o1++)
-            for (int o2 = -size + 1; o2 <= 0; o2++)
-            {
-                Color? foundCol = null;
-                bool valid = true;
-                bool hasNew = false;
-                for (int d1 = 0; d1 < size; d1++)
-                {
-                    for (int d2 = 0; d2 < size; d2++)
-                    {
-                        Vector3Int cell = Vector3Int.zero;
-                        if (useX && useY) cell = pPos + new Vector3Int(o1 + d1, o2 + d2, 0);
-                        else if (useY && useZ) cell = pPos + new Vector3Int(0, o1 + d1, o2 + d2);
-                        else if (useX && useZ) cell = pPos + new Vector3Int(o1 + d1, 0, o2 + d2);
+        int lo = xAxis ? gridMinX : (yAxis ? gridMinY : gridMinZ);
+        int hi = xAxis ? gridMaxX : (yAxis ? gridMaxY : gridMaxZ);
 
-                        if (newCells.Contains(cell)) hasNew = true;
-                        else if (occupiedCells.Contains(cell))
-                        {
-                            if (cellColors.TryGetValue(cell, out Color c))
-                            {
-                                if (!foundCol.HasValue) foundCol = c;
-                                else if (!ColorsApproxEqual(c, foundCol.Value)) { valid = false; break; }
-                            }
-                        }
-                        else { valid = false; break; }
-                    }
-                    if (!valid) break;
-                }
-                if (valid && hasNew) return foundCol ?? Color.white;
+        bool hasNew = false;
+        Color? foundCol = null;
+
+        for (int v = lo; v <= hi; v++)
+        {
+            Vector3Int cell = xAxis ? new Vector3Int(v, a, b)
+                            : yAxis  ? new Vector3Int(a, v, b)
+                                     : new Vector3Int(a, b, v);
+
+            if (!targetCells.Contains(cell)) return null;
+
+            if (newCells.Contains(cell))
+            {
+                hasNew = true;
             }
-        return null;
+            else if (occupiedCells.Contains(cell))
+            {
+                if (cellColors.TryGetValue(cell, out Color c))
+                {
+                    if (!foundCol.HasValue) foundCol = c;
+                    else if (!ColorsApproxEqual(c, foundCol.Value)) return null;
+                }
+            }
+            else return null;
+        }
+
+        if (!hasNew) return null;
+        return foundCol ?? Color.white;
     }
 }

@@ -36,10 +36,15 @@ public class CubeShapeEditorWindow : EditorWindow
     private ShapeType  shapeType = ShapeType.MainShape;
 
     // --- Piece Assignment ---
-    private bool                     pieceAssignmentMode = false;
-    private Dictionary<Vector3Int,int> cellPieceMap = new Dictionary<Vector3Int,int>();
+    private bool                       pieceAssignmentMode = false;
+    private List<HashSet<Vector3Int>>  pieceCells          = new List<HashSet<Vector3Int>>();
     private int    activePiece  = 0;
     private int    pieceCount   = 2;
+
+    private void EnsurePieceCells()
+    {
+        while (pieceCells.Count < pieceCount) pieceCells.Add(new HashSet<Vector3Int>());
+    }
     private string levelName    = "NewLevel";
     private float  levelTime    = 60f;
     private int    levelTarget  = 100;
@@ -258,17 +263,13 @@ public class CubeShapeEditorWindow : EditorWindow
                 DrawPieceList();
 
                 EditorGUILayout.Space(6);
-                int total    = dataHolder?.occupiedCells.Count ?? 0;
-                int assigned = cellPieceMap.Values.Count(v => v >= 0);
-                bool allAssigned        = assigned == total && total > 0;
-                bool allPiecesHaveCells = Enumerable.Range(0, pieceCount).All(i => cellPieceMap.Values.Any(v => v == i));
+                EnsurePieceCells();
+                bool allPiecesHaveCells = Enumerable.Range(0, pieceCount).All(i => pieceCells[i].Count > 0);
 
-                if (!allAssigned)
-                    EditorGUILayout.HelpBox($"{total - assigned} küp atanmadı.", MessageType.Warning);
-                else if (!allPiecesHaveCells)
+                if (!allPiecesHaveCells)
                     EditorGUILayout.HelpBox("Boş parça var.", MessageType.Warning);
 
-                EditorGUI.BeginDisabledGroup(!allAssigned || !allPiecesHaveCells);
+                EditorGUI.BeginDisabledGroup(!allPiecesHaveCells);
                 GUI.backgroundColor = new Color(0.4f, 1f, 0.5f, 0.9f);
                 if (GUILayout.Button("EXPORT LEVEL", GUILayout.Height(36))) ExportLevel();
                 GUI.backgroundColor = Color.white;
@@ -292,9 +293,10 @@ public class CubeShapeEditorWindow : EditorWindow
 
     private void DrawPieceList()
     {
+        EnsurePieceCells();
         for (int i = 0; i < pieceCount; i++)
         {
-            int count = cellPieceMap.Values.Count(v => v == i);
+            int count = pieceCells[i].Count;
             Color c   = PIECE_COLORS[i % PIECE_COLORS.Length];
             EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = activePiece == i ? c : c * 0.55f;
@@ -305,23 +307,20 @@ public class CubeShapeEditorWindow : EditorWindow
             };
             if (GUILayout.Button($"  Parça {i + 1}  [{count} küp]", btn)) activePiece = i;
             GUI.backgroundColor = Color.white;
-            if (i == pieceCount - 1 && pieceCount > 2)
+            if (pieceCount > 2)
                 if (GUILayout.Button("✕", GUILayout.Width(22)))
                 {
-                    foreach (var k in cellPieceMap.Keys.Where(k => cellPieceMap[k] == i).ToList())
-                        cellPieceMap[k] = -1;
+                    if (pieceCells.Count > i) pieceCells.RemoveAt(i);
                     pieceCount--;
                     if (activePiece >= pieceCount) activePiece = pieceCount - 1;
+                    break;
                 }
             EditorGUILayout.EndHorizontal();
         }
         EditorGUILayout.Space(2);
-        if (pieceCount < PIECE_COLORS.Length)
-        {
-            GUI.backgroundColor = new Color(0.4f, 0.8f, 1f, 0.7f);
-            if (GUILayout.Button("+ Parça Ekle")) pieceCount++;
-            GUI.backgroundColor = Color.white;
-        }
+        GUI.backgroundColor = new Color(0.4f, 0.8f, 1f, 0.7f);
+        if (GUILayout.Button("+ Parça Ekle")) { pieceCount++; EnsurePieceCells(); activePiece = pieceCount - 1; }
+        GUI.backgroundColor = Color.white;
     }
 
     // ─── Center Panel ─────────────────────────────────────────────────────────
@@ -344,8 +343,9 @@ public class CubeShapeEditorWindow : EditorWindow
             EditorGUILayout.LabelField($"Cubes: {cubeCount}", EditorStyles.miniLabel);
             if (pieceAssignmentMode)
             {
-                int asgn = cellPieceMap.Values.Count(v => v >= 0);
-                EditorGUILayout.LabelField($"Assigned: {asgn}/{cubeCount}", EditorStyles.miniLabel);
+                EnsurePieceCells();
+                int asgn = pieceCells[activePiece].Count;
+                EditorGUILayout.LabelField($"Parça {activePiece + 1}: {asgn} küp", EditorStyles.miniLabel);
             }
             EditorGUILayout.LabelField($"View: {(useOrthographic ? "Iso" : "Persp")}", EditorStyles.miniLabel);
             string hoverInfo = hoveredCell.HasValue
@@ -398,7 +398,12 @@ public class CubeShapeEditorWindow : EditorWindow
             // Piece assignment click
             if (pieceAssignmentMode && hoveredCell.HasValue)
             {
-                cellPieceMap[hoveredCell.Value] = e.shift ? -1 : activePiece;
+                EnsurePieceCells();
+                var cell = hoveredCell.Value;
+                if (pieceCells[activePiece].Contains(cell))
+                    pieceCells[activePiece].Remove(cell);
+                else
+                    pieceCells[activePiece].Add(cell);
                 Repaint(); e.Use(); return;
             }
 
@@ -495,8 +500,10 @@ public class CubeShapeEditorWindow : EditorWindow
                     Material mat;
                     if (pieceAssignmentMode)
                     {
-                        int p = cellPieceMap.TryGetValue(cell, out int pv) ? pv : -1;
-                        mat = p >= 0 ? pieceMaterials[p % PIECE_COLORS.Length] : unassignedMaterial;
+                        EnsurePieceCells();
+                        mat = pieceCells[activePiece].Contains(cell)
+                            ? pieceMaterials[activePiece % PIECE_COLORS.Length]
+                            : unassignedMaterial;
                     }
                     else mat = cubeMaterial;
 
@@ -652,9 +659,10 @@ public class CubeShapeEditorWindow : EditorWindow
 
     private void DrawCurrentPiecePreviews()
     {
+        EnsurePieceCells();
         for (int i = 0; i < pieceCount; i++)
         {
-            var cells = cellPieceMap.Where(kv => kv.Value == i).Select(kv => kv.Key).ToList();
+            var cells = pieceCells[i].ToList();
             Color pc = PIECE_COLORS[i % PIECE_COLORS.Length];
 
             var labelStyle = new GUIStyle(EditorStyles.miniBoldLabel);
@@ -755,7 +763,12 @@ public class CubeShapeEditorWindow : EditorWindow
 
         if (pieceAssignmentMode && e.button == 0 && hoveredCell.HasValue)
         {
-            cellPieceMap[hoveredCell.Value] = e.shift ? -1 : activePiece;
+            EnsurePieceCells();
+            var cell = hoveredCell.Value;
+            if (pieceCells[activePiece].Contains(cell))
+                pieceCells[activePiece].Remove(cell);
+            else
+                pieceCells[activePiece].Add(cell);
             e.Use(); return;
         }
 
@@ -809,7 +822,6 @@ public class CubeShapeEditorWindow : EditorWindow
         cube.transform.localScale = Vector3.one * cellSize;
         cube.name = $"Cube_{c.x}_{c.y}_{c.z}";
         dataHolder.occupiedCells.Add(c);
-        cellPieceMap[c] = -1;
         Undo.RegisterCreatedObjectUndo(cube, "Add Cube");
     }
 
@@ -818,7 +830,7 @@ public class CubeShapeEditorWindow : EditorWindow
         if (!dataHolder.occupiedCells.Contains(c)) return;
         Undo.RegisterCompleteObjectUndo(dataHolder, "Remove Cube");
         Transform t = currentShapeObject.transform.Find($"Cube_{c.x}_{c.y}_{c.z}");
-        if (t != null) { Undo.DestroyObjectImmediate(t.gameObject); dataHolder.occupiedCells.Remove(c); cellPieceMap.Remove(c); }
+        if (t != null) { Undo.DestroyObjectImmediate(t.gameObject); dataHolder.occupiedCells.Remove(c); foreach (var s in pieceCells) s.Remove(c); }
     }
 
     private void FillAll()
@@ -836,7 +848,7 @@ public class CubeShapeEditorWindow : EditorWindow
         for (int i = currentShapeObject.transform.childCount - 1; i >= 0; i--)
             Undo.DestroyObjectImmediate(currentShapeObject.transform.GetChild(i).gameObject);
         dataHolder.occupiedCells.Clear();
-        cellPieceMap.Clear();
+        foreach (var s in pieceCells) s.Clear();
     }
 
     private void CreateNewShape()
@@ -848,7 +860,8 @@ public class CubeShapeEditorWindow : EditorWindow
         dataHolder.cellSize         = cellSize;
         dataHolder.spacing          = spacing;
         dataHolder.shapeName        = shapeName;
-        cellPieceMap.Clear();
+        pieceCells.Clear();
+        for (int i = 0; i < pieceCount; i++) pieceCells.Add(new HashSet<Vector3Int>());
         pieceAssignmentMode = false;
         isEditing           = true;
         Selection.activeGameObject  = currentShapeObject;
@@ -889,14 +902,17 @@ public class CubeShapeEditorWindow : EditorWindow
             levelName  = ld.levelName;
             pieceCount = Mathf.Max(2, ld.complementaryPieces.Count);
 
+            pieceCells.Clear();
             for (int i = 0; i < ld.complementaryPieces.Count; i++)
             {
-                var ph = ld.complementaryPieces[i]?.GetComponent<CubeShapeDataHolder>();
-                if (ph == null) continue;
-                foreach (var cell in ph.occupiedCells)
-                    if (cellPieceMap.ContainsKey(cell))
-                        cellPieceMap[cell] = i;
+                var set = new HashSet<Vector3Int>();
+                var ph  = ld.complementaryPieces[i]?.GetComponent<CubeShapeDataHolder>();
+                if (ph != null)
+                    foreach (var cell in ph.occupiedCells)
+                        set.Add(cell);
+                pieceCells.Add(set);
             }
+            EnsurePieceCells();
             pieceAssignmentMode = true;
             Repaint();
             break;
@@ -967,7 +983,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
         for (int i = 0; i < pieceCount; i++)
         {
-            List<Vector3Int> cells = cellPieceMap.Where(kv => kv.Value == i).Select(kv => kv.Key).ToList();
+            List<Vector3Int> cells = pieceCells.Count > i ? pieceCells[i].ToList() : new List<Vector3Int>();
             GameObject pRoot   = new GameObject($"{levelName}_Piece_{i + 1}");
             var ph             = pRoot.AddComponent<CubeShapeDataHolder>();
             ph.shapeName       = $"{levelName}_Piece_{i + 1}";
