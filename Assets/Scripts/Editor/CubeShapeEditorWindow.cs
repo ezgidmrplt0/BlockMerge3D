@@ -977,6 +977,7 @@ public class CubeShapeEditorWindow : EditorWindow
         if (string.IsNullOrEmpty(levelName)) levelName = shapeName + "_Level";
         string levelDir = $"{LEVELS_PATH}/{levelName}";
         if (!Directory.Exists(levelDir)) Directory.CreateDirectory(levelDir);
+        AssetDatabase.Refresh();
 
         float step = cellSize + spacing;
         var piecePrefabs = new List<GameObject>();
@@ -984,6 +985,7 @@ public class CubeShapeEditorWindow : EditorWindow
         for (int i = 0; i < pieceCount; i++)
         {
             List<Vector3Int> cells = pieceCells.Count > i ? pieceCells[i].ToList() : new List<Vector3Int>();
+            string piecePath = $"{levelDir}/{levelName}_Piece_{i + 1}.prefab";
             GameObject pRoot   = new GameObject($"{levelName}_Piece_{i + 1}");
             var ph             = pRoot.AddComponent<CubeShapeDataHolder>();
             ph.shapeName       = $"{levelName}_Piece_{i + 1}";
@@ -999,10 +1001,11 @@ public class CubeShapeEditorWindow : EditorWindow
                 cube.transform.localScale    = Vector3.one * cellSize;
                 cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
             }
-            piecePrefabs.Add(PrefabUtility.SaveAsPrefabAsset(pRoot, $"{levelDir}/{levelName}_Piece_{i + 1}.prefab"));
+            piecePrefabs.Add(PrefabUtility.SaveAsPrefabAsset(pRoot, piecePath));
             DestroyImmediate(pRoot);
         }
 
+        string fullPath = $"{levelDir}/{levelName}_FullShape.prefab";
         GameObject fullRoot  = new GameObject($"{levelName}_FullShape");
         var fh               = fullRoot.AddComponent<CubeShapeDataHolder>();
         fh.shapeName         = levelName; fh.gridSize = gridSize; fh.cellSize = cellSize;
@@ -1017,8 +1020,12 @@ public class CubeShapeEditorWindow : EditorWindow
             cube.transform.localScale    = Vector3.one * cellSize;
             cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
         }
-        GameObject savedFull = PrefabUtility.SaveAsPrefabAsset(fullRoot, $"{levelDir}/{levelName}_FullShape.prefab");
+        GameObject savedFull = PrefabUtility.SaveAsPrefabAsset(fullRoot, fullPath);
         DestroyImmediate(fullRoot);
+
+        string ldPath = $"{levelDir}/{levelName}_LevelData.asset";
+        if (AssetDatabase.LoadAssetAtPath<LevelData>(ldPath) != null)
+            AssetDatabase.DeleteAsset(ldPath);
 
         LevelData ld              = ScriptableObject.CreateInstance<LevelData>();
         ld.levelName              = levelName;
@@ -1026,7 +1033,7 @@ public class CubeShapeEditorWindow : EditorWindow
         ld.complementaryPieces    = piecePrefabs;
         ld.timeLimit              = levelTime;
         ld.targetScore            = levelTarget;
-        AssetDatabase.CreateAsset(ld, $"{levelDir}/{levelName}_LevelData.asset");
+        AssetDatabase.CreateAsset(ld, ldPath);
         AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
         EditorUtility.DisplayDialog("Export Tamamlandı!",
             $"{pieceCount} parça  •  1 tam şekil  •  1 LevelData\n\n{levelDir}/", "Tamam");
