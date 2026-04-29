@@ -7,7 +7,6 @@ public class GameManager : MonoBehaviour
 
     [Header("Scoring")]
     public int pointsPerCell = 10;
-    public int bonusPerLine  = 50;
 
     [Header("Level Order")]
     public LevelOrderData levelOrder;
@@ -111,7 +110,7 @@ public class GameManager : MonoBehaviour
 
     public void OnLinesCleared(int cellsCleared, int bonusLines)
     {
-        int gained = cellsCleared * pointsPerCell + bonusLines * bonusPerLine;
+        int gained = cellsCleared * pointsPerCell;
         Score += gained;
         UIManager.Instance?.AnimateScore(Score);
         Debug.Log($"Renk bonusu! {bonusLines} çizgi — +{gained} puan (toplam: {Score})");
