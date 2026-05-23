@@ -11,6 +11,7 @@ public class GridManager : MonoBehaviour
     private HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
     private Dictionary<Vector3Int, GameObject> cellObjects = new Dictionary<Vector3Int, GameObject>();
     private Dictionary<Vector3Int, Color>      cellColors  = new Dictionary<Vector3Int, Color>();
+    private Dictionary<Vector3Int, Renderer>    targetRenderers = new Dictionary<Vector3Int, Renderer>();
 
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
@@ -40,6 +41,7 @@ public class GridManager : MonoBehaviour
         ClearAllCellObjects();
 
         targetCells.Clear();
+        targetRenderers.Clear();
         float step = cellSize + spacing;
 
         if (mainShape != null)
@@ -59,7 +61,9 @@ public class GridManager : MonoBehaviour
                             int.TryParse(parts[2], out int y) &&
                             int.TryParse(parts[3], out int z))
                         {
-                            targetCells.Add(new Vector3Int(x, y, z));
+                            var cell = new Vector3Int(x, y, z);
+                            targetCells.Add(cell);
+                            targetRenderers[cell] = r;
                         }
                     }
                 }
@@ -81,6 +85,12 @@ public class GridManager : MonoBehaviour
         occupiedCells.Add(cell);
         cellObjects[cell] = cube;
         cellColors[cell] = color;
+
+        // Hedef saydam kılavuzu gizle ki üst üste binip rengi yutmasın!
+        if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+        {
+            r.enabled = false;
+        }
 
         StartCoroutine(BumpAnimation(cube.transform));
     }
@@ -132,6 +142,13 @@ public class GridManager : MonoBehaviour
             var cell = sorted[i];
             occupiedCells.Remove(cell);
             cellColors.Remove(cell);
+
+            // Hücre boşaldığında kılavuz saydam görseli geri göster
+            if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+            {
+                r.enabled = true;
+            }
+
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
@@ -317,7 +334,15 @@ public class GridManager : MonoBehaviour
 
     public void Remove(List<Vector3Int> cells, Vector3Int offset)
     {
-        foreach (var c in cells) occupiedCells.Remove(c + offset);
+        foreach (var c in cells)
+        {
+            var cell = c + offset;
+            occupiedCells.Remove(cell);
+            if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+            {
+                r.enabled = true;
+            }
+        }
     }
 
     public bool IsComplete()

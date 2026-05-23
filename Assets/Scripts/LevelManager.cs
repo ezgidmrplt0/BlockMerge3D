@@ -119,16 +119,12 @@ public class LevelManager : MonoBehaviour
         FitCameraToScene();
     }
 
-    public static readonly Color[] PIECE_PALETTE = new Color[]
-    {
-        new Color(1.0f, 0.0f, 0.45f),    // Ultra Neon Pink
-        new Color(0.0f, 1.0f, 0.25f),    // Electric Lime
-        new Color(0.0f, 0.85f, 1.0f),    // Cyber Cyan
-        new Color(1.0f, 0.45f, 0.0f),    // Blaze Orange
-        new Color(0.6f, 0.0f, 1.0f),     // Deep Purple Neon
-        new Color(1.0f, 0.95f, 0.0f),    // Acid Yellow
-        new Color(0.0f, 1.0f, 0.65f)     // Mint Glow
-    };
+    [Header("Color Palette Settings (Material-Based)")]
+    [Tooltip("Sürüklenen oyun parçaları için kullanılacak Material (Malzeme) paleti")]
+    public Material[] pieceMaterials;
+
+    [Tooltip("Yarı saydam hedef kılavuz küpü için kullanılacak Material")]
+    public Material ghostTargetMaterial;
 
     private void SpawnRandomPiece()
     {
@@ -169,13 +165,18 @@ public class LevelManager : MonoBehaviour
         {
             int smallIdx = FindSmallestPieceIndex();
             activeIsSmart.Add(true);
-            SpawnPieceAtIndex(smallIdx, Quaternion.identity, GetDominantColorOnGrid());
+            SpawnPieceAtIndex(smallIdx, Quaternion.identity, GetDominantMaterialOnGrid());
         }
         else if (shouldBeSmart)
         {
             int index = FindBestPieceIndex(out Quaternion rot, out Color? recCol, out bool foundMerge);
             activeIsSmart.Add(foundMerge); 
-            SpawnPieceAtIndex(index, rot, recCol);
+            Material recMat = null;
+            if (recCol.HasValue && pieceMaterials != null)
+            {
+                recMat = pieceMaterials.FirstOrDefault(m => m != null && GridManager.ColorsApproxEqual(m.color, recCol.Value));
+            }
+            SpawnPieceAtIndex(index, rot, recMat);
         }
         else
         {
@@ -204,11 +205,14 @@ public class LevelManager : MonoBehaviour
         return bestIdx;
     }
 
-    private Color? GetDominantColorOnGrid()
+    private Material GetDominantMaterialOnGrid()
     {
-        // Sahada en cok hangi renkten varsa onu dondur (Joker icin)
-        // GridManager'dan bir sekilde almaliyiz, simdilik rastgele paletten
-        return PIECE_PALETTE[Random.Range(0, PIECE_PALETTE.Length)];
+        if (pieceMaterials != null && pieceMaterials.Length > 0)
+        {
+            var valid = pieceMaterials.Where(m => m != null).ToList();
+            if (valid.Count > 0) return valid[Random.Range(0, valid.Count)];
+        }
+        return null;
     }
 
     private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge)
@@ -275,6 +279,15 @@ public class LevelManager : MonoBehaviour
         Quaternion bestRot = Quaternion.identity;
         Color? bestCol = null;
 
+        var paletteColors = new List<Color>();
+        if (pieceMaterials != null)
+        {
+            foreach (var m in pieceMaterials)
+            {
+                if (m != null) paletteColors.Add(m.color);
+            }
+        }
+
         for (int i = 0; i < allPiecePrefabs.Count; i++)
         {
             var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
@@ -285,7 +298,7 @@ public class LevelManager : MonoBehaviour
                 var offsets = gridManager.GetPossibleOffsets(rotatedCells);
                 if (offsets.Count == 0) continue;
 
-                foreach (var paletteCol in PIECE_PALETTE)
+                foreach (var paletteCol in paletteColors)
                 {
                     foreach (var off in offsets)
                     {
@@ -331,7 +344,7 @@ public class LevelManager : MonoBehaviour
         return score;
     }
 
-    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Color? forcedColor = null)
+    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Material forcedMaterial = null)
     {
         if (index < 0 || index >= allPiecePrefabs.Count) return;
 
@@ -339,9 +352,14 @@ public class LevelManager : MonoBehaviour
         piece.name = $"Piece_{index + 1}";
         DisableShadows(piece);
         
-        // Bu parca icin bir renk sec (zorunlu renk yoksa rastgele)
-        Color col = forcedColor ?? PIECE_PALETTE[Random.Range(0, PIECE_PALETTE.Length)];
-        ApplyColorToPiece(piece, col);
+        // Bu parca icin bir Material sec (zorunlu material yoksa rastgele)
+        Material mat = forcedMaterial;
+        if (mat == null && pieceMaterials != null && pieceMaterials.Length > 0)
+        {
+            var valid = pieceMaterials.Where(m => m != null).ToList();
+            if (valid.Count > 0) mat = valid[Random.Range(0, valid.Count)];
+        }
+        ApplyMaterialToPiece(piece, mat);
 
         var drag = piece.AddComponent<DraggablePiece>();
         drag.slotScale = pieceSlotScale;
@@ -349,10 +367,15 @@ public class LevelManager : MonoBehaviour
         activePieceDataIndices.Add(index);
     }
 
-    private static void ApplyColorToPiece(GameObject piece, Color color)
+    private static void ApplyMaterialToPiece(GameObject piece, Material material)
     {
+        if (piece == null || material == null) return;
         foreach (var r in piece.GetComponentsInChildren<Renderer>())
-            r.material.color = color;
+        {
+            var mats = new Material[r.sharedMaterials.Length];
+            for (int i = 0; i < mats.Length; i++) mats[i] = material;
+            r.sharedMaterials = mats;
+        }
     }
 
     private void RecomputeHomePositions()
@@ -508,21 +531,13 @@ public class LevelManager : MonoBehaviour
 
     private void ApplyTargetGhost(GameObject shape)
     {
-        ghostTargetMat = new Material(Shader.Find("Standard"));
-        ghostTargetMat.color = new Color(0.5f, 0.8f, 1f, 0.22f);
-        ghostTargetMat.SetFloat("_Mode", 3f);
-        ghostTargetMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        ghostTargetMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        ghostTargetMat.SetInt("_ZWrite", 0);
-        ghostTargetMat.EnableKeyword("_ALPHABLEND_ON");
-        ghostTargetMat.renderQueue = 3000;
-
+        if (ghostTargetMaterial == null) return;
         foreach (var r in shape.GetComponentsInChildren<Renderer>())
         {
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r.receiveShadows = false;
             var mats = new Material[r.sharedMaterials.Length];
-            for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMat;
+            for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
             r.sharedMaterials = mats;
         }
 
