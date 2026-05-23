@@ -22,6 +22,7 @@ public class LevelManager : MonoBehaviour
     private List<bool> activeIsSmart = new List<bool>();
 
     private GameObject activeMainPiece;
+    public GameObject ActiveMainPiece => activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
     private List<GameObject> placedPieces = new List<GameObject>();
     private GridManager gridManager;
@@ -62,13 +63,20 @@ public class LevelManager : MonoBehaviour
             activeMainPiece = Instantiate(level.mainShapePrefab, mainCubeLocation);
             activeMainPiece.name = "Main_Shape";
             activeMainPiece.transform.localPosition = -bc;
+
+            if (CameraOrbit.Instance != null && CameraOrbit.Instance.pivot != null)
+            {
+                activeMainPiece.transform.SetParent(CameraOrbit.Instance.pivot, true);
+                CameraOrbit.Instance.cube = activeMainPiece.transform;
+            }
+
             DisableShadows(activeMainPiece);
 
             var holder = activeMainPiece.GetComponent<CubeShapeDataHolder>();
             if (holder != null)
             {
                 // Dunya pozisyonu ile baslatmaya geri döndük
-                gridManager.Initialize(holder.occupiedCells, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
+                gridManager.Initialize(activeMainPiece, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
                 ApplyTargetGhost(activeMainPiece);
             }
         }
@@ -435,7 +443,12 @@ public class LevelManager : MonoBehaviour
     public void ClearCurrentLevel()
     {
         gridManager?.ClearAllCellObjects();
-        if (activeMainPiece != null) { Destroy(activeMainPiece); activeMainPiece = null; }
+        if (activeMainPiece != null)
+        {
+            Destroy(activeMainPiece);
+            activeMainPiece = null;
+            if (CameraOrbit.Instance != null) CameraOrbit.Instance.cube = null;
+        }
         foreach (var p in activePieces) if (p != null) Destroy(p);
         activePieces.Clear();
         activePieceDataIndices.Clear();

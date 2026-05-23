@@ -23,6 +23,7 @@ public class DraggablePiece : MonoBehaviour
     [HideInInspector] public float slotScale = 0.6f;
 
     private bool secondTouchConsumed;
+    private bool isSnapped;
 
     private static DraggablePiece activeDrag;
     public static bool IsDragging => activeDrag != null;
@@ -111,13 +112,34 @@ public class DraggablePiece : MonoBehaviour
         }
         else secondTouchConsumed = false;
 
+        // Küpün dönüş açısına göre parçanın dönüşünü de senkronize et
+        Transform boardTrans = LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null
+            ? LevelManager.Instance.ActiveMainPiece.transform
+            : null;
+
+        if (boardTrans != null)
+        {
+            transform.rotation = boardTrans.rotation;
+        }
+        else
+        {
+            transform.rotation = Quaternion.identity;
+        }
+
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
         if (dragPlane.Raycast(mouseRay, out float dist))
             transform.position = mouseRay.GetPoint(dist) + dragOffset3D;
 
         Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
         if (grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
+        {
             transform.position = grid.OffsetToRoot(snapOff);
+            isSnapped = true;
+        }
+        else
+        {
+            isSnapped = false;
+        }
     }
 
     private void EndDrag()
@@ -128,14 +150,21 @@ public class DraggablePiece : MonoBehaviour
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 
-        if (grid.TryPlace(currentCells, offset))
+        if (isSnapped && grid.TryPlace(currentCells, offset))
         {
             var children = new List<Transform>();
             foreach (Transform t in transform) children.Add(t);
             for (int i = 0; i < currentCells.Count && i < children.Count; i++)
             {
                 var child = children[i];
-                child.SetParent(null);
+                if (CameraOrbit.Instance != null && CameraOrbit.Instance.pivot != null)
+                {
+                    child.SetParent(CameraOrbit.Instance.pivot, true);
+                }
+                else
+                {
+                    child.SetParent(null);
+                }
                 foreach (var col in child.GetComponents<Collider>()) col.enabled = false;
 
                 var rend  = child.GetComponentInChildren<Renderer>();

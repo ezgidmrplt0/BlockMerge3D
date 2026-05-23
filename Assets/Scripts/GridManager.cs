@@ -31,14 +31,40 @@ public class GridManager : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
-    public void Initialize(List<Vector3Int> cells, float cellSize, float spacing, Vector3 origin)
+    public void Initialize(GameObject mainShape, float cellSize, float spacing, Vector3 origin)
     {
-        targetCells   = new HashSet<Vector3Int>(cells);
-        occupiedCells.Clear();
-        ClearAllCellObjects();
         CellSize = cellSize;
         Spacing  = spacing;
         Origin   = origin;
+        occupiedCells.Clear();
+        ClearAllCellObjects();
+
+        targetCells.Clear();
+        float step = cellSize + spacing;
+
+        if (mainShape != null)
+        {
+            foreach (var r in mainShape.GetComponentsInChildren<Renderer>())
+            {
+                // Sadece sahnede aktif ve etkin olan görsel hücreleri baz al!
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+
+                string name = r.gameObject.name;
+                if (name.StartsWith("Cube_"))
+                {
+                    string[] parts = name.Split('_');
+                    if (parts.Length >= 4)
+                    {
+                        if (int.TryParse(parts[1], out int x) &&
+                            int.TryParse(parts[2], out int y) &&
+                            int.TryParse(parts[3], out int z))
+                        {
+                            targetCells.Add(new Vector3Int(x, y, z));
+                        }
+                    }
+                }
+            }
+        }
 
         gridMinX = gridMinY = gridMinZ = int.MaxValue;
         gridMaxX = gridMaxY = gridMaxZ = int.MinValue;
@@ -199,24 +225,47 @@ public class GridManager : MonoBehaviour
     }
 
     public Vector3 CellToWorld(Vector3Int cell)
-        => Origin + new Vector3(cell.x, cell.y, cell.z) * Step + Vector3.one * (CellSize * 0.5f);
+    {
+        Vector3 localPos = new Vector3(cell.x, cell.y, cell.z) * Step + Vector3.one * (CellSize * 0.5f);
+        if (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
+        {
+            return LevelManager.Instance.ActiveMainPiece.transform.TransformPoint(localPos);
+        }
+        return Origin + localPos;
+    }
 
     public Vector3Int RootToOffset(Vector3 rootWorld)
     {
-        Vector3 local = (rootWorld - Origin) / Step;
+        if (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
+        {
+            Vector3 local = LevelManager.Instance.ActiveMainPiece.transform.InverseTransformPoint(rootWorld) / Step;
+            return new Vector3Int(
+                Mathf.RoundToInt(local.x),
+                Mathf.RoundToInt(local.y),
+                Mathf.RoundToInt(local.z));
+        }
+        Vector3 globalLocal = (rootWorld - Origin) / Step;
         return new Vector3Int(
-            Mathf.RoundToInt(local.x),
-            Mathf.RoundToInt(local.y),
-            Mathf.RoundToInt(local.z));
+            Mathf.RoundToInt(globalLocal.x),
+            Mathf.RoundToInt(globalLocal.y),
+            Mathf.RoundToInt(globalLocal.z));
     }
 
     public Vector3 OffsetToRoot(Vector3Int offset)
-        => Origin + new Vector3(offset.x, offset.y, offset.z) * Step;
+    {
+        Vector3 localPos = new Vector3(offset.x, offset.y, offset.z) * Step;
+        if (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
+        {
+            return LevelManager.Instance.ActiveMainPiece.transform.TransformPoint(localPos);
+        }
+        return Origin + localPos;
+    }
 
     public bool TryFindSnapOffset(List<Vector3Int> cells, Ray ray, float maxDist, out Vector3Int result)
     {
         result = Vector3Int.zero;
-        float minD = 5.0f;
+        // Limit snap distance to a very generous 4.5 units to ensure smooth and easy snapping to all valid areas
+        float minD = 4.5f; 
         bool found = false;
 
         var seen = new HashSet<Vector3Int>();
@@ -228,8 +277,22 @@ public class GridManager : MonoBehaviour
                 if (!seen.Add(off)) continue;
                 if (!CanPlace(cells, off)) continue;
 
-                float d = Vector3.Cross(ray.direction, OffsetToRoot(off) - ray.origin).magnitude;
-                if (d < minD) { minD = d; result = off; found = true; }
+                // Parçanın yerleşeceği tüm hücrelerin görsel ağırlık merkezini (Visual Center) hesapla
+                Vector3 snappedCenter = Vector3.zero;
+                foreach (var cell in cells)
+                {
+                    snappedCenter += CellToWorld(cell + off);
+                }
+                snappedCenter /= cells.Count;
+
+                // Sürüklenen parçanın merkezinden çıkan ışının, hedef merkezine olan dikey mesafesini ölç
+                float d = Vector3.Cross(ray.direction, snappedCenter - ray.origin).magnitude;
+                if (d < minD) 
+                { 
+                    minD = d; 
+                    result = off; 
+                    found = true; 
+                }
             }
         }
         return found;

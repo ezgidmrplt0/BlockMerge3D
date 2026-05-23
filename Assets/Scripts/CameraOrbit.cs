@@ -5,22 +5,24 @@ public class CameraOrbit : MonoBehaviour
     public static CameraOrbit Instance { get; private set; }
 
     [Header("Target")]
+    public Transform cube;
+    [Tooltip("Geriye dönük uyumluluk için pivot alanı")]
     public Transform pivot;
-    public float distance = 14f;
 
-    [Header("Initial Angle")]
-    public float startAzimuth   = 25f;
+    [Header("Initial 3D Camera Angles")]
+    [Tooltip("Kameranın başlangıçtaki yatay bakış açısı (Y rotasyonu)")]
+    public float startAzimuth = 25f;
+    [Tooltip("Kameranın başlangıçtaki dikey bakış açısı (X rotasyonu)")]
     public float startElevation = 28f;
 
     [Header("Swipe Snap")]
     [Tooltip("90° döndürme için gereken minimum yatay swipe mesafesi (pixel)")]
     public float swipeMinPixels = 60f;
-    [Tooltip("Kamera döndürme animasyon hızı")]
+    [Tooltip("Küp döndürme animasyon hızı")]
     public float snapSpeed      = 10f;
 
-    private float azimuth;
-    private float elevation;
-    private float targetAzimuth;
+    private float currentYaw;
+    private float targetYaw;
 
     // Swipe takibi
     private bool    trackingSwipe;
@@ -30,40 +32,121 @@ public class CameraOrbit : MonoBehaviour
 
     private void Awake()
     {
-        Instance       = this;
-        azimuth        = startAzimuth;
-        elevation      = startElevation;
-        targetAzimuth  = startAzimuth;
+        Instance = this;
+    }
+
+    private void Start()
+    {
+        if (cube == null && pivot != null)
+        {
+            cube = pivot;
+        }
+
+        // Eğer çalışma zamanında Main_Shape zaten oluşturulmuşsa pivot'a bağla
+        GameObject mainShapeObj = GameObject.Find("Main_Shape");
+        if (mainShapeObj != null && pivot != null)
+        {
+            mainShapeObj.transform.SetParent(pivot, true);
+            cube = mainShapeObj.transform;
+        }
+
+        Transform targetRotate = pivot != null ? pivot : cube;
+        if (targetRotate != null)
+        {
+            currentYaw = targetRotate.eulerAngles.y;
+            targetYaw  = currentYaw;
+            ApplyRotation();
+        }
     }
 
     public void FitInView(Bounds bounds)
     {
-        if (pivot != null) pivot.position = bounds.center;
+        // Eğer cube henüz atanmamışsa sahneden bulmaya çalış (fallback)
+        if (cube == null)
+        {
+            GameObject mainShapeObj = GameObject.Find("Main_Shape");
+            if (mainShapeObj != null)
+            {
+                if (pivot != null) mainShapeObj.transform.SetParent(pivot, true);
+                cube = mainShapeObj.transform;
+            }
+        }
+
+        // Sadece ana şeklin (tahtanın) sınırlarını hesaplayarak pivotu tam ortasına hizala
+        if (pivot != null && cube != null)
+        {
+            Bounds boardBounds = new Bounds();
+            bool firstRenderer = true;
+            foreach (var r in cube.GetComponentsInChildren<Renderer>())
+            {
+                if (firstRenderer)
+                {
+                    boardBounds = r.bounds;
+                    firstRenderer = false;
+                }
+                else
+                {
+                    boardBounds.Encapsulate(r.bounds);
+                }
+            }
+
+            // Geçici olarak parent'ı null yap ki pivot hareket ettiğinde küp kaymasın!
+            cube.SetParent(null, true);
+
+            if (!firstRenderer)
+            {
+                // Pivot'u tam olarak ana şeklin görsel merkezine konumlandır
+                pivot.position = boardBounds.center;
+            }
+            else
+            {
+                pivot.position = cube.position;
+            }
+
+            // Küpü tekrar pivot'un child'ı yap (dünya pozisyonunu koruyarak)
+            cube.SetParent(pivot, true);
+        }
+        else if (pivot != null)
+        {
+            pivot.position = bounds.center;
+        }
 
         Camera cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
-        if (cam == null) { ApplyOrbit(); return; }
+        if (cam == null) return;
 
+        // Sahneyi kameraya sığdıracak doğru mesafeyi hesapla
         float radius   = bounds.extents.magnitude;
         float vHalfRad = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
         float hHalfRad = Mathf.Atan(Mathf.Tan(vHalfRad) * cam.aspect);
         float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
+        float distance = (radius / Mathf.Tan(minHalf)) * 1.18f;
+        
+        // Kamerayı izometrik 3D gösterecek şekilde, tüm sahnenin (tahta + slotlar) merkezini baz alarak konumlandır (İlk yüklemede 1 kez)
+        Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
+        transform.rotation = rot;
+        transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
 
-        distance = (radius / Mathf.Tan(minHalf)) * 1.18f;
-        ApplyOrbit();
+        // Küpün yeni başlangıç rotasyonunu belirle
+        Transform targetRotate = pivot != null ? pivot : cube;
+        if (targetRotate != null)
+        {
+            currentYaw = targetRotate.eulerAngles.y;
+            targetYaw  = currentYaw;
+            ApplyRotation();
+        }
     }
-
-    private void Start() => ApplyOrbit();
 
     private void Update()
     {
-        // Animasyon: azimuth'u hedefine doğru yumuşakça çek
-        if (!Mathf.Approximately(azimuth, targetAzimuth))
+        // Animasyon: currentYaw'u hedefine doğru yumuşakça çek
+        if (!Mathf.Approximately(currentYaw, targetYaw))
         {
-            azimuth = Mathf.LerpAngle(azimuth, targetAzimuth, Time.deltaTime * snapSpeed);
-            if (Mathf.Abs(Mathf.DeltaAngle(azimuth, targetAzimuth)) < 0.1f)
-                azimuth = targetAzimuth;
-            ApplyOrbit();
+            currentYaw = Mathf.LerpAngle(currentYaw, targetYaw, Time.deltaTime * snapSpeed);
+            if (Mathf.Abs(Mathf.DeltaAngle(currentYaw, targetYaw)) < 0.1f)
+                currentYaw = targetYaw;
+            
+            ApplyRotation();
         }
 
         if (DraggablePiece.IsDragging || IsLocked) 
@@ -128,16 +211,21 @@ public class CameraOrbit : MonoBehaviour
         if (Mathf.Abs(delta.x) < swipeMinPixels) return;
         if (Mathf.Abs(delta.x) < Mathf.Abs(delta.y)) return;
 
-        targetAzimuth -= Mathf.Sign(delta.x) * 90f;
+        // Ekranda yatayda (X ekseninde) swipe yapıldığında küp Y ekseninde 90 derece döner
+        // Swipe sağa (delta.x > 0) -> sola dön (+ angle'ı azalt)
+        // Swipe sola (delta.x < 0) -> sağa dön (+ angle'ı arttır)
+        targetYaw -= Mathf.Sign(delta.x) * 90f;
     }
 
-    private void ApplyOrbit()
+    private void ApplyRotation()
     {
-        if (pivot == null) return;
-        
-        // Kamerayi pivot etrafinda döndürme mantigina geri döndük
-        Quaternion rot = Quaternion.Euler(elevation, azimuth, 0f);
-        transform.position = pivot.position + rot * new Vector3(0f, 0f, -distance);
-        transform.rotation = rot;
+        if (pivot != null)
+        {
+            pivot.rotation = Quaternion.Euler(0f, currentYaw, 0f);
+        }
+        else if (cube != null)
+        {
+            cube.rotation = Quaternion.Euler(0f, currentYaw, 0f);
+        }
     }
 }
