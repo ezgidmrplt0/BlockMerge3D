@@ -174,7 +174,7 @@ public class LevelManager : MonoBehaviour
             Material recMat = null;
             if (recCol.HasValue && pieceMaterials != null)
             {
-                recMat = pieceMaterials.FirstOrDefault(m => m != null && GridManager.ColorsApproxEqual(m.color, recCol.Value));
+                recMat = pieceMaterials.FirstOrDefault(m => m != null && GridManager.ColorsApproxEqual(GridManager.GetMaterialColor(m), recCol.Value));
             }
             SpawnPieceAtIndex(index, rot, recMat);
         }
@@ -284,7 +284,7 @@ public class LevelManager : MonoBehaviour
         {
             foreach (var m in pieceMaterials)
             {
-                if (m != null) paletteColors.Add(m.color);
+                if (m != null) paletteColors.Add(GridManager.GetMaterialColor(m));
             }
         }
 

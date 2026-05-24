@@ -191,6 +191,14 @@ public class GridManager : MonoBehaviour
         && Mathf.Abs(a.g - b.g) < 0.05f
         && Mathf.Abs(a.b - b.b) < 0.05f;
 
+    public static Color GetMaterialColor(Material mat)
+    {
+        if (mat == null) return Color.white;
+        if (mat.HasProperty("_BaseColor")) return mat.GetColor("_BaseColor");
+        if (mat.HasProperty("_Color")) return mat.GetColor("_Color");
+        return Color.white;
+    }
+
     public void ClearAllCellObjects()
     {
         foreach (var go in cellObjects.Values)

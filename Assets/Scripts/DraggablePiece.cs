@@ -168,7 +168,7 @@ public class DraggablePiece : MonoBehaviour
                 foreach (var col in child.GetComponents<Collider>()) col.enabled = false;
 
                 var rend  = child.GetComponentInChildren<Renderer>();
-                Color col2 = rend != null ? rend.sharedMaterial?.color ?? rend.material.color : Color.white;
+                Color col2 = rend != null ? GridManager.GetMaterialColor(rend.sharedMaterial ?? rend.material) : Color.white;
                 grid.RegisterCell(currentCells[i] + offset, child.gameObject, col2);
             }
 
