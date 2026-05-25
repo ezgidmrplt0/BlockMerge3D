@@ -65,6 +65,7 @@ public class PieceSplitterWindow : EditorWindow
 
     private void OnEnable()
     {
+        if (previewUtility != null) { try { previewUtility.Cleanup(); } catch { } }
         previewUtility = new PreviewRenderUtility();
         previewUtility.camera.fieldOfView = 30f;
         previewUtility.camera.farClipPlane = 1000f;

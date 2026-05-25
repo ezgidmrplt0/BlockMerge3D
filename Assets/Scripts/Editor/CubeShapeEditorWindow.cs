@@ -96,6 +96,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private void OnEnable()
     {
         SceneView.duringSceneGui += OnSceneGUI;
+        if (previewUtility != null) { try { previewUtility.Cleanup(); } catch { } }
         previewUtility = new PreviewRenderUtility();
         previewUtility.camera.fieldOfView  = 30f;
         previewUtility.camera.farClipPlane = 1000;
