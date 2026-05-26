@@ -36,6 +36,14 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     public bool HasPiece => piece3D != null;
 
+    private void Awake()
+    {
+        var arf = GetComponent<AspectRatioFitter>();
+        if (arf == null) arf = gameObject.AddComponent<AspectRatioFitter>();
+        arf.aspectMode = AspectRatioFitter.AspectMode.HeightControlsWidth;
+        arf.aspectRatio = 1f;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Başlatma
     // ─────────────────────────────────────────────────────────────────────────
@@ -52,20 +60,33 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         slotIndex       = index;
         previewWorldPos = new Vector3(PREVIEW_BASE_X - index * PREVIEW_SPACING, 0f, 0f);
 
-        // RenderTexture oluştur
-        rt = new RenderTexture(256, 256, 16, RenderTextureFormat.Default);
-        rt.antiAliasing = 2;
+        // Premium 512x512 çözünürlük ve 4x Anti-aliasing kenar yumuşatma desteği ile şeffaf format (ARGB32)
+        rt = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
+        rt.antiAliasing = 4;
         rt.Create();
 
         if (previewImage != null)
+        {
             previewImage.texture = rt;
+            
+            // Glow outline materyali oluştur ve ata
+            var shader = Shader.Find("UI/GlowOutline");
+            if (shader != null)
+            {
+                var glowMat = new Material(shader);
+                glowMat.SetColor("_OutlineColor", new Color(1f, 1f, 1f, 1f)); // Tam opak parlak beyaz
+                glowMat.SetFloat("_OutlineWidth", 0.035f); // Genişlik (Kalınlaştırıldı)
+                glowMat.SetFloat("_GlowPower", 1.2f);       // Işıma gücü (Daha yoğun ve belirgin olması için düşürüldü)
+                previewImage.material = glowMat;
+            }
+        }
 
-        // Preview kamerasını yapılandır
+        // Preview kamerasını yapılandır (Arka plan şeffaf olacak şekilde)
         if (previewCam != null)
         {
             previewCam.targetTexture   = rt;
             previewCam.clearFlags      = CameraClearFlags.SolidColor;
-            previewCam.backgroundColor = new Color(0.09f, 0.10f, 0.13f, 1f);
+            previewCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
             previewCam.nearClipPlane   = 0.1f;
             previewCam.farClipPlane    = 30f;
             previewCam.fieldOfView     = 38f;
@@ -178,10 +199,10 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         Bounds b = renderers[0].bounds;
         foreach (var r in renderers) b.Encapsulate(r.bounds);
 
-        // Kamerayı parçanın boyutuna göre otomatik uzaklaştır
+        // Kamerayı parçanın boyutuna göre otomatik uzaklaştır (Daha büyük görünmesi için 1.15f çarpanı yapıldı)
         float radius  = b.extents.magnitude;
         float halfFov = previewCam.fieldOfView * 0.5f * Mathf.Deg2Rad;
-        float dist    = (radius / Mathf.Tan(halfFov)) * 1.5f;
+        float dist    = (radius / Mathf.Tan(halfFov)) * 1.15f;
 
         Vector3 center = b.center;
         // Kamera ana kameranın bakış açısını kullandığı için, bakış yönünün tersine dist kadar uzaklaştırarak ortalıyoruz
@@ -205,5 +226,9 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
         if (previewCam != null) previewCam.targetTexture = null;
         if (rt != null) { rt.Release(); Destroy(rt); }
+        if (previewImage != null && previewImage.material != null && previewImage.material.shader.name == "UI/GlowOutline")
+        {
+            Destroy(previewImage.material);
+        }
     }
 }

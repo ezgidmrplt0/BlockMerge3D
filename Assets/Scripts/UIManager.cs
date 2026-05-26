@@ -11,6 +11,8 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI scoreText;
     public TextMeshProUGUI targetScoreText;
     public TextMeshProUGUI timerText;
+    public Image           scoreProgressBar; // YENİ: İlerleme barı görseli (Fill Type: Horizontal)
+    public Image           timerRadialRing;  // YENİ: Dairesel süre göstergesi (Fill Type: Radial360)
 
     [Header("Win Panel")]
     public CanvasGroup    winOverlay;
@@ -26,6 +28,7 @@ public class UIManager : MonoBehaviour
     private Tween scoreTween;
     private Tween timerPulseTween;
     private bool  timerPulsing;
+    private int   currentTargetScore = 100;    // YENİ: Hedef puan hafızası
 
     private void Awake() { Instance = this; }
 
@@ -35,7 +38,10 @@ public class UIManager : MonoBehaviour
     {
         HidePanelsImmediate();
         displayedScore = 0;
+        currentTargetScore = targetScore > 0 ? targetScore : 100;
         if (scoreText) scoreText.text = "0";
+        if (scoreProgressBar) scoreProgressBar.fillAmount = 0f;
+        if (timerRadialRing) timerRadialRing.fillAmount = 1f;
         SetTargetScore(targetScore);
         UpdateTimer(timeLimit, timeLimit);
     }
@@ -51,6 +57,13 @@ public class UIManager : MonoBehaviour
             x   => { from = x; displayedScore = x; if (scoreText) scoreText.text = x.ToString(); },
             newTotal, 0.4f
         ).SetEase(Ease.OutCubic);
+
+        // YENİ: İlerleme barını doldur
+        if (scoreProgressBar)
+        {
+            float fillTarget = Mathf.Clamp01((float)newTotal / currentTargetScore);
+            scoreProgressBar.DOFillAmount(fillTarget, 0.4f).SetEase(Ease.OutCubic);
+        }
 
         if (scoreText)
             scoreText.rectTransform
@@ -73,6 +86,14 @@ public class UIManager : MonoBehaviour
         int mins  = Mathf.FloorToInt(remaining / 60f);
         int secs  = Mathf.FloorToInt(remaining % 60f);
         timerText.text = $"{mins:00}:{secs:00}";
+
+        // YENİ: Dairesel süre halkasını güncelle
+        if (timerRadialRing && total > 0f)
+        {
+            timerRadialRing.fillAmount = Mathf.Clamp01(remaining / total);
+            // Kalan süre azaldıkça rengi kademeli olarak kırmızıya çek
+            timerRadialRing.color = Color.Lerp(new Color(1f, 0.3f, 0.3f), Color.white, remaining / total);
+        }
 
         bool lowTime = remaining > 0f && remaining <= 10f;
 
@@ -106,7 +127,7 @@ public class UIManager : MonoBehaviour
     public void ShowWinPanel(int finalScore)
     {
         StopTimerPulse();
-        if (winFinalScoreText) winFinalScoreText.text = $"Puan: {finalScore}";
+        if (winFinalScoreText) winFinalScoreText.text = $"SKOR: {finalScore}";
 
         winOverlay.gameObject.SetActive(true);
         winOverlay.alpha   = 0f;
@@ -122,7 +143,7 @@ public class UIManager : MonoBehaviour
     public void ShowLosePanel(int finalScore)
     {
         StopTimerPulse();
-        if (loseFinalScoreText) loseFinalScoreText.text = $"Puan: {finalScore}";
+        if (loseFinalScoreText) loseFinalScoreText.text = $"SKOR: {finalScore}";
 
         loseOverlay.gameObject.SetActive(true);
         loseOverlay.alpha   = 0f;

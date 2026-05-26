@@ -8,68 +8,61 @@ using TMPro;
 public class CanvasSetupWindow : EditorWindow
 {
     private Vector2Int referenceResolution = new Vector2Int(1080, 1920);
-    private Color accentColor = new Color(0.25f, 0.75f, 1f);
-    private Color winColor    = new Color(0.20f, 0.85f, 0.40f);
-    private Color loseColor   = new Color(0.95f, 0.28f, 0.28f);
-    private Color topBarBg    = new Color(0.06f, 0.07f, 0.10f, 0.95f);
-    private Color cardBg      = new Color(0.12f, 0.13f, 0.19f);
+    private Color bgColor        = new Color(0.45f, 0.70f, 0.95f, 1f); // Casual açık/canlı mavi arkaplan
+    private Color accentColor    = new Color(1.00f, 0.80f, 0.00f, 1f); // Altın Sarısı
+    private Color winColor       = new Color(1.00f, 0.85f, 0.10f, 1f); // Canlı Altın Sarısı (Yeşille mükemmel kontrast)
+    private Color loseColor      = new Color(1.00f, 0.95f, 0.90f, 1f); // Parlak Krem Beyazı
+    private Color textColor      = new Color(1.00f, 1.00f, 1.00f, 1f); // Beyaz metin
+    private Color darkTextColor  = new Color(0.15f, 0.15f, 0.20f, 1f); // Koyu metin (açık zeminler için)
 
     [MenuItem("BlockMerge3D/Canvas Setup")]
     public static void ShowWindow()
     {
         var w = GetWindow<CanvasSetupWindow>("Canvas Setup");
-        w.minSize = new Vector2(390, 500);
+        w.minSize = new Vector2(400, 500);
     }
 
     private GUIStyle _title;
     private GUIStyle TitleStyle => _title ??= new GUIStyle(EditorStyles.boldLabel)
-        { fontSize = 14, normal = { textColor = new Color(0.4f, 0.85f, 1f) } };
+        { fontSize = 14, normal = { textColor = accentColor } };
 
     private void OnGUI()
     {
-        EditorGUILayout.LabelField("CANVAS KURULUM", TitleStyle);
+        EditorGUILayout.LabelField("CANVAS KURULUM (Sıfırdan Premium UI)", TitleStyle);
         EditorGUILayout.Space(8);
 
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        EditorGUILayout.LabelField("Ayarlar", EditorStyles.boldLabel);
-        referenceResolution = EditorGUILayout.Vector2IntField("Referans Çözünürlük", referenceResolution);
-        accentColor         = EditorGUILayout.ColorField("Accent Rengi",     accentColor);
-        winColor            = EditorGUILayout.ColorField("Kazanma Rengi",    winColor);
-        loseColor           = EditorGUILayout.ColorField("Kaybetme Rengi",   loseColor);
-        topBarBg            = EditorGUILayout.ColorField("Üst Bar Rengi",    topBarBg);
-        cardBg              = EditorGUILayout.ColorField("Kart Arka Planı",  cardBg);
+        EditorGUILayout.LabelField("Renk Paleti", EditorStyles.boldLabel);
+        bgColor     = EditorGUILayout.ColorField("Kamera Arkaplan", bgColor);
+        accentColor = EditorGUILayout.ColorField("Vurgu Rengi", accentColor);
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.Space(10);
-        EditorGUILayout.HelpBox(
-            "Sahneye GameManager eklenmiş olmalı.\n" +
-            "Canvas oluşturulunca UIManager referansları otomatik atanır,\n" +
-            "buton onClick'leri GameManager'a bağlanır.",
-            MessageType.Info);
+        EditorGUILayout.HelpBox("Sahnede GameManager bulunmalıdır. Her şey eski kalıntılardan arındırılarak sıfırdan oluşturulacaktır.", MessageType.Info);
         EditorGUILayout.Space(10);
 
         GUI.backgroundColor = new Color(0.4f, 0.85f, 1f, 0.85f);
-        if (GUILayout.Button("Canvas'ı Oluştur / Yenile", GUILayout.Height(52)))
+        if (GUILayout.Button("1. UICanvas ve Arayüzü Oluştur", GUILayout.Height(50)))
             BuildCanvas();
         GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.Space(16);
-        EditorGUILayout.LabelField("─────────────────────────────────", EditorStyles.centeredGreyMiniLabel);
-        EditorGUILayout.Space(4);
-        EditorGUILayout.HelpBox(
-            "Canvas oluşturduktan sonra aşağıdaki butonla alt parça panelını oluşturun.\n" +
-            "LevelManager'ın pieceCards listesi otomatik doldurulur.",
-            MessageType.Info);
-        EditorGUILayout.Space(6);
+        EditorGUILayout.Space(10);
+
         GUI.backgroundColor = new Color(0.5f, 1f, 0.45f, 0.9f);
-        if (GUILayout.Button("Parça Kart Panelını Oluştur", GUILayout.Height(46)))
+        if (GUILayout.Button("2. Parça Kartlarını (Bottom Panel) Oluştur", GUILayout.Height(50)))
             BuildPieceCardPanel();
+        GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.Space(10);
+
+        GUI.backgroundColor = new Color(1f, 0.78f, 0.35f, 0.9f);
+        if (GUILayout.Button("3. Işık ve Gölgeleri Optimize Et", GUILayout.Height(50)))
+            BuildLightingAndEnvironment();
         GUI.backgroundColor = Color.white;
     }
 
     private void BuildCanvas()
     {
-        // EventSystem
         if (FindObjectOfType<EventSystem>() == null)
         {
             var es = new GameObject("EventSystem");
@@ -78,207 +71,201 @@ public class CanvasSetupWindow : EditorWindow
             Undo.RegisterCreatedObjectUndo(es, "Create EventSystem");
         }
 
-        // Remove old
         var old = GameObject.Find("UICanvas");
-        if (old != null)
-        {
-            if (!EditorUtility.DisplayDialog("Mevcut Canvas",
-                "Sahnede UICanvas zaten var. Silip yeniden oluşturulsun mu?", "Evet", "İptal"))
-                return;
-            Undo.DestroyObjectImmediate(old);
-        }
+        if (old != null) Undo.DestroyObjectImmediate(old);
 
-        // Canvas root
         var canvasGO = new GameObject("UICanvas");
         Undo.RegisterCreatedObjectUndo(canvasGO, "Create UICanvas");
 
-        var canvas      = canvasGO.AddComponent<Canvas>();
-        canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
+        var canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 10;
 
         var scaler = canvasGO.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode        = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = referenceResolution;
-        scaler.screenMatchMode    = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
         scaler.matchWidthOrHeight = 0.5f;
 
         canvasGO.AddComponent<GraphicRaycaster>();
         var ui = canvasGO.AddComponent<UIManager>();
-
         var gm = FindObjectOfType<GameManager>();
-        if (gm == null)
-            Debug.LogWarning("[CanvasSetup] Sahnede GameManager bulunamadı. Butonlar bağlanamadı.");
 
-        // ── Top Bar ──────────────────────────────────────────────────────────
-        var topBar = MakeImg("TopBar", canvasGO.transform, topBarBg);
-        Anc(topBar.rectTransform, new Vector2(0,1), new Vector2(1,1),
-            new Vector2(0.5f,1f), Vector2.zero, new Vector2(0, 132));
+        // ── Üst Bar (Top Bar) ──
+        // GUI_28 sprite'ını kullanıyoruz ve rengini Color.white yaparak asset'in gerçek rengini koruyoruz
+        var topBar = MakeImg("TopBar", canvasGO.transform, Color.white, GetSprite("GUI_28"));
+        Anc(topBar.rectTransform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0, 240));
+        
+        // Gölgelendirme
+        var tbShadow = topBar.gameObject.AddComponent<Shadow>();
+        tbShadow.effectColor = new Color(0, 0, 0, 0.5f);
+        tbShadow.effectDistance = new Vector2(0, -5);
 
-        var hlg = topBar.gameObject.AddComponent<HorizontalLayoutGroup>();
-        hlg.padding              = new RectOffset(24, 24, 8, 8);
-        hlg.spacing              = 0;
-        hlg.childAlignment       = TextAnchor.MiddleCenter;
-        hlg.childControlWidth    = true;  hlg.childControlHeight    = true;
-        hlg.childForceExpandWidth= true;  hlg.childForceExpandHeight= true;
+        // Notch Korumalı İçerik (Yeşil Alan Ortası: Y = [50, 150])
+        var contentGO = new GameObject("ContentContainer", typeof(RectTransform));
+        contentGO.transform.SetParent(topBar.transform, false);
+        var contentRT = contentGO.GetComponent<RectTransform>();
+        contentRT.anchorMin = new Vector2(0f, 0f);
+        contentRT.anchorMax = new Vector2(1f, 1f);
+        contentRT.offsetMin = new Vector2(40f, 50f);   // Alt beyaz border'ı ve kenarları temizle
+        contentRT.offsetMax = new Vector2(-40f, -90f); // Üst notch ve safe area payı
 
-        ui.scoreText       = StatGroup("ScoreGroup",  topBar.transform, "PUAN",  "0",     Color.white);
-        ui.timerText       = StatGroup("TimerGroup",  topBar.transform, "SÜRE",  "01:00", Color.white);
-        ui.targetScoreText = StatGroup("TargetGroup", topBar.transform, "HEDEF", "/ 100", accentColor);
+        var hlg = contentGO.AddComponent<HorizontalLayoutGroup>();
+        hlg.padding = new RectOffset(0, 0, 0, 0); // Padding zaten offsetMin/offsetMax ile sağlandı
+        hlg.spacing = 20;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.childControlWidth = true; hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true; hlg.childForceExpandHeight = false;
 
-        // ── Win Overlay ───────────────────────────────────────────────────────
-        var winOv = MakeImg("WinOverlay", canvasGO.transform, new Color(0,0,0,0.72f));
+        ui.scoreText       = StatGroup("ScoreGroup",  contentGO.transform, "PUAN", "0", textColor);
+        ui.timerText       = StatGroup("TimerGroup",  contentGO.transform, "SÜRE", "01:00", accentColor);
+        ui.targetScoreText = StatGroup("TargetGroup", contentGO.transform, "HEDEF", "/ 100", textColor);
+
+        // Alt Çizgi İlerleme Çubuğu (Progress Bar)
+        var barBg = MakeImg("ProgressBarBg", topBar.transform, new Color(0, 0, 0, 0.4f));
+        Anc(barBg.rectTransform, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(0, 8));
+
+        var barFillGO = new GameObject("ProgressBarFill", typeof(RectTransform));
+        barFillGO.transform.SetParent(barBg.transform, false);
+        FullStr(barFillGO.GetComponent<RectTransform>());
+
+        var barFillImg = barFillGO.AddComponent<Image>();
+        barFillImg.color = accentColor;
+        barFillImg.type = Image.Type.Filled;
+        barFillImg.fillMethod = Image.FillMethod.Horizontal;
+        barFillImg.fillAmount = 0.5f;
+        ui.scoreProgressBar = barFillImg;
+
+        // ── Win Overlay ──
+        var winOv = MakeImg("WinOverlay", canvasGO.transform, new Color(0, 0, 0, 0.85f));
         FullStr(winOv.rectTransform);
         ui.winOverlay = winOv.gameObject.AddComponent<CanvasGroup>();
         winOv.gameObject.SetActive(false);
 
-        var winCard = MakeImg("WinCard", winOv.transform, cardBg);
-        Anc(winCard.rectTransform, Vector2.one*0.5f, Vector2.one*0.5f,
-            Vector2.one*0.5f, Vector2.zero, new Vector2(700, 530));
+        // Büyük Popup Paneli (GUI_27)
+        var winCard = MakeImg("WinCard", winOv.transform, Color.white, GetSprite("GUI_27"));
+        Anc(winCard.rectTransform, Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.zero, new Vector2(750, 600));
         ui.winCard = winCard.rectTransform;
-        VLayout(winCard.gameObject, 52, 52, 32);
+        VLayout(winCard.gameObject, 120, 60, 40); // İç kenar boşlukları daraltıldı (buton ve yazılar daha şık durur)
 
-        MakeTxt("Title",       winCard.transform, "TEBRİKLER!",   74, winColor,               TextAlignmentOptions.Center, true);
-        ui.winFinalScoreText = MakeTxt("Score", winCard.transform, "Puan: 0", 46, new Color(0.88f,0.88f,0.88f), TextAlignmentOptions.Center, false);
-        MakeBtn("NextBtn", winCard.transform, "SONRAKİ LEVEL  ▶", winColor,  Color.white, 38, 88, gm, nameof(GameManager.NextLevel));
+        MakeTxtWithOutline("Title", winCard.transform, "TEBRİKLER!", 80, winColor, TextAlignmentOptions.Center, true);
+        ui.winFinalScoreText = MakeTxtWithOutline("Score", winCard.transform, "SKOR: 0", 54, Color.white, TextAlignmentOptions.Center, true);
+        MakeBtn("NextBtn", winCard.transform, "SONRAKİ LEVEL", Color.white, Color.white, 40, 100, gm, nameof(GameManager.NextLevel), GetSprite("GUI_12"));
 
-        // ── Lose Overlay ──────────────────────────────────────────────────────
-        var loseOv = MakeImg("LoseOverlay", canvasGO.transform, new Color(0,0,0,0.72f));
+        // ── Lose Overlay ──
+        var loseOv = MakeImg("LoseOverlay", canvasGO.transform, new Color(0, 0, 0, 0.85f));
         FullStr(loseOv.rectTransform);
         ui.loseOverlay = loseOv.gameObject.AddComponent<CanvasGroup>();
         loseOv.gameObject.SetActive(false);
 
-        var loseCard = MakeImg("LoseCard", loseOv.transform, cardBg);
-        Anc(loseCard.rectTransform, Vector2.one*0.5f, Vector2.one*0.5f,
-            Vector2.one*0.5f, Vector2.zero, new Vector2(700, 490));
+        var loseCard = MakeImg("LoseCard", loseOv.transform, Color.white, GetSprite("GUI_27"));
+        Anc(loseCard.rectTransform, Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.zero, new Vector2(750, 550));
         ui.loseCard = loseCard.rectTransform;
-        VLayout(loseCard.gameObject, 52, 52, 28);
+        VLayout(loseCard.gameObject, 120, 60, 40); // İç kenar boşlukları daraltıldı
 
-        MakeTxt("Title",        loseCard.transform, "SÜRE DOLDU",  72, loseColor,             TextAlignmentOptions.Center, true);
-        ui.loseFinalScoreText = MakeTxt("Score", loseCard.transform, "Puan: 0", 46, new Color(0.88f,0.88f,0.88f), TextAlignmentOptions.Center, false);
-        MakeBtn("RetryBtn", loseCard.transform, "↺  TEKRAR DENE", loseColor, Color.white, 38, 88, gm, nameof(GameManager.RetryLevel));
+        var loseTitle = MakeTxtWithOutline("Title", loseCard.transform, "SÜRE DOLDU", 80, loseColor, TextAlignmentOptions.Center, true);
+        loseTitle.outlineColor = new Color32(180, 20, 20, 255); // Koyu kırmızı kontur (Krem beyaz zemin üstünde harika durur)
+        loseTitle.outlineWidth = 0.25f;
+
+        ui.loseFinalScoreText = MakeTxtWithOutline("Score", loseCard.transform, "SKOR: 0", 54, Color.white, TextAlignmentOptions.Center, true);
+        MakeBtn("RetryBtn", loseCard.transform, "TEKRAR DENE", Color.white, Color.white, 40, 100, gm, nameof(GameManager.RetryLevel), GetSprite("GUI_13"));
 
         EditorUtility.SetDirty(canvasGO);
         Selection.activeGameObject = canvasGO;
-
-        string gmMsg = gm != null ? "Butonlar GameManager'a bağlandı." : "⚠ GameManager bulunamadı — butonları manuel bağla.";
-        EditorUtility.DisplayDialog("Başarılı", $"UICanvas oluşturuldu!\n\n{gmMsg}", "Tamam");
-        Debug.Log("[CanvasSetup] UICanvas oluşturuldu.");
+        Debug.Log("[CanvasSetup] Tertemiz bir UICanvas oluşturuldu.");
     }
-
-    // ── Piece Card Panel Builder ──────────────────────────────────────────────
 
     private void BuildPieceCardPanel()
     {
         var canvasGO = GameObject.Find("UICanvas");
-        if (canvasGO == null)
-        {
-            EditorUtility.DisplayDialog("Hata", "Önce 'Canvas'ı Oluştur' butonuna bas!", "Tamam");
-            return;
-        }
+        if (canvasGO == null) return;
 
-        // Mevcut paneli sil
         var existing = canvasGO.transform.Find("BottomPiecePanel");
-        if (existing != null)
-        {
-            if (!EditorUtility.DisplayDialog("Mevcut Panel",
-                "BottomPiecePanel zaten var. Silip yeniden oluştursun mu?", "Evet", "İptal"))
-                return;
-            Undo.DestroyObjectImmediate(existing.gameObject);
-        }
+        if (existing != null) Undo.DestroyObjectImmediate(existing.gameObject);
 
-        // ── Alt Panel ───────────────────────────────────────────────────────
+        // ── Alt Panel ──
         var panel = new GameObject("BottomPiecePanel", typeof(RectTransform));
         Undo.RegisterCreatedObjectUndo(panel, "Create BottomPiecePanel");
         panel.transform.SetParent(canvasGO.transform, false);
 
         var panelRT = panel.GetComponent<RectTransform>();
-        panelRT.anchorMin        = new Vector2(0f, 0f);
-        panelRT.anchorMax        = new Vector2(1f, 0f);
-        panelRT.pivot            = new Vector2(0.5f, 0f);
+        panelRT.anchorMin = new Vector2(0.04f, 0.03f); 
+        panelRT.anchorMax = new Vector2(0.96f, 0.03f);
+        panelRT.pivot = new Vector2(0.5f, 0f);
         panelRT.anchoredPosition = Vector2.zero;
-        panelRT.sizeDelta        = new Vector2(0f, 220f);
+        panelRT.sizeDelta = new Vector2(0f, 300f);
 
-        var panelImg = panel.AddComponent<Image>();
-        panelImg.color = new Color(0.06f, 0.07f, 0.10f, 0.95f);
+        // Parent panelin görsel arka planı kaldırıldı. Artık boş/şeffaf bir kapsayıcı.
 
         var hlg = panel.AddComponent<HorizontalLayoutGroup>();
-        hlg.padding              = new RectOffset(16, 16, 12, 12);
-        hlg.spacing              = 12;
-        hlg.childAlignment       = TextAnchor.MiddleCenter;
-        hlg.childControlWidth    = true;  hlg.childControlHeight    = true;
-        hlg.childForceExpandWidth= true;  hlg.childForceExpandHeight= true;
+        hlg.padding = new RectOffset(10, 10, 10, 10);
+        hlg.spacing = 25;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.childControlWidth = true; hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true; hlg.childForceExpandHeight = true;
 
-        // ── Preview kamera kök objesi (sahnede, off-screen) ─────────────────
         var camRoot = new GameObject("PiecePreviewCameras");
         Undo.RegisterCreatedObjectUndo(camRoot, "Create PiecePreviewCameras");
 
-        // ── 3 Kart + 3 Kamera ───────────────────────────────────────────────
         var lm = FindObjectOfType<LevelManager>();
-        UnityEditor.SerializedObject lmSO    = lm != null ? new UnityEditor.SerializedObject(lm) : null;
-        UnityEditor.SerializedProperty cardsProp = lmSO?.FindProperty("pieceCards");
-
+        SerializedObject lmSO = lm != null ? new SerializedObject(lm) : null;
+        SerializedProperty cardsProp = lmSO?.FindProperty("pieceCards");
         if (cardsProp != null) cardsProp.ClearArray();
-
-        var createdCards = new System.Collections.Generic.List<PieceCardUI>();
 
         for (int i = 0; i < 3; i++)
         {
-            // -- Kart --
             var card = new GameObject($"PieceCard_{i}", typeof(RectTransform));
             Undo.RegisterCreatedObjectUndo(card, "Create PieceCard");
             card.transform.SetParent(panel.transform, false);
 
-            // Kart arka plan
-            var cardImg = card.AddComponent<Image>();
-            cardImg.color = new Color(0.12f, 0.14f, 0.20f, 1f);
+            var arf = card.AddComponent<AspectRatioFitter>();
+            arf.aspectMode = AspectRatioFitter.AspectMode.HeightControlsWidth;
+            arf.aspectRatio = 1f;
 
-            // RawImage (preview render)
+            // Slot Arka Plan (GUI_52)
+            var cardImg = card.AddComponent<Image>();
+            cardImg.color = Color.white; // Assetin gerçek rengini koru
+            cardImg.sprite = GetSprite("GUI_52");
+            cardImg.type = Image.Type.Sliced;
+
             var rawGO = new GameObject("PreviewImage", typeof(RectTransform));
             rawGO.transform.SetParent(card.transform, false);
             var rawRT = rawGO.GetComponent<RectTransform>();
-            rawRT.anchorMin = new Vector2(0.08f, 0.08f);
-            rawRT.anchorMax = new Vector2(0.92f, 0.92f);
+            rawRT.anchorMin = new Vector2(0.05f, 0.05f);
+            rawRT.anchorMax = new Vector2(0.95f, 0.95f);
             rawRT.sizeDelta = Vector2.zero;
             var rawImg = rawGO.AddComponent<RawImage>();
-            rawImg.color = Color.white;
 
-            // Boş durum görseli ("?" yazısı)
             var emptyGO = new GameObject("EmptyOverlay", typeof(RectTransform));
             emptyGO.transform.SetParent(card.transform, false);
             var emptyRT = emptyGO.GetComponent<RectTransform>();
-            emptyRT.anchorMin = Vector2.zero; emptyRT.anchorMax = Vector2.one;
+            emptyRT.anchorMin = new Vector2(0.1f, 0.1f);
+            emptyRT.anchorMax = new Vector2(0.9f, 0.9f);
             emptyRT.sizeDelta = Vector2.zero;
-            var emptyTxt = emptyGO.AddComponent<TMPro.TextMeshProUGUI>();
-            emptyTxt.text      = "?";
-            emptyTxt.fontSize  = 52;
-            emptyTxt.color     = new Color(0.35f, 0.38f, 0.48f, 1f);
-            emptyTxt.alignment = TMPro.TextAlignmentOptions.Center;
-            emptyGO.SetActive(false); // başta gizli, HasPiece false olunca açılır
+            var emptyImg = emptyGO.AddComponent<Image>();
+            emptyImg.sprite = GetSprite("GUI_53");
+            emptyImg.type = Image.Type.Sliced;
+            emptyImg.color = new Color(1, 1, 1, 0.1f);
+            emptyGO.SetActive(false);
 
-            // PieceCardUI bileşeni
             var cardUI = card.AddComponent<PieceCardUI>();
             cardUI.previewImage = rawImg;
             cardUI.emptyOverlay = emptyGO;
 
-            // -- Preview Kamera --
             var camGO = new GameObject($"PreviewCam_{i}");
             Undo.RegisterCreatedObjectUndo(camGO, "Create PreviewCam");
             camGO.transform.SetParent(camRoot.transform, false);
-            // Kamera pozisyonu Init() tarafından runtime'da ayarlanır
             camGO.transform.position = new Vector3(-10000f - i * 20f, 3.5f, -5.5f);
             var cam = camGO.AddComponent<Camera>();
-            cam.clearFlags      = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.09f, 0.10f, 0.13f, 1f);
-            cam.nearClipPlane   = 0.1f;
-            cam.farClipPlane    = 30f;
-            cam.fieldOfView     = 38f;
-            cam.depth           = -2; // ana kameranin arkasindan render
-            cam.targetTexture   = null; // Init() atar
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0f, 0f, 0f, 0f); 
+            cam.nearClipPlane = 0.1f;
+            cam.farClipPlane = 30f;
+            cam.fieldOfView = 38f;
+            cam.depth = -2;
 
             cardUI.previewCam = cam;
-            createdCards.Add(cardUI);
 
-            // LevelManager'a ata
             if (cardsProp != null)
             {
                 cardsProp.InsertArrayElementAtIndex(i);
@@ -291,22 +278,49 @@ public class CanvasSetupWindow : EditorWindow
             lmSO.ApplyModifiedProperties();
             EditorUtility.SetDirty(lm);
         }
-
-        EditorUtility.SetDirty(canvasGO);
+        
         Selection.activeGameObject = panel;
-
-        string lmMsg = lm != null
-            ? "LevelManager.pieceCards otomatik dolduruldu."
-            : "⚠ LevelManager bulunamadı — pieceCards listesini manuel ata.";
-
-        EditorUtility.DisplayDialog("Tamamlandı!",
-            $"3 kart + 3 preview kamera oluşturuldu.\n\n{lmMsg}\n\n" +
-            "Son adım: Sahnedeki eski Slot_0/1/2 objelerini sil.",
-            "Tamam");
         Debug.Log("[CanvasSetup] BottomPiecePanel oluşturuldu.");
     }
 
-    // ── Stat group (label + value stacked) ───────────────────────────────────
+    private void BuildLightingAndEnvironment()
+    {
+        var mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            mainCam.clearFlags = CameraClearFlags.SolidColor;
+            mainCam.backgroundColor = bgColor;
+            EditorUtility.SetDirty(mainCam);
+        }
+
+        var lights = FindObjectsOfType<Light>();
+        Light dirLight = null;
+        foreach (var l in lights)
+        {
+            if (l.type == LightType.Directional) { dirLight = l; break; }
+        }
+
+        if (dirLight == null)
+        {
+            var lightGO = new GameObject("Directional Light", typeof(Light));
+            dirLight = lightGO.GetComponent<Light>();
+            dirLight.type = LightType.Directional;
+        }
+
+        dirLight.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+        dirLight.color = new Color(1f, 0.98f, 0.95f);
+        dirLight.intensity = 1.1f;
+        dirLight.shadows = LightShadows.Soft;
+        dirLight.shadowStrength = 0.5f;
+        dirLight.shadowBias = 0.02f;
+        dirLight.shadowNormalBias = 0.1f;
+        dirLight.shadowResolution = UnityEngine.Rendering.LightShadowResolution.VeryHigh;
+
+        QualitySettings.shadowDistance = 25f;
+        QualitySettings.shadowCascades = 0;
+
+        Debug.Log("[CanvasSetup] Işıklandırma ve kamera ayarları yapıldı.");
+    }
 
     private TextMeshProUGUI StatGroup(string name, Transform parent, string label, string value, Color valueColor)
     {
@@ -314,38 +328,39 @@ public class CanvasSetupWindow : EditorWindow
         go.transform.SetParent(parent, false);
 
         var vlg = go.AddComponent<VerticalLayoutGroup>();
-        vlg.childAlignment       = TextAnchor.MiddleCenter;
-        vlg.childControlWidth    = true;  vlg.childControlHeight    = true;
-        vlg.childForceExpandWidth= true;  vlg.childForceExpandHeight= true;
-        vlg.spacing = 0;
+        vlg.childAlignment = TextAnchor.MiddleCenter;
+        vlg.childControlWidth = true; vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true; vlg.childForceExpandHeight = false;
+        vlg.spacing = 2; // Metinler düzgün hizalansın
 
-        var lbl = MakeTxt("Label", go.transform, label, 20, new Color(0.62f,0.62f,0.70f), TextAlignmentOptions.Center, false);
-        lbl.gameObject.AddComponent<LayoutElement>().preferredHeight = 26;
+        var lbl = MakeTxtWithOutline("Label", go.transform, label, 20, Color.white, TextAlignmentOptions.Center, false);
+        lbl.gameObject.AddComponent<LayoutElement>().preferredHeight = 24;
 
-        var val = MakeTxt("Value", go.transform, value, 50, valueColor, TextAlignmentOptions.Center, true);
-        val.gameObject.AddComponent<LayoutElement>().preferredHeight = 68;
+        var val = MakeTxtWithOutline("Value", go.transform, value, 44, valueColor, TextAlignmentOptions.Center, true);
+        val.gameObject.AddComponent<LayoutElement>().preferredHeight = 48;
 
         return val;
     }
 
-    // ── Button ────────────────────────────────────────────────────────────────
-
-    private void MakeBtn(string name, Transform parent, string label,
-        Color bg, Color fg, int fontSize, int height, GameManager gm, string methodName)
+    private void MakeBtn(string name, Transform parent, string label, Color bg, Color fg, int fontSize, int height, GameManager gm, string methodName, Sprite sprite)
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
         go.AddComponent<LayoutElement>().preferredHeight = height;
 
-        var img   = go.AddComponent<Image>();
+        var img = go.AddComponent<Image>();
         img.color = bg;
+        if (sprite != null)
+        {
+            img.sprite = sprite;
+            img.type = Image.Type.Sliced;
+        }
 
         var btn = go.AddComponent<Button>();
-        var cs  = btn.colors;
-        Color hc = bg * 1.18f; hc.a = 1f;
-        Color pc = bg * 0.78f; pc.a = 1f;
-        cs.highlightedColor = hc;
-        cs.pressedColor     = pc;
+        var cs = btn.colors;
+        cs.normalColor = Color.white;
+        cs.highlightedColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+        cs.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f);
         btn.colors = cs;
 
         go.AddComponent<ButtonAnimator>();
@@ -353,50 +368,73 @@ public class CanvasSetupWindow : EditorWindow
         var lblGO = new GameObject("Label", typeof(RectTransform));
         lblGO.transform.SetParent(go.transform, false);
         FullStr(lblGO.GetComponent<RectTransform>());
-        var tmp       = lblGO.AddComponent<TextMeshProUGUI>();
+        var tmp = lblGO.AddComponent<TextMeshProUGUI>();
         AssignDefaultFont(tmp);
-        tmp.text      = label;
-        tmp.fontSize  = fontSize;
-        tmp.color     = fg;
+        tmp.text = label;
+        tmp.fontSize = fontSize;
+        tmp.color = fg;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.fontStyle = FontStyles.Bold;
-        tmp.enableWordWrapping = false;
+        
+        // TMPro Native SDF Outline (Buton yazısının arka plandan mükemmel ayrışması için)
+        tmp.outlineColor = new Color32(20, 20, 20, 255);
+        tmp.outlineWidth = 0.2f;
 
         if (gm != null)
         {
             var method = gm.GetType().GetMethod(methodName);
             if (method != null)
             {
-                var action = (UnityEngine.Events.UnityAction)
-                    System.Delegate.CreateDelegate(typeof(UnityEngine.Events.UnityAction), gm, method);
+                var action = (UnityEngine.Events.UnityAction)System.Delegate.CreateDelegate(typeof(UnityEngine.Events.UnityAction), gm, method);
                 UnityEventTools.AddPersistentListener(btn.onClick, action);
             }
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static Image MakeImg(string name, Transform parent, Color color)
+    private static Sprite GetSprite(string name)
     {
-        var go  = new GameObject(name, typeof(RectTransform));
+        var assets = AssetDatabase.LoadAllAssetsAtPath("Assets/2D Casual UI/Sprite/GUI.png");
+        foreach (var a in assets)
+            if (a is Sprite s && s.name == name) return s;
+        return null;
+    }
+
+    private static Image MakeImg(string name, Transform parent, Color color, Sprite sprite = null)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        var img = go.AddComponent<Image>(); img.color = color;
+        var img = go.AddComponent<Image>();
+        img.color = color;
+        if (sprite != null)
+        {
+            img.sprite = sprite;
+            img.type = Image.Type.Sliced;
+        }
         return img;
     }
 
-    private static TextMeshProUGUI MakeTxt(string name, Transform parent, string text,
-        int size, Color color, TextAlignmentOptions align, bool bold)
+    private static TextMeshProUGUI MakeTxtWithOutline(string name, Transform parent, string text, int size, Color color, TextAlignmentOptions align, bool bold)
     {
-        var go  = new GameObject(name, typeof(RectTransform));
+        var tmp = MakeTxt(name, parent, text, size, color, align, bold);
+        
+        // TMPro Native SDF Outline (Kusursuz, kalın ve yumuşak casual stil kontur)
+        tmp.outlineColor = new Color32(20, 20, 20, 255); // Koyu kahve/siyah kontur
+        tmp.outlineWidth = 0.22f; // SDF kontur kalınlığı
+        
+        return tmp;
+    }
+
+    private static TextMeshProUGUI MakeTxt(string name, Transform parent, string text, int size, Color color, TextAlignmentOptions align, bool bold)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        var tmp            = go.AddComponent<TextMeshProUGUI>();
+        var tmp = go.AddComponent<TextMeshProUGUI>();
         AssignDefaultFont(tmp);
-        tmp.text           = text;
-        tmp.fontSize       = size;
-        tmp.color          = color;
-        tmp.alignment      = align;
-        tmp.fontStyle      = bold ? FontStyles.Bold : FontStyles.Normal;
-        tmp.enableWordWrapping = false;
+        tmp.text = text;
+        tmp.fontSize = size;
+        tmp.color = color;
+        tmp.alignment = align;
+        tmp.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
         return tmp;
     }
 
@@ -405,19 +443,18 @@ public class CanvasSetupWindow : EditorWindow
         if (tmp.font != null) return;
         var font = TMPro.TMP_Settings.defaultFontAsset;
         if (font == null)
-            font = AssetDatabase.LoadAssetAtPath<TMPro.TMP_FontAsset>(
-                "Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset");
+            font = AssetDatabase.LoadAssetAtPath<TMPro.TMP_FontAsset>("Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset");
         if (font != null) tmp.font = font;
     }
 
     private static void VLayout(GameObject go, int padH, int padV, int spacing)
     {
         var vlg = go.AddComponent<VerticalLayoutGroup>();
-        vlg.padding              = new RectOffset(padH, padH, padV, padV);
-        vlg.spacing              = spacing;
-        vlg.childAlignment       = TextAnchor.MiddleCenter;
-        vlg.childControlWidth    = true;  vlg.childControlHeight    = false;
-        vlg.childForceExpandWidth= true;  vlg.childForceExpandHeight= false;
+        vlg.padding = new RectOffset(padH, padH, padV, padV);
+        vlg.spacing = spacing;
+        vlg.childAlignment = TextAnchor.MiddleCenter;
+        vlg.childControlWidth = true; vlg.childControlHeight = false;
+        vlg.childForceExpandWidth = true; vlg.childForceExpandHeight = false;
     }
 
     private static void FullStr(RectTransform rt)
