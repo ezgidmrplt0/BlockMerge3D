@@ -52,6 +52,19 @@ public class CanvasSetupWindow : EditorWindow
         if (GUILayout.Button("Canvas'ı Oluştur / Yenile", GUILayout.Height(52)))
             BuildCanvas();
         GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.Space(16);
+        EditorGUILayout.LabelField("─────────────────────────────────", EditorStyles.centeredGreyMiniLabel);
+        EditorGUILayout.Space(4);
+        EditorGUILayout.HelpBox(
+            "Canvas oluşturduktan sonra aşağıdaki butonla alt parça panelını oluşturun.\n" +
+            "LevelManager'ın pieceCards listesi otomatik doldurulur.",
+            MessageType.Info);
+        EditorGUILayout.Space(6);
+        GUI.backgroundColor = new Color(0.5f, 1f, 0.45f, 0.9f);
+        if (GUILayout.Button("Parça Kart Panelını Oluştur", GUILayout.Height(46)))
+            BuildPieceCardPanel();
+        GUI.backgroundColor = Color.white;
     }
 
     private void BuildCanvas()
@@ -150,6 +163,147 @@ public class CanvasSetupWindow : EditorWindow
         string gmMsg = gm != null ? "Butonlar GameManager'a bağlandı." : "⚠ GameManager bulunamadı — butonları manuel bağla.";
         EditorUtility.DisplayDialog("Başarılı", $"UICanvas oluşturuldu!\n\n{gmMsg}", "Tamam");
         Debug.Log("[CanvasSetup] UICanvas oluşturuldu.");
+    }
+
+    // ── Piece Card Panel Builder ──────────────────────────────────────────────
+
+    private void BuildPieceCardPanel()
+    {
+        var canvasGO = GameObject.Find("UICanvas");
+        if (canvasGO == null)
+        {
+            EditorUtility.DisplayDialog("Hata", "Önce 'Canvas'ı Oluştur' butonuna bas!", "Tamam");
+            return;
+        }
+
+        // Mevcut paneli sil
+        var existing = canvasGO.transform.Find("BottomPiecePanel");
+        if (existing != null)
+        {
+            if (!EditorUtility.DisplayDialog("Mevcut Panel",
+                "BottomPiecePanel zaten var. Silip yeniden oluştursun mu?", "Evet", "İptal"))
+                return;
+            Undo.DestroyObjectImmediate(existing.gameObject);
+        }
+
+        // ── Alt Panel ───────────────────────────────────────────────────────
+        var panel = new GameObject("BottomPiecePanel", typeof(RectTransform));
+        Undo.RegisterCreatedObjectUndo(panel, "Create BottomPiecePanel");
+        panel.transform.SetParent(canvasGO.transform, false);
+
+        var panelRT = panel.GetComponent<RectTransform>();
+        panelRT.anchorMin        = new Vector2(0f, 0f);
+        panelRT.anchorMax        = new Vector2(1f, 0f);
+        panelRT.pivot            = new Vector2(0.5f, 0f);
+        panelRT.anchoredPosition = Vector2.zero;
+        panelRT.sizeDelta        = new Vector2(0f, 220f);
+
+        var panelImg = panel.AddComponent<Image>();
+        panelImg.color = new Color(0.06f, 0.07f, 0.10f, 0.95f);
+
+        var hlg = panel.AddComponent<HorizontalLayoutGroup>();
+        hlg.padding              = new RectOffset(16, 16, 12, 12);
+        hlg.spacing              = 12;
+        hlg.childAlignment       = TextAnchor.MiddleCenter;
+        hlg.childControlWidth    = true;  hlg.childControlHeight    = true;
+        hlg.childForceExpandWidth= true;  hlg.childForceExpandHeight= true;
+
+        // ── Preview kamera kök objesi (sahnede, off-screen) ─────────────────
+        var camRoot = new GameObject("PiecePreviewCameras");
+        Undo.RegisterCreatedObjectUndo(camRoot, "Create PiecePreviewCameras");
+
+        // ── 3 Kart + 3 Kamera ───────────────────────────────────────────────
+        var lm = FindObjectOfType<LevelManager>();
+        UnityEditor.SerializedObject lmSO    = lm != null ? new UnityEditor.SerializedObject(lm) : null;
+        UnityEditor.SerializedProperty cardsProp = lmSO?.FindProperty("pieceCards");
+
+        if (cardsProp != null) cardsProp.ClearArray();
+
+        var createdCards = new System.Collections.Generic.List<PieceCardUI>();
+
+        for (int i = 0; i < 3; i++)
+        {
+            // -- Kart --
+            var card = new GameObject($"PieceCard_{i}", typeof(RectTransform));
+            Undo.RegisterCreatedObjectUndo(card, "Create PieceCard");
+            card.transform.SetParent(panel.transform, false);
+
+            // Kart arka plan
+            var cardImg = card.AddComponent<Image>();
+            cardImg.color = new Color(0.12f, 0.14f, 0.20f, 1f);
+
+            // RawImage (preview render)
+            var rawGO = new GameObject("PreviewImage", typeof(RectTransform));
+            rawGO.transform.SetParent(card.transform, false);
+            var rawRT = rawGO.GetComponent<RectTransform>();
+            rawRT.anchorMin = new Vector2(0.08f, 0.08f);
+            rawRT.anchorMax = new Vector2(0.92f, 0.92f);
+            rawRT.sizeDelta = Vector2.zero;
+            var rawImg = rawGO.AddComponent<RawImage>();
+            rawImg.color = Color.white;
+
+            // Boş durum görseli ("?" yazısı)
+            var emptyGO = new GameObject("EmptyOverlay", typeof(RectTransform));
+            emptyGO.transform.SetParent(card.transform, false);
+            var emptyRT = emptyGO.GetComponent<RectTransform>();
+            emptyRT.anchorMin = Vector2.zero; emptyRT.anchorMax = Vector2.one;
+            emptyRT.sizeDelta = Vector2.zero;
+            var emptyTxt = emptyGO.AddComponent<TMPro.TextMeshProUGUI>();
+            emptyTxt.text      = "?";
+            emptyTxt.fontSize  = 52;
+            emptyTxt.color     = new Color(0.35f, 0.38f, 0.48f, 1f);
+            emptyTxt.alignment = TMPro.TextAlignmentOptions.Center;
+            emptyGO.SetActive(false); // başta gizli, HasPiece false olunca açılır
+
+            // PieceCardUI bileşeni
+            var cardUI = card.AddComponent<PieceCardUI>();
+            cardUI.previewImage = rawImg;
+            cardUI.emptyOverlay = emptyGO;
+
+            // -- Preview Kamera --
+            var camGO = new GameObject($"PreviewCam_{i}");
+            Undo.RegisterCreatedObjectUndo(camGO, "Create PreviewCam");
+            camGO.transform.SetParent(camRoot.transform, false);
+            // Kamera pozisyonu Init() tarafından runtime'da ayarlanır
+            camGO.transform.position = new Vector3(-10000f - i * 20f, 3.5f, -5.5f);
+            var cam = camGO.AddComponent<Camera>();
+            cam.clearFlags      = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.09f, 0.10f, 0.13f, 1f);
+            cam.nearClipPlane   = 0.1f;
+            cam.farClipPlane    = 30f;
+            cam.fieldOfView     = 38f;
+            cam.depth           = -2; // ana kameranin arkasindan render
+            cam.targetTexture   = null; // Init() atar
+
+            cardUI.previewCam = cam;
+            createdCards.Add(cardUI);
+
+            // LevelManager'a ata
+            if (cardsProp != null)
+            {
+                cardsProp.InsertArrayElementAtIndex(i);
+                cardsProp.GetArrayElementAtIndex(i).objectReferenceValue = cardUI;
+            }
+        }
+
+        if (lmSO != null)
+        {
+            lmSO.ApplyModifiedProperties();
+            EditorUtility.SetDirty(lm);
+        }
+
+        EditorUtility.SetDirty(canvasGO);
+        Selection.activeGameObject = panel;
+
+        string lmMsg = lm != null
+            ? "LevelManager.pieceCards otomatik dolduruldu."
+            : "⚠ LevelManager bulunamadı — pieceCards listesini manuel ata.";
+
+        EditorUtility.DisplayDialog("Tamamlandı!",
+            $"3 kart + 3 preview kamera oluşturuldu.\n\n{lmMsg}\n\n" +
+            "Son adım: Sahnedeki eski Slot_0/1/2 objelerini sil.",
+            "Tamam");
+        Debug.Log("[CanvasSetup] BottomPiecePanel oluşturuldu.");
     }
 
     // ── Stat group (label + value stacked) ───────────────────────────────────

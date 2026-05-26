@@ -12,12 +12,13 @@ public class LevelManager : MonoBehaviour
 
     [Header("Scene Locations")]
     public Transform mainCubeLocation;
-    public List<Transform> pieceSlots = new List<Transform>();
+
+    [Header("UI Kart Slotları")]
+    public List<PieceCardUI> pieceCards = new List<PieceCardUI>();
 
     [Header("Visual Settings")]
     public int   maxVisiblePieces = 3;
-    public float pieceSlotScale   = 0.6f;
-    [Range(0f, 1f)] public float smartSpawnProbability = 0.5f;
+    [Range(0f, 1f)] public float smartSpawnProbability = 0.35f;
     
     private List<bool> activeIsSmart = new List<bool>();
 
@@ -27,6 +28,9 @@ public class LevelManager : MonoBehaviour
     private List<GameObject> placedPieces = new List<GameObject>();
     private GridManager gridManager;
     private Material ghostTargetMat;
+
+    // Hangi parçanın hangi kartta olduğunu takip eder
+    private Dictionary<GameObject, PieceCardUI> pieceToCard = new Dictionary<GameObject, PieceCardUI>();
 
     private List<GameObject> allPiecePrefabs = new List<GameObject>();
     private List<float>      allPieceWidths  = new List<float>();
@@ -113,9 +117,12 @@ public class LevelManager : MonoBehaviour
             }
         }
 
+        // Kart UI'larını başlat (idempotent)
+        for (int i = 0; i < pieceCards.Count; i++)
+            pieceCards[i]?.Init(i);
+
         for (int i = 0; i < maxVisiblePieces; i++)
             SpawnRandomPiece();
-        RecomputeHomePositions();
         FitCameraToScene();
     }
 
@@ -129,6 +136,14 @@ public class LevelManager : MonoBehaviour
     private void SpawnRandomPiece()
     {
         if (allPiecePrefabs.Count == 0) return;
+
+        // Boş bir kart bul
+        PieceCardUI targetCard = (pieceCards != null && pieceCards.Count > 0)
+            ? pieceCards.FirstOrDefault(c => c != null && !c.HasPiece)
+            : null;
+
+        // Kart sistemi varsa ama boş kart yoksa çık
+        if (pieceCards != null && pieceCards.Count > 0 && targetCard == null) return;
 
         float fullness = (float)GridManager.Instance.PlacedCells / GridManager.Instance.TotalCells;
         
@@ -156,16 +171,13 @@ public class LevelManager : MonoBehaviour
         // Eger hicbir parca sigmiyorsa veya saha cok doluysa, en kucuk parcayi zorla
         bool forceSmall = (validIndices.Count == 0 || fullness > 0.8f);
         
-        int smartCount = 0;
-        foreach (bool s in activeIsSmart) if (s) smartCount++;
-
-        bool shouldBeSmart = (smartCount == 0) || (Random.value < smartSpawnProbability);
+        bool shouldBeSmart = (Random.value < smartSpawnProbability);
 
         if (forceSmall)
         {
             int smallIdx = FindSmallestPieceIndex();
             activeIsSmart.Add(true);
-            SpawnPieceAtIndex(smallIdx, Quaternion.identity, GetDominantMaterialOnGrid());
+            SpawnPieceAtIndex(smallIdx, Quaternion.identity, GetDominantMaterialOnGrid(), targetCard);
         }
         else if (shouldBeSmart)
         {
@@ -176,13 +188,13 @@ public class LevelManager : MonoBehaviour
             {
                 recMat = pieceMaterials.FirstOrDefault(m => m != null && GridManager.ColorsApproxEqual(GridManager.GetMaterialColor(m), recCol.Value));
             }
-            SpawnPieceAtIndex(index, rot, recMat);
+            SpawnPieceAtIndex(index, rot, recMat, targetCard);
         }
         else
         {
             int index = validIndices[Random.Range(0, validIndices.Count)];
             activeIsSmart.Add(false);
-            SpawnPieceAtIndex(index, Quaternion.identity, null);
+            SpawnPieceAtIndex(index, Quaternion.identity, null, targetCard);
         }
 
         // Parca uretildikten sonra hala hamle var mi bak
@@ -275,9 +287,7 @@ public class LevelManager : MonoBehaviour
 
         // 2. Merge bulunamadiysa, "En cok komsu renk eslesmesi" saglayani bul (Progress score)
         int bestMatchScore = -1;
-        int bestIdx = -1;
-        Quaternion bestRot = Quaternion.identity;
-        Color? bestCol = null;
+        var bestOptions = new List<(int index, Quaternion rot, Color col)>();
 
         var paletteColors = new List<Color>();
         if (pieceMaterials != null)
@@ -306,21 +316,30 @@ public class LevelManager : MonoBehaviour
                         if (score > bestMatchScore)
                         {
                             bestMatchScore = score;
-                            bestIdx = i;
-                            bestRot = rot;
-                            bestCol = paletteCol;
+                            bestOptions.Clear();
+                            bestOptions.Add((i, rot, paletteCol));
+                        }
+                        else if (score == bestMatchScore)
+                        {
+                            bestOptions.Add((i, rot, paletteCol));
                         }
                     }
                 }
             }
         }
 
-        if (bestIdx != -1)
+        if (bestOptions.Count > 0 && bestMatchScore > 0)
         {
-            rotation = bestRot;
-            recommendedColor = bestCol;
-            foundMerge = (bestMatchScore > 0);
-            return bestIdx;
+            var choice = bestOptions[Random.Range(0, bestOptions.Count)];
+            rotation = choice.rot;
+            recommendedColor = choice.col;
+            foundMerge = true;
+            return choice.index;
+        }
+
+        if (placeableIndices.Count > 0)
+        {
+            return placeableIndices[Random.Range(0, placeableIndices.Count)];
         }
 
         return Random.Range(0, allPiecePrefabs.Count);
@@ -344,7 +363,7 @@ public class LevelManager : MonoBehaviour
         return score;
     }
 
-    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Material forcedMaterial = null)
+    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Material forcedMaterial = null, PieceCardUI targetCard = null)
     {
         if (index < 0 || index >= allPiecePrefabs.Count) return;
 
@@ -362,9 +381,17 @@ public class LevelManager : MonoBehaviour
         ApplyMaterialToPiece(piece, mat);
 
         var drag = piece.AddComponent<DraggablePiece>();
-        drag.slotScale = pieceSlotScale;
+        drag.InitialRotation = initialRot ?? Quaternion.identity;
         activePieces.Add(piece);
         activePieceDataIndices.Add(index);
+
+        // Kart sistemine bağla
+        if (targetCard != null)
+        {
+            drag.onDragCancelled = () => targetCard.ReturnToPreview();
+            targetCard.AssignPiece(piece);
+            pieceToCard[piece] = targetCard;
+        }
     }
 
     private static void ApplyMaterialToPiece(GameObject piece, Material material)
@@ -378,44 +405,21 @@ public class LevelManager : MonoBehaviour
         }
     }
 
-    private void RecomputeHomePositions()
-    {
-        if (activePieces.Count == 0 || pieceSlots.Count == 0) return;
-
-        for (int i = 0; i < activePieces.Count; i++)
-        {
-            if (i < pieceSlots.Count && pieceSlots[i] != null)
-            {
-                activePieces[i].transform.SetParent(pieceSlots[i]);
-
-                int di = activePieceDataIndices[i];
-                float w = allPieceWidths[di];
-                float h = allPieceHeights[di];
-                float d = allPieceDepths[di];
-
-                Vector3 localOffset = -new Vector3(w * 0.5f, h * 0.5f, d * 0.5f);
-
-                var drag = activePieces[i].GetComponent<DraggablePiece>();
-                if (drag != null)
-                {
-                    drag.HomePosition = pieceSlots[i].TransformPoint(localOffset);
-                    if (!drag.IsBeingDragged && !drag.IsPlaced)
-                    {
-                        activePieces[i].transform.localPosition = localOffset;
-                        activePieces[i].transform.localRotation = Quaternion.identity;
-                        activePieces[i].transform.localScale    = Vector3.one * pieceSlotScale;
-                    }
-                }
-            }
-        }
-    }
+    private void RecomputeHomePositions() { } // Kart sistemiyle artık kullanılmıyor
 
     public void OnPiecePlaced(DraggablePiece piece)
     {
         int idx = activePieces.IndexOf(piece.gameObject);
         if (idx < 0) return;
 
-        piece.transform.SetParent(null); 
+        // İlgili kartı boşalt
+        if (pieceToCard.TryGetValue(piece.gameObject, out var card))
+        {
+            card.ClearPiece();
+            pieceToCard.Remove(piece.gameObject);
+        }
+
+        piece.transform.SetParent(null);
 
         placedPieces.Add(activePieces[idx]);
         activePieces.RemoveAt(idx);
@@ -423,8 +427,6 @@ public class LevelManager : MonoBehaviour
         activeIsSmart.RemoveAt(idx);
 
         SpawnRandomPiece();
-        RecomputeHomePositions();
-
         CheckGameOver();
     }
 
@@ -482,6 +484,11 @@ public class LevelManager : MonoBehaviour
         allPieceWidths.Clear();
         allPieceHeights.Clear();
         allPieceDepths.Clear();
+
+        // Kartları sıfırla
+        foreach (var c in pieceCards) c?.ClearPiece();
+        pieceToCard.Clear();
+        activeIsSmart.Clear();
     }
 
     private void FitCameraToScene()
@@ -501,8 +508,9 @@ public class LevelManager : MonoBehaviour
             }
         }
 
+        // Sadece ana tahta dahil edilir.
+        // Aktif parçalar artık x=-10000 civarında olduğundan dahil edilmez.
         Include(activeMainPiece);
-        foreach (var p in activePieces) Include(p);
 
         if (!first) CameraOrbit.Instance.FitInView(total);
     }

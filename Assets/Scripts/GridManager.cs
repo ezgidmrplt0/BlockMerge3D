@@ -164,14 +164,23 @@ public class GridManager : MonoBehaviour
         var line = new List<Vector3Int>();
         int lo = xAxis ? gridMinX : (yAxis ? gridMinY : gridMinZ);
         int hi = xAxis ? gridMaxX : (yAxis ? gridMaxY : gridMaxZ);
+        int targetCellCountInLine = 0;
+
         for (int v = lo; v <= hi; v++)
         {
             Vector3Int cell = xAxis ? new Vector3Int(v, a, b)
                             : yAxis  ? new Vector3Int(a, v, b)
                                      : new Vector3Int(a, b, v);
-            if (!targetCells.Contains(cell) || !occupiedCells.Contains(cell)) return null;
-            line.Add(cell);
+
+            if (targetCells.Contains(cell))
+            {
+                targetCellCountInLine++;
+                if (!occupiedCells.Contains(cell)) return null;
+                line.Add(cell);
+            }
         }
+
+        if (targetCellCountInLine < 2) return null;
         return line.Count > 0 ? line : null;
     }
 
@@ -436,6 +445,7 @@ public class GridManager : MonoBehaviour
 
         bool hasNew = false;
         Color? foundCol = null;
+        int targetCellCountInLine = 0;
 
         for (int v = lo; v <= hi; v++)
         {
@@ -443,23 +453,26 @@ public class GridManager : MonoBehaviour
                             : yAxis  ? new Vector3Int(a, v, b)
                                      : new Vector3Int(a, b, v);
 
-            if (!targetCells.Contains(cell)) return null;
-
-            if (newCells.Contains(cell))
+            if (targetCells.Contains(cell))
             {
-                hasNew = true;
-            }
-            else if (occupiedCells.Contains(cell))
-            {
-                if (cellColors.TryGetValue(cell, out Color c))
+                targetCellCountInLine++;
+                if (newCells.Contains(cell))
                 {
-                    if (!foundCol.HasValue) foundCol = c;
-                    else if (!ColorsApproxEqual(c, foundCol.Value)) return null;
+                    hasNew = true;
                 }
+                else if (occupiedCells.Contains(cell))
+                {
+                    if (cellColors.TryGetValue(cell, out Color c))
+                    {
+                        if (!foundCol.HasValue) foundCol = c;
+                        else if (!ColorsApproxEqual(c, foundCol.Value)) return null;
+                    }
+                }
+                else return null;
             }
-            else return null;
         }
 
+        if (targetCellCountInLine < 2) return null;
         if (!hasNew) return null;
         return foundCol ?? Color.white;
     }
