@@ -115,7 +115,17 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     private void Update()
     {
         if (HasPiece && !isDraggingOut && piece3D != null)
-            piece3D.transform.Rotate(0f, 55f * Time.deltaTime, 0f, Space.Self);
+        {
+            // Karttaki parçayı tamamen sabit (Quaternion.identity) tutarak tahtanın dönmesinden etkilenmemesini sağlıyoruz
+            piece3D.transform.rotation = Quaternion.identity;
+
+            if (previewCam != null)
+            {
+                // Kameranın bakış açısını ana kamerayla eşitliyoruz (sabit izometrik bakış)
+                previewCam.transform.rotation = Camera.main.transform.rotation;
+                FitCameraTopiece();
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -148,9 +158,13 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         if (piece3D == null) return;
 
         piece3D.transform.position   = previewWorldPos;
-        piece3D.transform.rotation   = Quaternion.Euler(15f, 30f, 0f);
+        piece3D.transform.rotation   = Quaternion.identity;
         piece3D.transform.localScale = Vector3.one;
 
+        if (previewCam != null)
+        {
+            previewCam.transform.rotation = Camera.main.transform.rotation;
+        }
         FitCameraTopiece();
     }
 
@@ -170,8 +184,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         float dist    = (radius / Mathf.Tan(halfFov)) * 1.5f;
 
         Vector3 center = b.center;
-        previewCam.transform.position = center + new Vector3(0f, dist * 0.4f, -dist);
-        previewCam.transform.LookAt(center);
+        // Kamera ana kameranın bakış açısını kullandığı için, bakış yönünün tersine dist kadar uzaklaştırarak ortalıyoruz
+        previewCam.transform.position = center - previewCam.transform.forward * dist;
     }
 
     private void RepositionPreviewCam()

@@ -106,6 +106,11 @@ public class DraggablePiece : MonoBehaviour
         if (activeDrag == this) activeDrag = null;
     }
 
+    private void OnDisable()
+    {
+        if (grid != null) grid.ClearSnappedPreviewCells();
+    }
+
     private void Update()
     {
         if (isDragging)
@@ -194,6 +199,11 @@ public class DraggablePiece : MonoBehaviour
             {
                 Debug.Log($"[BM3D Debug] Grid Snap aktifleşti! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
             }
+
+            // Snaplendiği yerdeki rehber grid hücrelerinin görünürlüğünü geçici olarak kapat
+            var snappedBoardCells = new List<Vector3Int>();
+            foreach (var c in currentCells) snappedBoardCells.Add(c + snapOff);
+            grid.UpdateSnappedPreviewCells(snappedBoardCells);
         }
         else
         {
@@ -202,6 +212,9 @@ public class DraggablePiece : MonoBehaviour
             {
                 Debug.Log($"[BM3D Debug] Grid Snap kayboldu (serbest sürükleme). {gameObject.name}");
             }
+
+            // Snap kaybolduysa geçici olarak gizlenmiş grid hücrelerini geri göster
+            grid.ClearSnappedPreviewCells();
         }
     }
 
@@ -210,6 +223,9 @@ public class DraggablePiece : MonoBehaviour
         isDragging = false;
         activeDrag = null;
         if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = false;
+
+        // Sürükleme bittiği için snapten kaynaklı gizlenen kılavuz gridlerini geri açıyoruz
+        if (grid != null) grid.ClearSnappedPreviewCells();
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 

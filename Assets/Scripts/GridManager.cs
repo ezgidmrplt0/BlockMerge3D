@@ -12,6 +12,7 @@ public class GridManager : MonoBehaviour
     private Dictionary<Vector3Int, GameObject> cellObjects = new Dictionary<Vector3Int, GameObject>();
     private Dictionary<Vector3Int, Color>      cellColors  = new Dictionary<Vector3Int, Color>();
     private Dictionary<Vector3Int, Renderer>    targetRenderers = new Dictionary<Vector3Int, Renderer>();
+    private HashSet<Vector3Int> temporarilyHiddenGridCells = new HashSet<Vector3Int>();
 
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
@@ -362,6 +363,55 @@ public class GridManager : MonoBehaviour
                 r.enabled = true;
             }
         }
+    }
+
+    public void UpdateSnappedPreviewCells(List<Vector3Int> snappedCells)
+    {
+        var newSnapped = new HashSet<Vector3Int>(snappedCells);
+        
+        // 1. Önce eski gizlenmiş olanlardan artık snaplenmeyenleri geri göster
+        foreach (var cell in temporarilyHiddenGridCells)
+        {
+            if (!newSnapped.Contains(cell))
+            {
+                if (!occupiedCells.Contains(cell))
+                {
+                    if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                    {
+                        r.enabled = true;
+                    }
+                }
+            }
+        }
+
+        // 2. Şimdi yeni snaplenen kılavuz hücrelerini gizle
+        foreach (var cell in newSnapped)
+        {
+            if (!occupiedCells.Contains(cell))
+            {
+                if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                {
+                    r.enabled = false;
+                }
+            }
+        }
+
+        temporarilyHiddenGridCells = newSnapped;
+    }
+
+    public void ClearSnappedPreviewCells()
+    {
+        foreach (var cell in temporarilyHiddenGridCells)
+        {
+            if (!occupiedCells.Contains(cell))
+            {
+                if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                {
+                    r.enabled = true;
+                }
+            }
+        }
+        temporarilyHiddenGridCells.Clear();
     }
 
     public bool IsComplete()
