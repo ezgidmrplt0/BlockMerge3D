@@ -11,7 +11,8 @@ public class DraggablePiece : MonoBehaviour
     private GridManager grid;
     private Camera mainCam;
 
-    private List<Vector3Int> currentCells;
+    private List<Vector3Int> currentCells; // Board-aligned cell coordinates (used for snapping/placement)
+    private List<Vector3Int> visualCells;  // Piece-aligned cell coordinates (used for visual child positions)
     private Quaternion currentRotation = Quaternion.identity;
 
     private bool isDragging;
@@ -40,11 +41,8 @@ public class DraggablePiece : MonoBehaviour
         mainCam         = Camera.main;
         currentRotation = transform.rotation;
         
-        // Baslangic rotasyonuna gore hucreleri hesapla
-        if (currentRotation != Quaternion.identity)
-            currentCells = GridManager.RotateCells(holder.occupiedCells, currentRotation);
-        else
-            currentCells = new List<Vector3Int>(holder.occupiedCells);
+        visualCells  = RotateCellsNoShift(holder.occupiedCells, currentRotation);
+        currentCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
     }
 
     private void Start()
@@ -73,6 +71,25 @@ public class DraggablePiece : MonoBehaviour
         else if (activeDrag == null && Input.GetMouseButtonDown(0))
         {
             TryBeginDrag();
+        }
+
+        // Her kosulda (sürüklenirken veya slottayken) rotasyonunu tamamen sabitliyoruz
+        if (!isPlaced)
+        {
+            transform.rotation = Quaternion.identity;
+            UpdateBoardCells();
+        }
+    }
+
+    private void LateUpdate()
+    {
+        // Slottayken parcanin pozisyonunu sabitliyoruz ki tahta donerken etkilenmesin
+        if (!isDragging && !isPlaced)
+        {
+            if (HomePosition != Vector3.zero)
+            {
+                transform.position = HomePosition;
+            }
         }
     }
 
@@ -112,19 +129,9 @@ public class DraggablePiece : MonoBehaviour
         }
         else secondTouchConsumed = false;
 
-        // Küpün dönüş açısına göre parçanın dönüşünü de senkronize et
-        Transform boardTrans = LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null
-            ? LevelManager.Instance.ActiveMainPiece.transform
-            : null;
-
-        if (boardTrans != null)
-        {
-            transform.rotation = boardTrans.rotation;
-        }
-        else
-        {
-            transform.rotation = Quaternion.identity;
-        }
+        // Rotasyon her kosulda sabit kalacak
+        transform.rotation = Quaternion.identity;
+        UpdateBoardCells();
 
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
         if (dragPlane.Raycast(mouseRay, out float dist))
@@ -190,13 +197,12 @@ public class DraggablePiece : MonoBehaviour
 
     private Vector3 PieceWorldCenter()
     {
-        if (currentCells == null || currentCells.Count == 0) return transform.position;
+        if (visualCells == null || visualCells.Count == 0) return transform.position;
         float step = grid.Step;
-        float half = grid.CellSize * 0.5f;
 
-        int minX = currentCells.Min(c => c.x), maxX = currentCells.Max(c => c.x);
-        int minY = currentCells.Min(c => c.y), maxY = currentCells.Max(c => c.y);
-        int minZ = currentCells.Min(c => c.z), maxZ = currentCells.Max(c => c.z);
+        int minX = visualCells.Min(c => c.x), maxX = visualCells.Max(c => c.x);
+        int minY = visualCells.Min(c => c.y), maxY = visualCells.Max(c => c.y);
+        int minZ = visualCells.Min(c => c.z), maxZ = visualCells.Max(c => c.z);
 
         Vector3 localCenter = new Vector3(
             (minX + maxX + 1) * 0.5f,
@@ -220,20 +226,66 @@ public class DraggablePiece : MonoBehaviour
 
     private void RebuildCells()
     {
-        currentCells = GridManager.RotateCells(holder.occupiedCells, currentRotation);
+        visualCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
         UpdateChildPositions();
+        UpdateBoardCells();
     }
 
+    public void UpdateBoardCells()
+    {
+        if (holder == null || grid == null) return;
+
+        Transform boardTrans = LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null
+            ? LevelManager.Instance.ActiveMainPiece.transform
+            : null;
+
+        if (boardTrans != null)
+        {
+            Quaternion targetBoardRotation = Quaternion.identity;
+            if (CameraOrbit.Instance != null)
+            {
+                // Eger CameraOrbit varsa, hedef acisini aliyoruz (interpolasyondan bagimsiz olarak hep 90'in katlaridir)
+                targetBoardRotation = Quaternion.Euler(0f, CameraOrbit.Instance.TargetYaw, 0f);
+            }
+            else
+            {
+                targetBoardRotation = boardTrans.rotation;
+            }
+
+            // Kupun dunya rotasyonunun tersi ile kendi dunya rotasyonumuz ve ic rotasyonumuz carpildiginda
+            // parcanin kup referans sistemindeki goreli rotasyonunu elde ederiz
+            Quaternion boardRelativeRotation = Quaternion.Inverse(targetBoardRotation) * transform.rotation * currentRotation;
+            currentCells = RotateCellsNoShift(holder.occupiedCells, boardRelativeRotation);
+        }
+        else
+        {
+            currentCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
+        }
+    }
+
+    private List<Vector3Int> RotateCellsNoShift(List<Vector3Int> cells, Quaternion q)
+    {
+        var result = new List<Vector3Int>(cells.Count);
+        foreach (var c in cells)
+        {
+            Vector3 v = q * new Vector3(c.x, c.y, c.z);
+            result.Add(new Vector3Int(
+                Mathf.RoundToInt(v.x),
+                Mathf.RoundToInt(v.y),
+                Mathf.RoundToInt(v.z)));
+        }
+        return result;
+    }
 
     private void UpdateChildPositions()
     {
         var children = new List<Transform>();
         foreach (Transform t in transform) children.Add(t);
-        if (children.Count != currentCells.Count) return;
+        if (children.Count != visualCells.Count) return;
         float half = grid.CellSize * 0.5f;
         for (int i = 0; i < children.Count; i++)
         {
-            var c = currentCells[i];
+            var c = visualCells[i];
             children[i].localPosition = new Vector3(
                 c.x * grid.Step + half,
                 c.y * grid.Step + half,

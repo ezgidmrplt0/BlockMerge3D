@@ -23,6 +23,7 @@ public class CameraOrbit : MonoBehaviour
 
     private float currentYaw;
     private float targetYaw;
+    public float TargetYaw => targetYaw;
 
     // Swipe takibi
     private bool    trackingSwipe;

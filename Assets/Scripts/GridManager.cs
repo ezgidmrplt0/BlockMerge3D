@@ -328,7 +328,9 @@ public class GridManager : MonoBehaviour
         foreach (var c in cells)
         {
             var g = c + offset;
-            if (!targetCells.Contains(g) || occupiedCells.Contains(g)) return false;
+            if (!targetCells.Contains(g)) return false;
+            if (occupiedCells.Contains(g)) return false;
+            if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
         }
         return true;
     }
