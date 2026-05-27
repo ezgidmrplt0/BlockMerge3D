@@ -32,6 +32,11 @@ public class DraggablePiece : MonoBehaviour
     private bool secondTouchConsumed;
     private bool isSnapped;
 
+    // Smooth transition from card slot variables
+    private float dragLerpProgress = 1f;
+    private Vector3 dragStartPos;
+    private float dragStartScale = 1f;
+
     private static DraggablePiece activeDrag;
     public static bool IsDragging => activeDrag != null;
 
@@ -43,7 +48,7 @@ public class DraggablePiece : MonoBehaviour
 
     /// <summary>
     /// PieceCardUI tarafından çağrılır — Physics.Raycast olmadan drag başlatır.
-    /// Parça önizleme alanında (x=-10000 civarı) dönüyor olabilir; rotasyon sıfırlanır.
+    /// Parça önizleme alanında dönüyor olabilir; rotasyon sıfırlanır.
     /// </summary>
     public void BeginDragFromCard(Ray ray)
     {
@@ -51,10 +56,14 @@ public class DraggablePiece : MonoBehaviour
         if (grid == null) grid = GridManager.Instance;
         if (grid == null) return;
 
-        // Önizleme sırasındaki serbest dönmeyi sıfırla ama orijinal spawn rotasyonunu koru!
+        // Orijinal spawn rotasyonunu koru!
         currentRotation = InitialRotation;
         visualCells     = RotateCellsNoShift(holder.occupiedCells, currentRotation);
         currentCells    = RotateCellsNoShift(holder.occupiedCells, currentRotation);
+
+        dragStartPos = transform.position;
+        dragStartScale = transform.localScale.x;
+        dragLerpProgress = 0f;
 
         isDragging          = true;
         activeDrag          = this;
@@ -63,12 +72,8 @@ public class DraggablePiece : MonoBehaviour
         // Sürükleme düzlemini hazırla
         dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
 
-        // Parçayı parmağın/mouse'un düzlemdeki noktasına taşı
-        if (dragPlane.Raycast(ray, out float dist))
-            transform.position = ray.GetPoint(dist);
-
         dragOffset3D         = Vector3.zero; // kart sürüklemesinde offset yok
-        transform.localScale = Vector3.one;
+        transform.localScale = Vector3.one * dragStartScale;
         UpdateChildPositions();
 
         if (CameraOrbit.Instance != null)
@@ -84,19 +89,27 @@ public class DraggablePiece : MonoBehaviour
         currentRotation = InitialRotation;
     }
 
-    private void Start()
+    /// <summary>
+    /// PieceCardUI tarafından parça ilk doğduğunda veya karta atandığında çağrılır.
+    /// Çocuk objeleri (blokları) anında doğru hücre pozisyonlarına çeker ki UI sınır (bounds) hesaplamaları kusursuz olsun.
+    /// </summary>
+    public void InitializeForCard()
     {
-        grid = GridManager.Instance;
-        if (grid == null) { Debug.LogError("GridManager bulunamadı!"); return; }
-        if (HomePosition == Vector3.zero) HomePosition = transform.position;
-        
-        // Başlangıç hücresini spawn rotasyonuna göre hazırla
+        if (grid == null) grid = GridManager.Instance;
+        if (holder == null) holder = GetComponent<CubeShapeDataHolder>();
+        if (mainCam == null) mainCam = Camera.main;
+
         currentRotation = InitialRotation;
         visualCells  = RotateCellsNoShift(holder.occupiedCells, currentRotation);
         currentCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
 
-        // Cocuk objeleri dogru pozisyona cek
         UpdateChildPositions();
+    }
+
+    private void Start()
+    {
+        if (grid == null) InitializeForCard();
+        if (HomePosition == Vector3.zero) HomePosition = transform.position;
 
         Debug.Log($"[BM3D Debug] Start tetiklendi. {gameObject.name}. currentRotation: {currentRotation.eulerAngles}, visualCells: {string.Join(", ", visualCells)}");
     }
@@ -156,6 +169,7 @@ public class DraggablePiece : MonoBehaviour
         isDragging          = true;
         activeDrag          = this;
         secondTouchConsumed = false;
+        dragLerpProgress    = 1f; // Karttan olmadığı için animasyon yok
 
         // Origin dunya pozisyonuna geri döndük
         dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
@@ -187,11 +201,30 @@ public class DraggablePiece : MonoBehaviour
 
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
         if (dragPlane.Raycast(mouseRay, out float dist))
-            transform.position = mouseRay.GetPoint(dist) + dragOffset3D;
+        {
+            Vector3 targetDragPos = mouseRay.GetPoint(dist) + dragOffset3D;
 
+            if (dragLerpProgress < 1f)
+            {
+                dragLerpProgress += Time.deltaTime * 7.5f; // ~130ms geçiş süresi
+                if (dragLerpProgress > 1f) dragLerpProgress = 1f;
+
+                transform.position = Vector3.Lerp(dragStartPos, targetDragPos, dragLerpProgress);
+                transform.localScale = Vector3.Lerp(Vector3.one * dragStartScale, Vector3.one, dragLerpProgress);
+            }
+            else
+            {
+                transform.position = targetDragPos;
+                transform.localScale = Vector3.one;
+            }
+        }
+
+        // Geçiş esnasında snapping yapılmaz
+        bool canSnap = dragLerpProgress >= 1f;
         Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
         bool wasSnapped = isSnapped;
-        if (grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
+        
+        if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
         {
             transform.position = grid.OffsetToRoot(snapOff);
             isSnapped = true;

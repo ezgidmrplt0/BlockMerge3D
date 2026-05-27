@@ -4,35 +4,29 @@ using UnityEngine.EventSystems;
 
 /// <summary>
 /// Ekranın altındaki parça slot kartını yönetir.
-/// Atanan 3D parçayı off-screen bir kamera ile RenderTexture'a render eder,
-/// dönen önizleme olarak gösterir. Karta basılınca sürüklemeyi başlatır.
+/// Atanan 3D parçayı ana kamera önünde fiziksel olarak konumlandırarak,
+/// kartın üzerinde gerçek bir 3D obje olarak görünmesini sağlar.
+/// Karta basılınca sürüklemeyi başlatır.
 /// </summary>
 [RequireComponent(typeof(RectTransform))]
 public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 {
     [Header("UI Referansları")]
-    public RawImage    previewImage;    // RenderTexture'ı gösterecek UI elemanı
+    public RawImage    previewImage;    // Artık kullanılmıyor (şeffaf/gizli tutulur)
     public GameObject  emptyOverlay;   // Kart boşken gösterilecek "?" veya boş görsel
 
-    [Header("Preview Kamera (CanvasSetup ile atanır)")]
+    [Header("Preview Kamera (Kullanılmıyor, pasif)")]
     public Camera previewCam;
 
-    // ── Sabitler ─────────────────────────────────────────────────────────────
-    // Her kart x=-10000'den başlayarak 20 birim aralıklarla konumlanır.
-    // Ana kameranın far clip'i (1000) bu mesafeye ulaşmaz → katman gerekmez.
-    private const float PREVIEW_BASE_X    = -10000f;
-    private const float PREVIEW_SPACING   =    20f;
-    private const float PREVIEW_CAM_HEIGHT=     3.5f;
-    private const float PREVIEW_CAM_DEPTH =    -5.5f;
-
     // ── Runtime durum ─────────────────────────────────────────────────────────
-    private RenderTexture  rt;
     private GameObject     piece3D;
     private DraggablePiece draggable;
     private int            slotIndex;
     private bool           initialized;
     private bool           isDraggingOut;
-    private Vector3        previewWorldPos;
+
+    private Vector3        localVisualCenter = Vector3.zero;
+    private float          localVisualRadius = 1f;
 
     public bool HasPiece => piece3D != null;
 
@@ -50,47 +44,25 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     /// <summary>
     /// LevelManager tarafından LoadLevel öncesinde çağrılır.
-    /// Birden fazla kez çağrılsa bile sadece ilk çalışmada init yapar.
     /// </summary>
     public void Init(int index)
     {
         if (initialized) return;
         initialized = true;
 
-        slotIndex       = index;
-        previewWorldPos = new Vector3(PREVIEW_BASE_X - index * PREVIEW_SPACING, 0f, 0f);
+        slotIndex = index;
+        isDraggingOut = false; // Sürükleme durumunu sıfırla
 
-        // Premium 512x512 çözünürlük ve 4x Anti-aliasing kenar yumuşatma desteği ile şeffaf format (ARGB32)
-        rt = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
-        rt.antiAliasing = 4;
-        rt.Create();
-
+        // Eski render texture ve preview kamerasını devre dışı bırak
         if (previewImage != null)
         {
-            previewImage.texture = rt;
-            
-            // Glow outline materyali oluştur ve ata
-            var shader = Shader.Find("UI/GlowOutline");
-            if (shader != null)
-            {
-                var glowMat = new Material(shader);
-                glowMat.SetColor("_OutlineColor", new Color(1f, 1f, 1f, 1f)); // Tam opak parlak beyaz
-                glowMat.SetFloat("_OutlineWidth", 0.035f); // Genişlik (Kalınlaştırıldı)
-                glowMat.SetFloat("_GlowPower", 1.2f);       // Işıma gücü (Daha yoğun ve belirgin olması için düşürüldü)
-                previewImage.material = glowMat;
-            }
+            previewImage.enabled = false;
         }
 
-        // Preview kamerasını yapılandır (Arka plan şeffaf olacak şekilde)
         if (previewCam != null)
         {
-            previewCam.targetTexture   = rt;
-            previewCam.clearFlags      = CameraClearFlags.SolidColor;
-            previewCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
-            previewCam.nearClipPlane   = 0.1f;
-            previewCam.farClipPlane    = 30f;
-            previewCam.fieldOfView     = 38f;
-            RepositionPreviewCam();
+            previewCam.enabled = false;
+            previewCam.gameObject.SetActive(false);
         }
 
         UpdateVisuals();
@@ -103,6 +75,14 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     /// <summary>Bu karta 3D parçayı ata ve önizleme alanına yerleştir.</summary>
     public void AssignPiece(GameObject piece)
     {
+        isDraggingOut = false; // Yeni parça atandığında sürükleme durumunu kesinlikle sıfırla!
+        
+        // GÜVENLİK KONTROLÜ: Eğer kartta zaten aktif bir parça varsa ve yenisi atanıyorsa, çakışmayı önlemek için eskiyi yok et!
+        if (piece3D != null && piece3D != piece)
+        {
+            Destroy(piece3D);
+        }
+
         piece3D   = piece;
         draggable = piece != null ? piece.GetComponent<DraggablePiece>() : null;
 
@@ -115,6 +95,17 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     /// <summary>Parça başarıyla yerleştirildi → kartı boşalt.</summary>
     public void ClearPiece()
     {
+        isDraggingOut = false; // Kart boşaltıldığında sürükleme durumunu sıfırla
+
+        // GÜVENLİK KONTROLÜ: Eğer parça yerleştirilmeden kart temizleniyorsa (örneğin seviye sıfırlanırken veya iptal durumunda), eski parçayı yok et!
+        if (piece3D != null)
+        {
+            if (draggable == null || !draggable.IsPlaced)
+            {
+                Destroy(piece3D);
+            }
+        }
+
         piece3D   = null;
         draggable = null;
         UpdateVisuals();
@@ -130,22 +121,103 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Döndürme
+    // Pozisyonlama ve Hizalama (LateUpdate ile titremeyi önler)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void Update()
+    private void LateUpdate()
     {
         if (HasPiece && !isDraggingOut && piece3D != null)
         {
-            // Karttaki parçayı tamamen sabit (Quaternion.identity) tutarak tahtanın dönmesinden etkilenmemesini sağlıyoruz
-            piece3D.transform.rotation = Quaternion.identity;
+            UpdatePiecePositionAndRotation();
+        }
+    }
 
-            if (previewCam != null)
-            {
-                // Kameranın bakış açısını ana kamerayla eşitliyoruz (sabit izometrik bakış)
-                previewCam.transform.rotation = Camera.main.transform.rotation;
-                FitCameraTopiece();
-            }
+    private void PlaceInPreview()
+    {
+        if (piece3D == null || Camera.main == null) return;
+
+        // Parça ilk doğduğunda çocuk blok pozisyonlarının sıfır kalmasını önlemek için anında hücre konumlarını hesaplıyoruz
+        if (draggable != null)
+        {
+            draggable.InitializeForCard();
+        }
+
+        // Boyut ölçümü yapabilmek için geçici olarak varsayılan değerlere çekiyoruz
+        piece3D.transform.position   = Vector3.zero;
+        piece3D.transform.rotation   = Quaternion.identity;
+        piece3D.transform.localScale = Vector3.one;
+
+        // Parçanın renderers sınırlarını hesaplayıp lokal merkezini ve lokal yarıçapını buluyoruz
+        var renderers = piece3D.GetComponentsInChildren<Renderer>();
+        if (renderers.Length > 0)
+        {
+            Bounds b = renderers[0].bounds;
+            foreach (var r in renderers) b.Encapsulate(r.bounds);
+
+            localVisualCenter = piece3D.transform.InverseTransformPoint(b.center);
+            localVisualRadius = b.extents.magnitude;
+            if (localVisualRadius < 0.001f) localVisualRadius = 1f;
+        }
+        else
+        {
+            localVisualCenter = Vector3.zero;
+            localVisualRadius = 1f;
+        }
+
+        UpdatePiecePositionAndRotation();
+    }
+
+    private void UpdatePiecePositionAndRotation()
+    {
+        if (piece3D == null || Camera.main == null) return;
+
+        float depth = 5f; // Kamera önündeki derinlik mesafesi
+
+        // Kartın pivot kaymalarını hesaba katarak tam merkez noktasını buluyoruz
+        RectTransform rect = GetComponent<RectTransform>();
+        Vector2 localCenter = new Vector2(rect.rect.width * (0.5f - rect.pivot.x), rect.rect.height * (0.5f - rect.pivot.y));
+        Vector3 centerWorldPos = rect.TransformPoint(localCenter);
+        
+        // Merkez noktasını ekran koordinatına çeviriyoruz
+        Vector3 cardScreenPos = RectTransformUtility.WorldToScreenPoint(null, centerWorldPos);
+        cardScreenPos.z = depth;
+
+        Vector3 targetWorldPos = Camera.main.ScreenToWorldPoint(cardScreenPos);
+
+        // Dinamik olarak kartın o anki kamera açısına göre dünya ölçeğindeki yüksekliğini hesaplıyoruz
+        Vector3[] corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+        float cardScreenHeight = Vector3.Distance(corners[0], corners[1]);
+
+        Vector3 bottomWorld = Camera.main.ScreenToWorldPoint(new Vector3(0f, 0f, depth));
+        Vector3 topWorld = Camera.main.ScreenToWorldPoint(new Vector3(0f, cardScreenHeight, depth));
+        float cardWorldHeight = Vector3.Distance(bottomWorld, topWorld);
+
+        // Parça kart yüksekliğinin %65'ini kaplayacak şekilde dinamik ölçeklenir
+        float targetDiameter = cardWorldHeight * 0.65f;
+        float targetRadius = targetDiameter * 0.5f;
+        float scale = targetRadius / localVisualRadius;
+
+        // Kameranın başlangıçtaki izometrik bakış açısını temel alarak parçayı mükemmel şekilde hizalıyoruz.
+        // Böylece kart içindeki parça, ana tahtadaki bloklarla birebir aynı 3D açıya ve gölgelendirmeye sahip olur.
+        float elev = 28f;
+        float azim = 25f;
+        if (CameraOrbit.Instance != null)
+        {
+            elev = CameraOrbit.Instance.startElevation;
+            azim = CameraOrbit.Instance.startAzimuth;
+        }
+        Quaternion baseIsoRotation = Quaternion.Euler(elev, azim, 0f);
+        Quaternion targetRotation = Camera.main.transform.rotation * Quaternion.Inverse(baseIsoRotation);
+
+        piece3D.transform.rotation = targetRotation;
+        piece3D.transform.position = targetWorldPos - (targetRotation * localVisualCenter * scale);
+        piece3D.transform.localScale = Vector3.one * scale;
+
+        // DraggablePiece'in HomePosition'ını güncel tut ki LateUpdate çakışması olmasın
+        if (draggable != null)
+        {
+            draggable.HomePosition = piece3D.transform.position;
         }
     }
 
@@ -174,58 +246,23 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     // Yardımcılar
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void PlaceInPreview()
-    {
-        if (piece3D == null) return;
-
-        piece3D.transform.position   = previewWorldPos;
-        piece3D.transform.rotation   = Quaternion.identity;
-        piece3D.transform.localScale = Vector3.one;
-
-        if (previewCam != null)
-        {
-            previewCam.transform.rotation = Camera.main.transform.rotation;
-        }
-        FitCameraTopiece();
-    }
-
-    private void FitCameraTopiece()
-    {
-        if (previewCam == null || piece3D == null) return;
-
-        var renderers = piece3D.GetComponentsInChildren<Renderer>();
-        if (renderers.Length == 0) { RepositionPreviewCam(); return; }
-
-        Bounds b = renderers[0].bounds;
-        foreach (var r in renderers) b.Encapsulate(r.bounds);
-
-        // Kamerayı parçanın boyutuna göre otomatik uzaklaştır (Daha büyük görünmesi için 1.15f çarpanı yapıldı)
-        float radius  = b.extents.magnitude;
-        float halfFov = previewCam.fieldOfView * 0.5f * Mathf.Deg2Rad;
-        float dist    = (radius / Mathf.Tan(halfFov)) * 1.15f;
-
-        Vector3 center = b.center;
-        // Kamera ana kameranın bakış açısını kullandığı için, bakış yönünün tersine dist kadar uzaklaştırarak ortalıyoruz
-        previewCam.transform.position = center - previewCam.transform.forward * dist;
-    }
-
-    private void RepositionPreviewCam()
-    {
-        if (previewCam == null) return;
-        previewCam.transform.position = previewWorldPos + new Vector3(0f, PREVIEW_CAM_HEIGHT, PREVIEW_CAM_DEPTH);
-        previewCam.transform.LookAt(previewWorldPos + Vector3.up * 0.5f);
-    }
-
     private void UpdateVisuals()
     {
-        if (previewImage != null) previewImage.enabled = HasPiece;
+        if (previewImage != null) previewImage.enabled = false;
         if (emptyOverlay != null) emptyOverlay.SetActive(!HasPiece);
+
+        // Kartta parça varken beyaz arka planı yarı şeffaf yapar, böylece 3D obje öne çıkar
+        var cardBg = GetComponent<Image>();
+        if (cardBg != null)
+        {
+            var col = cardBg.color;
+            col.a = HasPiece ? 0.15f : 1.0f;
+            cardBg.color = col;
+        }
     }
 
     private void OnDestroy()
     {
-        if (previewCam != null) previewCam.targetTexture = null;
-        if (rt != null) { rt.Release(); Destroy(rt); }
         if (previewImage != null && previewImage.material != null && previewImage.material.shader.name == "UI/GlowOutline")
         {
             Destroy(previewImage.material);
