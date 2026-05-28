@@ -122,6 +122,7 @@ public class DraggablePiece : MonoBehaviour
     private void OnDisable()
     {
         if (grid != null) grid.ClearSnappedPreviewCells();
+        if (grid != null) grid.ClearOccludingCells();
     }
 
     private void Update()
@@ -224,30 +225,38 @@ public class DraggablePiece : MonoBehaviour
         Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
         bool wasSnapped = isSnapped;
         
+        // Surukleme sirasinda HERZAMAN parcadan once gelen katmanlari gizle
+        // (Snap olmadan da calisir - parcanin o anki pozisyonuna gore dinamik)
+        // grid.UpdateOccludingCells(mainCam.transform.position, PieceWorldCenter()); // eski
+
         if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
         {
             transform.position = grid.OffsetToRoot(snapOff);
             isSnapped = true;
             if (!wasSnapped)
             {
-                Debug.Log($"[BM3D Debug] Grid Snap aktifleşti! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
+                Debug.Log($"[BM3D Debug] Grid Snap aktifle\u015fti! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
             }
 
-            // Snaplendiği yerdeki rehber grid hücrelerinin görünürlüğünü geçici olarak kapat
+            // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat
             var snappedBoardCells = new List<Vector3Int>();
             foreach (var c in currentCells) snappedBoardCells.Add(c + snapOff);
             grid.UpdateSnappedPreviewCells(snappedBoardCells);
+
+            // Ilk mekanik: kamera-isini yaklasimi ile snap konumundaki hucreler gizlenir
+            grid.UpdateOccludingCells(mainCam.transform.position, currentCells, snapOff);
         }
         else
         {
             isSnapped = false;
             if (wasSnapped)
             {
-                Debug.Log($"[BM3D Debug] Grid Snap kayboldu (serbest sürükleme). {gameObject.name}");
+                Debug.Log($"[BM3D Debug] Grid Snap kayboldu (serbest surekleme). {gameObject.name}");
             }
 
-            // Snap kaybolduysa geçici olarak gizlenmiş grid hücrelerini geri göster
+            // Snap kaybolduysa gecici olarak gizlenmis grid hucrelerini geri goster
             grid.ClearSnappedPreviewCells();
+            grid.ClearOccludingCells();
         }
     }
 
@@ -257,8 +266,9 @@ public class DraggablePiece : MonoBehaviour
         activeDrag = null;
         if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = false;
 
-        // Sürükleme bittiği için snapten kaynaklı gizlenen kılavuz gridlerini geri açıyoruz
+        // Sürükleme bittiği için snapten ve X-Ray occlusion'dan kaynaklı gizlenen gridleri geri açıyoruz
         if (grid != null) grid.ClearSnappedPreviewCells();
+        if (grid != null) grid.ClearOccludingCells();
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 

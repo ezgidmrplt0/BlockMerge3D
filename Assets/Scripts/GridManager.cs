@@ -13,6 +13,7 @@ public class GridManager : MonoBehaviour
     private Dictionary<Vector3Int, Color>      cellColors  = new Dictionary<Vector3Int, Color>();
     private Dictionary<Vector3Int, Renderer>    targetRenderers = new Dictionary<Vector3Int, Renderer>();
     private HashSet<Vector3Int> temporarilyHiddenGridCells = new HashSet<Vector3Int>();
+    private HashSet<Vector3Int> occludedGridCells           = new HashSet<Vector3Int>();
 
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
@@ -224,6 +225,7 @@ public class GridManager : MonoBehaviour
 
     public void ClearAllCellObjects()
     {
+        ClearOccludingCells();
         foreach (var go in cellObjects.Values)
         {
             if (go == null) continue;
@@ -586,5 +588,91 @@ public class GridManager : MonoBehaviour
         if (targetCellCountInLine < 2) return null;
         if (!hasNew) return null;
         return foundCol ?? Color.white;
+    }
+
+    // --- X-Ray Occlusion (Drag Görüş Açıklığı) ---
+
+    /// <summary>
+    /// Sürüklenen parçanın snap konumuna göre, kamera ile parça arasındaki
+    /// boş hedef grid hücrelerini gizler. Yerleştirilmiş parçalara dokunamaz.
+    /// </summary>
+    /// <summary>
+    /// Suruklenen parcanin snap konumuna gore, kamera ile parca arasindaki
+    /// bos hedef grid hucrelerini gizler. Yerlestirilmis parcalara dokunamaz.
+    /// </summary>
+    public void UpdateOccludingCells(Vector3 cameraPos, List<Vector3Int> pieceCells, Vector3Int snapOffset)
+    {
+        // Onceki turda gizlenmis hucreleri geri ac
+        foreach (var cell in occludedGridCells)
+        {
+            if (!occupiedCells.Contains(cell) && !temporarilyHiddenGridCells.Contains(cell))
+            {
+                if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                    r.enabled = true;
+            }
+        }
+        occludedGridCells.Clear();
+
+        if (pieceCells == null || pieceCells.Count == 0) return;
+
+        // Parcanin snap sonrasi kapladigi hucreleri hesapla
+        var pieceBoardCells = new HashSet<Vector3Int>();
+        foreach (var c in pieceCells) pieceBoardCells.Add(c + snapOffset);
+
+        // Kamera isini ile capraz mesafe esigi
+        float perpThreshold = Step * 0.75f;
+
+        foreach (var targetCell in targetCells)
+        {
+            if (occupiedCells.Contains(targetCell)) continue;
+            if (pieceBoardCells.Contains(targetCell)) continue;
+
+            Vector3 targetWorld = CellToWorld(targetCell);
+            bool shouldOcclude = false;
+
+            foreach (var pieceCell in pieceBoardCells)
+            {
+                Vector3 pieceWorld = CellToWorld(pieceCell);
+                Vector3 camToPiece = pieceWorld - cameraPos;
+                float pieceDist = camToPiece.magnitude;
+                if (pieceDist < 0.001f) continue;
+
+                Vector3 camDir = camToPiece / pieceDist;
+
+                float targetProj = Vector3.Dot(targetWorld - cameraPos, camDir);
+                if (targetProj <= 0f || targetProj >= pieceDist) continue;
+
+                Vector3 closestPt = cameraPos + camDir * targetProj;
+                float perpDist = (targetWorld - closestPt).magnitude;
+
+                if (perpDist < perpThreshold)
+                {
+                    shouldOcclude = true;
+                    break;
+                }
+            }
+
+            if (shouldOcclude)
+            {
+                occludedGridCells.Add(targetCell);
+                if (targetRenderers.TryGetValue(targetCell, out var r) && r != null)
+                    r.enabled = false;
+            }
+        }
+    }
+    /// <summary>
+    /// Occlusion gizlemesini sıfırlar — sürükleme bittiğinde veya snap kaybolduğunda çağrılır.
+    /// </summary>
+    public void ClearOccludingCells()
+    {
+        foreach (var cell in occludedGridCells)
+        {
+            if (!occupiedCells.Contains(cell) && !temporarilyHiddenGridCells.Contains(cell))
+            {
+                if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                    r.enabled = true;
+            }
+        }
+        occludedGridCells.Clear();
     }
 }
