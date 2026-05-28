@@ -45,7 +45,99 @@ public class LevelManager : MonoBehaviour
         if (gridManager == null) gridManager = gameObject.AddComponent<GridManager>();
     }
 
-    private void Start() { }
+    private void Start()
+    {
+        InitializePremiumPalette();
+    }
+
+    private void InitializePremiumPalette()
+    {
+        // Define beautiful, modern, curated main colors (rich, harmonious, vibrant colors)
+        Color[] premiumColors = new Color[]
+        {
+            new Color(0.92f, 0.25f, 0.30f), // Curated Crimson Red
+            new Color(0.15f, 0.52f, 0.94f), // Sleek Cobalt Blue
+            new Color(0.18f, 0.77f, 0.44f), // Vibrant Emerald Green
+            new Color(0.96f, 0.76f, 0.13f), // Warm Gold/Yellow
+            new Color(0.94f, 0.44f, 0.24f), // Coral Orange
+            new Color(0.61f, 0.34f, 0.95f), // Electric Violet/Purple
+            new Color(0.08f, 0.75f, 0.78f)  // Luminous Cyan/Teal
+        };
+
+        // Try to find a template material to clone
+        Material template = null;
+        if (pieceMaterials != null && pieceMaterials.Length > 0)
+        {
+            // Try to find a material that doesn't use a shader with "PembeKup" in its name
+            template = pieceMaterials.FirstOrDefault(m => m != null && m.shader != null && !m.shader.name.Contains("PembeKup"));
+        }
+
+        // If that failed, search within prefabs for a non-PembeKup material
+        if (template == null && allPiecePrefabs != null)
+        {
+            foreach (var prefab in allPiecePrefabs)
+            {
+                if (prefab != null)
+                {
+                    var r = prefab.GetComponentInChildren<Renderer>();
+                    if (r != null && r.sharedMaterial != null && r.sharedMaterial.shader != null && !r.sharedMaterial.shader.name.Contains("PembeKup"))
+                    {
+                        template = r.sharedMaterial;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // If template is still null or uses the hardcoded PembeKup shader, let's create a fresh customizable material
+        if (template == null || (template.shader != null && template.shader.name.Contains("PembeKup")))
+        {
+            Shader standardShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (standardShader == null) standardShader = Shader.Find("Universal Render Pipeline/Simple Lit");
+            if (standardShader == null) standardShader = Shader.Find("Standard");
+
+            if (standardShader != null)
+            {
+                template = new Material(standardShader);
+            }
+            else if (pieceMaterials != null && pieceMaterials.Length > 0)
+            {
+                template = pieceMaterials.FirstOrDefault(m => m != null);
+            }
+        }
+
+        if (template != null)
+        {
+            List<Material> generatedMats = new List<Material>();
+            foreach (var col in premiumColors)
+            {
+                Material m = new Material(template);
+                m.name = $"PremiumMaterial_{col.r:F2}_{col.g:F2}_{col.b:F2}";
+                
+                if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
+                else if (m.HasProperty("_Color")) m.SetColor("_Color", col);
+
+                // Make the blocks look exceptionally premium, smooth and modern
+                if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", 0.7f);
+                if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", 0.1f);
+
+                // Set emission color to a subtle, matching glow to make the blocks pop beautifully
+                if (m.HasProperty("_EmissionColor"))
+                {
+                    m.SetColor("_EmissionColor", col * 0.25f);
+                    m.EnableKeyword("_EMISSION");
+                }
+                
+                generatedMats.Add(m);
+            }
+            pieceMaterials = generatedMats.ToArray();
+            Debug.Log($"[BM3D] Programmatically generated {pieceMaterials.Length} premium colors for pieceMaterials.");
+        }
+        else
+        {
+            Debug.LogError("[BM3D] Failed to find or create a template material for premium colors!");
+        }
+    }
 
     public void LoadLevel(LevelData level)
     {
