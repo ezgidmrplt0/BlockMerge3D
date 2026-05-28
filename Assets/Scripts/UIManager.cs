@@ -13,6 +13,7 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI timerText;
     public Image           scoreProgressBar; // YENİ: İlerleme barı görseli (Fill Type: Horizontal)
     public Image           timerRadialRing;  // YENİ: Dairesel süre göstergesi (Fill Type: Radial360)
+    public GameObject      badgeIcon;        // YENİ: Rozet görseli (Kaybolmasını engellemek için)
 
     [Header("Win Panel")]
     public CanvasGroup    winOverlay;
@@ -32,6 +33,18 @@ public class UIManager : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
+    private void Start()
+    {
+        if (timerText && scoreText)
+        {
+            timerText.color = scoreText.color;
+        }
+        if (badgeIcon)
+        {
+            badgeIcon.SetActive(true);
+        }
+    }
+
     // ─── Level Start ──────────────────────────────────────────────────────────
 
     public void OnLevelStart(int targetScore, float timeLimit)
@@ -43,6 +56,14 @@ public class UIManager : MonoBehaviour
         if (scoreProgressBar) scoreProgressBar.fillAmount = 0f;
         if (timerRadialRing) timerRadialRing.fillAmount = 1f;
         SetTargetScore(targetScore);
+        if (timerText && scoreText)
+        {
+            timerText.color = scoreText.color;
+        }
+        if (badgeIcon)
+        {
+            badgeIcon.SetActive(true);
+        }
         UpdateTimer(timeLimit, timeLimit);
     }
 
@@ -118,7 +139,7 @@ public class UIManager : MonoBehaviour
         if (timerText)
         {
             timerText.rectTransform.localScale = Vector3.one;
-            timerText.color = Color.white;
+            timerText.color = scoreText ? scoreText.color : Color.white;
         }
     }
 
