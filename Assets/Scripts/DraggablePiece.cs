@@ -302,12 +302,17 @@ public class DraggablePiece : MonoBehaviour
             transform.position = grid.OffsetToRoot(offset);
             transform.localScale = Vector3.one;
 
-            // 1. Önce çizgileri kontrol et ve temizle (yer açılsın)
-            var (cleared, bonusLines) = grid.CheckAndClearLines();
-            if (cleared > 0) GameManager.Instance?.OnLinesCleared(cleared, bonusLines);
+            // 1. Çizgileri kontrol et; merge animasyonu bittikten sonra kazanma bildir
+            //    onComplete lambda: merge bitti → GameManager'a sinyal ver (win panel açılır)
+            var (cleared, bonusLines) = grid.CheckAndClearLines(onComplete: () =>
+            {
+                GameManager.Instance?.OnMergeAnimationComplete();
+            });
 
-            // 2. Kazanma durumunu kontrol et
-            GameManager.Instance?.CheckWin();
+            // 2. Puan ve kazanma kontrolü (merge animasyonu başladıysa win panel ertelenir)
+            if (cleared > 0) GameManager.Instance?.OnLinesCleared(cleared, bonusLines);
+            else              GameManager.Instance?.CheckWin();
+
 
             // 3. LevelManager'a parça yerleşimini bildir (böylece Game Over kontrolü temizlenmiş tahta üzerinden yapılır)
             LevelManager.Instance?.OnPiecePlaced(this);

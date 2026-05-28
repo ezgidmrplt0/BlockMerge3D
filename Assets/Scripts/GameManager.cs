@@ -14,6 +14,8 @@ public class GameManager : MonoBehaviour
     public int Score { get; private set; }
 
     private bool  levelComplete;
+    private bool  pendingWin;          // Merge animasyonu biterken kazanma bekliyor
+    private bool  mergeAnimating;      // Şu an merge animasyonu devam ediyor
     private int   currentLevelIndex;
     private int   currentTargetScore;
     private float remainingTime;
@@ -53,6 +55,8 @@ public class GameManager : MonoBehaviour
     private void StartLevel(LevelData level)
     {
         levelComplete      = false;
+        pendingWin         = false;
+        mergeAnimating     = false;
         Score              = 0;
         currentTargetScore = level.targetScore;
         totalTime          = level.timeLimit;
@@ -72,8 +76,31 @@ public class GameManager : MonoBehaviour
         if (!won) return;
         levelComplete = true;
         timerRunning  = false;
-        UIManager.Instance?.ShowWinPanel(Score);
         Debug.Log($"Level {currentLevelIndex + 1} tamamlandı! Puan: {Score}");
+
+        // Merge animasyonu devam ediyorsa bitene kadar bekle
+        if (mergeAnimating)
+        {
+            pendingWin = true;
+        }
+        else
+        {
+            UIManager.Instance?.ShowWinPanel(Score);
+        }
+    }
+
+    /// <summary>
+    /// GridManager merge animasyonları tamamlandığında çağrılır.
+    /// Eğer bu sırada kazanma beklemedeyse win panelini gösterir.
+    /// </summary>
+    public void OnMergeAnimationComplete()
+    {
+        mergeAnimating = false;
+        if (pendingWin)
+        {
+            pendingWin = false;
+            UIManager.Instance?.ShowWinPanel(Score);
+        }
     }
 
     public void GameOver()
@@ -114,6 +141,9 @@ public class GameManager : MonoBehaviour
         Score += gained;
         UIManager.Instance?.AnimateScore(Score);
         Debug.Log($"Renk bonusu! {bonusLines} çizgi — +{gained} puan (toplam: {Score})");
+
+        // Merge animasyonu başladı — win panel animasyon bitmeden gösterilmeyecek
+        mergeAnimating = true;
         CheckWin();
     }
 }

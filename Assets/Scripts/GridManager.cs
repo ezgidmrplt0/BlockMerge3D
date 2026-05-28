@@ -96,9 +96,9 @@ public class GridManager : MonoBehaviour
         StartCoroutine(BumpAnimation(cube.transform));
     }
 
-    public (int cleared, int bonusLines) CheckAndClearLines()
+    public (int cleared, int bonusLines) CheckAndClearLines(System.Action onComplete = null)
     {
-        if (!lineClearEnabled) return (0, 0);
+        if (!lineClearEnabled) { onComplete?.Invoke(); return (0, 0); }
 
         var allLines = new List<List<Vector3Int>>();
 
@@ -121,7 +121,7 @@ public class GridManager : MonoBehaviour
                 if (line != null) allLines.Add(line);
             }
 
-        if (allLines.Count == 0) return (0, 0);
+        if (allLines.Count == 0) { onComplete?.Invoke(); return (0, 0); }
 
         int bonusLineCount = 0;
         var toClear = new HashSet<Vector3Int>();
@@ -133,10 +133,18 @@ public class GridManager : MonoBehaviour
             foreach (var cell in line) toClear.Add(cell);
         }
 
-        if (toClear.Count == 0) return (0, 0);
+        if (toClear.Count == 0) { onComplete?.Invoke(); return (0, 0); }
 
         var sorted = new List<Vector3Int>(toClear);
         sorted.Sort((a, b) => (a.x + a.y + a.z).CompareTo(b.x + b.y + b.z));
+
+        int pendingCount = sorted.Count;
+        System.Action onOneDone = null;
+        onOneDone = () =>
+        {
+            pendingCount--;
+            if (pendingCount <= 0) onComplete?.Invoke();
+        };
 
         for (int i = 0; i < sorted.Count; i++)
         {
@@ -153,7 +161,12 @@ public class GridManager : MonoBehaviour
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
-                AnimateAndDestroy(go, i * 0.025f, true);
+                AnimateAndDestroy(go, i * 0.03f, true, onOneDone);
+            }
+            else
+            {
+                // Nesne yoksa yine de sayacı düşür
+                onOneDone();
             }
         }
 
@@ -223,40 +236,88 @@ public class GridManager : MonoBehaviour
 
     private IEnumerator BumpAnimation(Transform target)
     {
+        if (target == null) yield break;
         Vector3 originalScale = Vector3.one * CellSize;
-        float duration = 0.2f;
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float t = elapsed / duration;
-            float scale = 1f + Mathf.Sin(t * Mathf.PI) * 0.2f;
-            target.localScale = originalScale * scale;
-            yield return null;
-        }
+        // Hızlı scale-up, sonra küçük overshoot ile geri dön
+        DOTween.Kill(target);
         target.localScale = originalScale;
+        target.DOScale(originalScale * 1.35f, 0.08f).SetEase(Ease.OutQuad)
+              .OnComplete(() =>
+              {
+                  if (target != null)
+                      target.DOScale(originalScale, 0.14f).SetEase(Ease.OutElastic);
+              });
+        yield break;
     }
 
-    private static void AnimateAndDestroy(GameObject go, float delay, bool isBonus)
+    private static void AnimateAndDestroy(GameObject go, float delay, bool isBonus, System.Action onDone = null)
     {
+        if (go == null) { onDone?.Invoke(); return; }
         var t = go.transform;
-        float drift   = isBonus ? 0.65f : 0.35f;
-        float upMin   = isBonus ? 0.35f : 0.15f;
-        float upMax   = isBonus ? 0.90f : 0.55f;
-        float scaleUp = isBonus ? 1.6f  : 1.3f;
+        Vector3 origin = t.position;
 
-        Vector3 d = new Vector3(
-            Random.Range(-drift, drift),
-            Random.Range(upMin, upMax),
-            Random.Range(-drift, drift));
+        // --- Merge (bonus) efekti: flash → radyal patlama → merkeze çekim (implode) ---
+        if (isBonus)
+        {
+            // Flash için tüm renderer'lara erişelim
+            var renderers = go.GetComponentsInChildren<Renderer>();
+            Color[] originalColors = new Color[renderers.Length];
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                var mat = renderers[i].material;
+                originalColors[i] = mat.HasProperty("_BaseColor") ? mat.GetColor("_BaseColor")
+                                  : mat.HasProperty("_Color")     ? mat.GetColor("_Color")
+                                  : Color.white;
+            }
 
-        var seq = DOTween.Sequence().SetLink(go);
-        if (delay > 0f) seq.AppendInterval(delay);
-        seq.Append(t.DOScale(t.localScale * scaleUp, isBonus ? 0.10f : 0.07f).SetEase(Ease.OutElastic));
-        seq.Join(t.DOMove(t.position + d, isBonus ? 0.38f : 0.28f).SetEase(Ease.OutCubic));
-        if (isBonus) seq.AppendInterval(0.04f);
-        seq.Append(t.DOScale(Vector3.zero, isBonus ? 0.20f : 0.16f).SetEase(Ease.InBack));
-        seq.OnComplete(() => { if (go != null) Object.Destroy(go); });
+            // Rastgele radyal patlama yönü
+            Vector3 blastDir = new Vector3(
+                Random.Range(-1f, 1f),
+                Random.Range(0.2f, 1f),
+                Random.Range(-1f, 1f)).normalized;
+            float blastDist = Random.Range(0.55f, 1.0f);
+            Vector3 blastTarget = origin + blastDir * blastDist;
+
+            var seq = DOTween.Sequence().SetLink(go);
+            if (delay > 0f) seq.AppendInterval(delay);
+
+            // 1. Flash: hızlı scale-up + emit parlaması
+            seq.Append(t.DOScale(t.localScale * 1.5f, 0.07f).SetEase(Ease.OutQuad));
+            seq.Join(t.DOMove(blastTarget, 0.12f).SetEase(Ease.OutQuad));
+
+            // 2. Kısa tutunma
+            seq.AppendInterval(0.04f);
+
+            // 3. Implode: merkeze geri çekilip sıfırla
+            seq.Append(t.DOMove(origin, 0.18f).SetEase(Ease.InCubic));
+            seq.Join(t.DOScale(Vector3.zero, 0.18f).SetEase(Ease.InBack));
+
+            seq.OnComplete(() =>
+            {
+                if (go != null) Object.Destroy(go);
+                onDone?.Invoke();
+            });
+        }
+        else
+        {
+            // Normal (non-bonus) yerleştirme geri alma efekti — mevcut sade animasyon
+            float drift = 0.35f;
+            Vector3 d = new Vector3(
+                Random.Range(-drift, drift),
+                Random.Range(0.1f, 0.45f),
+                Random.Range(-drift, drift));
+
+            var seq = DOTween.Sequence().SetLink(go);
+            if (delay > 0f) seq.AppendInterval(delay);
+            seq.Append(t.DOScale(t.localScale * 1.3f, 0.07f).SetEase(Ease.OutBack));
+            seq.Join(t.DOMove(t.position + d, 0.22f).SetEase(Ease.OutCubic));
+            seq.Append(t.DOScale(Vector3.zero, 0.14f).SetEase(Ease.InBack));
+            seq.OnComplete(() =>
+            {
+                if (go != null) Object.Destroy(go);
+                onDone?.Invoke();
+            });
+        }
     }
 
     public Vector3 CellToWorld(Vector3Int cell)

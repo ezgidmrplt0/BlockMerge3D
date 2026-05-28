@@ -48,6 +48,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private string levelName    = "NewLevel";
     private float  levelTime    = 60f;
     private int    levelTarget  = 100;
+    private bool   appendPieces = false; // true: mevcut level'a ekle, false: yeniden yaz
 
     private GameObject          cubePrefab;
     private GameObject          currentShapeObject;
@@ -260,6 +261,27 @@ public class CubeShapeEditorWindow : EditorWindow
                 levelName   = EditorGUILayout.TextField(levelName);
                 levelTime   = EditorGUILayout.FloatField("Süre (sn)", levelTime);
                 levelTarget = EditorGUILayout.IntField("Hedef Puan", levelTarget);
+
+                // Append/Overwrite seçeneği — mevcut bir level dosyası varsa göster
+                string existingLdPath = $"{LEVELS_PATH}/{levelName}/{levelName}_LevelData.asset";
+                bool levelExists = System.IO.File.Exists(existingLdPath);
+                if (levelExists)
+                {
+                    EditorGUILayout.Space(4);
+                    GUI.backgroundColor = appendPieces ? new Color(0.4f, 1f, 0.6f, 0.8f) : new Color(1f, 0.6f, 0.4f, 0.8f);
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.LabelField("⚠ Bu level zaten mevcut!", EditorStyles.miniBoldLabel);
+                    appendPieces = EditorGUILayout.Toggle(
+                        appendPieces ? "✅ Parça Ekle (Append)" : "🔄 Yeniden Yaz (Overwrite)",
+                        appendPieces);
+                    EditorGUILayout.EndVertical();
+                    GUI.backgroundColor = Color.white;
+                }
+                else
+                {
+                    appendPieces = false; // Yeni level için her zaman overwrite
+                }
+
                 EditorGUILayout.Space(4);
                 DrawPieceList();
 
@@ -272,7 +294,8 @@ public class CubeShapeEditorWindow : EditorWindow
 
                 EditorGUI.BeginDisabledGroup(!allPiecesHaveCells);
                 GUI.backgroundColor = new Color(0.4f, 1f, 0.5f, 0.9f);
-                if (GUILayout.Button("EXPORT LEVEL", GUILayout.Height(36))) ExportLevel();
+                string exportLabel = appendPieces && levelExists ? "PARÇA EKLE (APPEND)" : "EXPORT LEVEL";
+                if (GUILayout.Button(exportLabel, GUILayout.Height(36))) ExportLevel();
                 GUI.backgroundColor = Color.white;
                 EditorGUI.EndDisabledGroup();
             }
@@ -981,6 +1004,52 @@ public class CubeShapeEditorWindow : EditorWindow
         AssetDatabase.Refresh();
 
         float step = cellSize + spacing;
+        string ldPath = $"{levelDir}/{levelName}_LevelData.asset";
+        LevelData existingLd = AssetDatabase.LoadAssetAtPath<LevelData>(ldPath);
+
+        // ─── APPEND MODE ───────────────────────────────────────────────────────
+        if (appendPieces && existingLd != null)
+        {
+            var newPrefabs = new List<GameObject>();
+
+            for (int i = 0; i < pieceCount; i++)
+            {
+                List<Vector3Int> cells = pieceCells.Count > i ? pieceCells[i].ToList() : new List<Vector3Int>();
+                int existingCount = existingLd.complementaryPieces.Count;
+                int newIndex = existingCount + i + 1;
+                string piecePath = $"{levelDir}/{levelName}_Piece_{newIndex}.prefab";
+
+                GameObject pRoot = new GameObject($"{levelName}_Piece_{newIndex}");
+                var ph = pRoot.AddComponent<CubeShapeDataHolder>();
+                ph.shapeName = $"{levelName}_Piece_{newIndex}";
+                ph.gridSize = gridSize; ph.cellSize = cellSize; ph.spacing = spacing;
+                ph.occupiedCells = new List<Vector3Int>(cells);
+                foreach (var cell in cells)
+                {
+                    GameObject cube = cubePrefab != null
+                        ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                        : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    cube.transform.SetParent(pRoot.transform);
+                    cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+                    cube.transform.localScale = Vector3.one * cellSize;
+                    cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+                }
+                newPrefabs.Add(PrefabUtility.SaveAsPrefabAsset(pRoot, piecePath));
+                DestroyImmediate(pRoot);
+            }
+
+            // Mevcut LevelData'ya parçaları ekle
+            foreach (var p in newPrefabs)
+                existingLd.complementaryPieces.Add(p);
+
+            EditorUtility.SetDirty(existingLd);
+            AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
+            EditorUtility.DisplayDialog("Parçalar Eklendi!",
+                $"{pieceCount} yeni parça → {ldPath}\nToplam parça: {existingLd.complementaryPieces.Count}", "Tamam");
+            return;
+        }
+
+        // ─── OVERWRITE / NEW MODE ─────────────────────────────────────────────
         var piecePrefabs = new List<GameObject>();
 
         for (int i = 0; i < pieceCount; i++)
@@ -1024,8 +1093,7 @@ public class CubeShapeEditorWindow : EditorWindow
         GameObject savedFull = PrefabUtility.SaveAsPrefabAsset(fullRoot, fullPath);
         DestroyImmediate(fullRoot);
 
-        string ldPath = $"{levelDir}/{levelName}_LevelData.asset";
-        if (AssetDatabase.LoadAssetAtPath<LevelData>(ldPath) != null)
+        if (existingLd != null)
             AssetDatabase.DeleteAsset(ldPath);
 
         LevelData ld              = ScriptableObject.CreateInstance<LevelData>();
@@ -1039,6 +1107,8 @@ public class CubeShapeEditorWindow : EditorWindow
         EditorUtility.DisplayDialog("Export Tamamlandı!",
             $"{pieceCount} parça  •  1 tam şekil  •  1 LevelData\n\n{levelDir}/", "Tamam");
     }
+
+
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
 
