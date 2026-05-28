@@ -269,7 +269,7 @@ public class LevelManager : MonoBehaviour
         {
             int smallIdx = FindSmallestPieceIndex();
             activeIsSmart.Add(true);
-            SpawnPieceAtIndex(smallIdx, Quaternion.identity, GetDominantMaterialOnGrid(), targetCard);
+            SpawnPieceAtIndex(smallIdx, GetRandom90DegreeRotation(), GetDominantMaterialOnGrid(), targetCard);
         }
         else if (shouldBeSmart)
         {
@@ -286,11 +286,19 @@ public class LevelManager : MonoBehaviour
         {
             int index = validIndices[Random.Range(0, validIndices.Count)];
             activeIsSmart.Add(false);
-            SpawnPieceAtIndex(index, Quaternion.identity, null, targetCard);
+            SpawnPieceAtIndex(index, GetRandom90DegreeRotation(), null, targetCard);
         }
 
         // Parca uretildikten sonra hala hamle var mi bak
         CheckGameOver();
+    }
+
+    private Quaternion GetRandom90DegreeRotation()
+    {
+        float rx = Random.Range(0, 4) * 90f;
+        float ry = Random.Range(0, 4) * 90f;
+        float rz = Random.Range(0, 4) * 90f;
+        return Quaternion.Euler(rx, ry, rz);
     }
 
     private int FindSmallestPieceIndex()

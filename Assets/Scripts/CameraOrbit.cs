@@ -114,19 +114,58 @@ public class CameraOrbit : MonoBehaviour
 
         Camera cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
-        if (cam == null) return;
+        if (cam == null) 
+        {
+            Debug.LogError("[BM3D Camera] No Camera found in FitInView!");
+            return;
+        }
 
         // Sahneyi kameraya sığdıracak doğru mesafeyi hesapla
         float radius   = bounds.extents.magnitude;
-        float vHalfRad = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
-        float hHalfRad = Mathf.Atan(Mathf.Tan(vHalfRad) * cam.aspect);
-        float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
-        float distance = (radius / Mathf.Tan(minHalf)) * 1.18f;
         
-        // Kamerayı izometrik 3D gösterecek şekilde, tüm sahnenin (tahta + slotlar) merkezini baz alarak konumlandır (İlk yüklemede 1 kez)
-        Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
-        transform.rotation = rot;
-        transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
+        if (cam.orthographic)
+        {
+            // --- ORTHOGRAPHIC PROJECTION ---
+            float requiredSize = radius;
+            if (cam.aspect > 0f)
+            {
+                requiredSize = Mathf.Max(radius, radius / cam.aspect);
+            }
+            
+            // Dinamik sığdırma katsayısı (Grid boyutuna göre konforlu kenar boşluğu)
+            float multiplier = 1.15f + (radius * 0.05f);
+            float oldOrthSize = cam.orthographicSize;
+            cam.orthographicSize = requiredSize * multiplier;
+
+            Debug.Log($"[BM3D Camera] Orthographic mode detected. Bounds Center: {bounds.center}, Extents: {bounds.extents}, Radius: {radius}, Aspect: {cam.aspect}, Multiplier: {multiplier}, Orthographic Size changed from {oldOrthSize} to {cam.orthographicSize}");
+
+            // Kırpılmayı önlemek için kamerayı yine de güvenli bir arkaya konumlandırıyoruz
+            float distance = radius * 4f;
+            Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
+            transform.rotation = rot;
+            Vector3 oldPos = transform.position;
+            transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
+            
+            Debug.Log($"[BM3D Camera] Camera position changed from {oldPos} to {transform.position} (Distance: {distance})");
+        }
+        else
+        {
+            // --- PERSPECTIVE PROJECTION ---
+            float vHalfRad = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
+            float hHalfRad = Mathf.Atan(Mathf.Tan(vHalfRad) * cam.aspect);
+            float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
+            float multiplier = 2.0f + (radius * 0.15f);
+            float distance = (radius / Mathf.Tan(minHalf)) * multiplier;
+
+            Debug.Log($"[BM3D Camera] Perspective mode detected. Bounds Center: {bounds.center}, Extents: {bounds.extents}, Radius: {radius}, FOV: {cam.fieldOfView}, Aspect: {cam.aspect}, Multiplier: {multiplier}, Calculated Distance: {distance}");
+
+            Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
+            transform.rotation = rot;
+            Vector3 oldPos = transform.position;
+            transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
+            
+            Debug.Log($"[BM3D Camera] Camera position changed from {oldPos} to {transform.position}");
+        }
 
         // Küpün yeni başlangıç rotasyonunu belirle
         Transform targetRotate = pivot != null ? pivot : cube;
