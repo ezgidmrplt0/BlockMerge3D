@@ -37,11 +37,12 @@ public class DraggablePiece : MonoBehaviour
     private Vector3 dragStartPos;
     private float dragStartScale = 1f;
 
-    private static DraggablePiece activeDrag;
+    public static DraggablePiece activeDrag;
     public static bool IsDragging => activeDrag != null;
 
     public bool IsBeingDragged => isDragging;
     public bool IsPlaced       => isPlaced;
+    public List<Vector3Int> CurrentCells => currentCells;
 
     public static void RequestRotateY() { if (activeDrag != null) activeDrag.RotateAroundY(); }
     public static void RequestRotateX() { if (activeDrag != null) activeDrag.RotateAroundX(); }
@@ -68,6 +69,7 @@ public class DraggablePiece : MonoBehaviour
         isDragging          = true;
         activeDrag          = this;
         secondTouchConsumed = false;
+        if (grid != null) grid.StartVisualFocus(this);
 
         // Sürükleme düzlemini hazırla
         dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
@@ -123,6 +125,7 @@ public class DraggablePiece : MonoBehaviour
     {
         if (grid != null) grid.ClearSnappedPreviewCells();
         if (grid != null) grid.ClearOccludingCells();
+        if (grid != null) grid.StopVisualFocus(this);
     }
 
     private void Update()
@@ -171,6 +174,7 @@ public class DraggablePiece : MonoBehaviour
         activeDrag          = this;
         secondTouchConsumed = false;
         dragLerpProgress    = 1f; // Karttan olmadığı için animasyon yok
+        if (grid != null) grid.StartVisualFocus(this);
 
         // Origin dunya pozisyonuna geri döndük
         dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
@@ -235,7 +239,7 @@ public class DraggablePiece : MonoBehaviour
             isSnapped = true;
             if (!wasSnapped)
             {
-                Debug.Log($"[BM3D Debug] Grid Snap aktifle\u015fti! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
+                Debug.Log($"[BM3D Debug] Grid Snap aktifleştir! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
             }
 
             // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat
@@ -245,6 +249,9 @@ public class DraggablePiece : MonoBehaviour
 
             // Ilk mekanik: kamera-isini yaklasimi ile snap konumundaki hucreler gizlenir
             grid.UpdateOccludingCells(mainCam.transform.position, currentCells, snapOff);
+
+            // Görsel odak sistemi güncellemesi
+            grid.UpdateVisualFocus(this, true, snapOff);
         }
         else
         {
@@ -257,6 +264,9 @@ public class DraggablePiece : MonoBehaviour
             // Snap kaybolduysa gecici olarak gizlenmis grid hucrelerini geri goster
             grid.ClearSnappedPreviewCells();
             grid.ClearOccludingCells();
+
+            // Görsel odak sistemi güncellemesi (snap yok)
+            grid.UpdateVisualFocus(this, false, Vector3Int.zero);
         }
     }
 
@@ -269,6 +279,7 @@ public class DraggablePiece : MonoBehaviour
         // Sürükleme bittiği için snapten ve X-Ray occlusion'dan kaynaklı gizlenen gridleri geri açıyoruz
         if (grid != null) grid.ClearSnappedPreviewCells();
         if (grid != null) grid.ClearOccludingCells();
+        if (grid != null) grid.StopVisualFocus(this);
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 

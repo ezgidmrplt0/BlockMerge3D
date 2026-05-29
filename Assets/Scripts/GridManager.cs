@@ -225,6 +225,7 @@ public class GridManager : MonoBehaviour
 
     public void ClearAllCellObjects()
     {
+        StopVisualFocus(null);
         ClearOccludingCells();
         foreach (var go in cellObjects.Values)
         {
@@ -362,20 +363,113 @@ public class GridManager : MonoBehaviour
     public bool TryFindSnapOffset(List<Vector3Int> cells, Ray ray, float maxDist, out Vector3Int result)
     {
         result = Vector3Int.zero;
-        // Limit snap distance to a very generous 4.5 units to ensure smooth and easy snapping to all valid areas
+        
+        // 1. Raycast-based precision target alignment (hitCell + hitNormal)
+        Camera mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
+            RaycastHit[] hits = Physics.RaycastAll(mouseRay, 100f);
+            
+            // Sort hits by distance
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            
+            foreach (var hit in hits)
+            {
+                // Ignore hits on the dragged piece itself or its children
+                if (hit.collider == null) continue;
+                if (DraggablePiece.activeDrag != null && 
+                    (hit.transform.IsChildOf(DraggablePiece.activeDrag.transform) || hit.transform == DraggablePiece.activeDrag.transform))
+                {
+                    continue;
+                }
+                
+                // Get the grid coordinate of the hit block
+                Vector3Int hitCell = RootToOffset(hit.collider.transform.position);
+                
+                // Verify the hit cell is a valid grid cell (guide cell or occupied cell)
+                if (targetCells.Contains(hitCell) || occupiedCells.Contains(hitCell))
+                {
+                    // Convert hit normal to Vector3Int cardinal direction
+                    Vector3Int normalInt = new Vector3Int(
+                        Mathf.RoundToInt(hit.normal.x),
+                        Mathf.RoundToInt(hit.normal.y),
+                        Mathf.RoundToInt(hit.normal.z)
+                    );
+                    
+                    Vector3Int targetAnchorCell = hitCell + normalInt;
+                    
+                    // Find which block of the dragged piece is closest in world space to the hit point
+                    int closestIndex = 0;
+                    float minWorldDist = float.MaxValue;
+                    for (int i = 0; i < cells.Count; i++)
+                    {
+                        Vector3 cellWorldPos = CellToWorld(cells[i]);
+                        float dist = Vector3.Distance(cellWorldPos, hit.point);
+                        if (dist < minWorldDist)
+                        {
+                            minWorldDist = dist;
+                            closestIndex = i;
+                        }
+                    }
+                    
+                    Vector3Int snapOff = targetAnchorCell - cells[closestIndex];
+                    
+                    // Check if this snap offset keeps the entire piece within target boundaries
+                    bool outOfBounds = false;
+                    foreach (var cell in cells)
+                    {
+                        Vector3Int g = cell + snapOff;
+                        if (!targetCells.Contains(g))
+                        {
+                            outOfBounds = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!outOfBounds)
+                    {
+                        result = snapOff;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // 2. Proximity-based Snapping Fallback (when dragging in empty space near the grid)
         float minD = 4.5f; 
         bool found = false;
-
         var seen = new HashSet<Vector3Int>();
+        
+        float bestValidD = 4.5f;
+        Vector3Int bestValidOff = Vector3Int.zero;
+        bool foundValid = false;
+
+        float bestInvalidD = 3.0f; 
+        Vector3Int bestInvalidOff = Vector3Int.zero;
+        bool foundInvalid = false;
+
         foreach (var t in targetCells)
         {
             foreach (var c in cells)
             {
                 var off = t - c;
                 if (!seen.Add(off)) continue;
-                if (!CanPlace(cells, off)) continue;
 
-                // Parçanın yerleşeceği tüm hücrelerin görsel ağırlık merkezini (Visual Center) hesapla
+                // Check if all snapped cells are within the target grid shape boundaries
+                bool outOfBounds = false;
+                foreach (var cell in cells)
+                {
+                    Vector3Int g = cell + off;
+                    if (!targetCells.Contains(g))
+                    {
+                        outOfBounds = true;
+                        break;
+                    }
+                }
+                if (outOfBounds) continue;
+
+                // Visual Center of the snapped piece cells
                 Vector3 snappedCenter = Vector3.zero;
                 foreach (var cell in cells)
                 {
@@ -383,17 +477,60 @@ public class GridManager : MonoBehaviour
                 }
                 snappedCenter /= cells.Count;
 
-                // Sürüklenen parçanın merkezinden çıkan ışının, hedef merkezine olan dikey mesafesini ölç
+                // Distance from center to the drag ray
                 float d = Vector3.Cross(ray.direction, snappedCenter - ray.origin).magnitude;
-                if (d < minD) 
-                { 
-                    minD = d; 
-                    result = off; 
-                    found = true; 
+                
+                bool isValid = CanPlace(cells, off);
+                if (isValid)
+                {
+                    if (d < bestValidD)
+                    {
+                        bestValidD = d;
+                        bestValidOff = off;
+                        foundValid = true;
+                    }
+                }
+                else
+                {
+                    if (d < bestInvalidD)
+                    {
+                        bestInvalidD = d;
+                        bestInvalidOff = off;
+                        foundInvalid = true;
+                    }
                 }
             }
         }
-        return found;
+
+        if (foundValid)
+        {
+            result = bestValidOff;
+            return true;
+        }
+        else if (foundInvalid)
+        {
+            result = bestInvalidOff;
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool IsSupported(List<Vector3Int> cells, Vector3Int offset)
+    {
+        // A rigid piece is structurally supported if at least one of its blocks is supported underneath (either floor or occupied cell)
+        foreach (var c in cells)
+        {
+            var g = c + offset;
+            // 1. Supported by floor
+            if (g.y <= 0 || g.y <= gridMinY) return true;
+
+            // 2. Supported by an occupied cell directly underneath
+            if (occupiedCells.Contains(new Vector3Int(g.x, g.y - 1, g.z))) return true;
+        }
+
+        // If no blocks have any support underneath, the entire piece is floating in mid-air!
+        return false;
     }
 
     public bool CanPlace(List<Vector3Int> cells, Vector3Int offset)
@@ -405,6 +542,10 @@ public class GridManager : MonoBehaviour
             if (occupiedCells.Contains(g)) return false;
             if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
         }
+
+        // Support check: no blocks floating in the air, must sit on ground or previously placed blocks
+        if (!IsSupported(cells, offset)) return false;
+
         return true;
     }
 
@@ -430,6 +571,7 @@ public class GridManager : MonoBehaviour
 
     public void UpdateSnappedPreviewCells(List<Vector3Int> snappedCells)
     {
+        if (isFocusModeActive) return;
         var newSnapped = new HashSet<Vector3Int>(snappedCells);
         
         // 1. Önce eski gizlenmiş olanlardan artık snaplenmeyenleri geri göster
@@ -464,6 +606,7 @@ public class GridManager : MonoBehaviour
 
     public void ClearSnappedPreviewCells()
     {
+        if (isFocusModeActive) return;
         foreach (var cell in temporarilyHiddenGridCells)
         {
             if (!occupiedCells.Contains(cell))
@@ -674,5 +817,389 @@ public class GridManager : MonoBehaviour
             }
         }
         occludedGridCells.Clear();
+    }
+
+    // --- Visual Focus System ---
+    
+    public enum VisualState
+    {
+        Normal,
+        Darkened,
+        HighlightedValid,
+        HighlightedInvalid
+    }
+
+    private Dictionary<Renderer, Color> originalBaseColors = new Dictionary<Renderer, Color>();
+    private Dictionary<Renderer, Color> originalEmissionColors = new Dictionary<Renderer, Color>();
+    
+    private Dictionary<Renderer, Color> pieceOriginalBaseColors = new Dictionary<Renderer, Color>();
+    private Dictionary<Renderer, Color> pieceOriginalEmissionColors = new Dictionary<Renderer, Color>();
+
+    private Dictionary<Renderer, VisualState> activeStates = new Dictionary<Renderer, VisualState>();
+    private bool isFocusModeActive = false;
+
+    public void StartVisualFocus(DraggablePiece piece)
+    {
+        if (isFocusModeActive) StopVisualFocus(piece);
+
+        isFocusModeActive = true;
+        activeStates.Clear();
+        originalBaseColors.Clear();
+        originalEmissionColors.Clear();
+        pieceOriginalBaseColors.Clear();
+        pieceOriginalEmissionColors.Clear();
+
+        // 1. Save original colors for all target (guide) renderers
+        foreach (var kvp in targetRenderers)
+        {
+            Renderer r = kvp.Value;
+            if (r == null) continue;
+            
+            Material mat = r.material; // Instantiates the material
+            
+            Color baseCol = Color.white;
+            if (mat.HasProperty("_BaseColor")) baseCol = mat.GetColor("_BaseColor");
+            else if (mat.HasProperty("_Color")) baseCol = mat.GetColor("_Color");
+            originalBaseColors[r] = baseCol;
+
+            Color emissiveCol = Color.clear;
+            if (mat.HasProperty("_EmissionColor")) emissiveCol = mat.GetColor("_EmissionColor");
+            originalEmissionColors[r] = emissiveCol;
+
+            r.enabled = true;
+        }
+
+        // 2. Save original colors for all placed block renderers
+        foreach (var kvp in cellObjects)
+        {
+            GameObject go = kvp.Value;
+            if (go == null) continue;
+            foreach (var r in go.GetComponentsInChildren<Renderer>())
+            {
+                if (r == null) continue;
+                
+                Material mat = r.material; // Instantiate material
+                
+                Color baseCol = Color.white;
+                if (mat.HasProperty("_BaseColor")) baseCol = mat.GetColor("_BaseColor");
+                else if (mat.HasProperty("_Color")) baseCol = mat.GetColor("_Color");
+                originalBaseColors[r] = baseCol;
+
+                Color emissiveCol = Color.clear;
+                if (mat.HasProperty("_EmissionColor")) emissiveCol = mat.GetColor("_EmissionColor");
+                originalEmissionColors[r] = emissiveCol;
+            }
+        }
+
+        // 3. Save original colors for the dragged piece's renderers
+        if (piece != null)
+        {
+            foreach (var r in piece.GetComponentsInChildren<Renderer>())
+            {
+                if (r == null) continue;
+                
+                Material mat = r.material; // Instantiate material
+                
+                Color baseCol = Color.white;
+                if (mat.HasProperty("_BaseColor")) baseCol = mat.GetColor("_BaseColor");
+                else if (mat.HasProperty("_Color")) baseCol = mat.GetColor("_Color");
+                pieceOriginalBaseColors[r] = baseCol;
+
+                Color emissiveCol = Color.clear;
+                if (mat.HasProperty("_EmissionColor")) emissiveCol = mat.GetColor("_EmissionColor");
+                pieceOriginalEmissionColors[r] = emissiveCol;
+            }
+        }
+
+        // 4. Initially fade everything to Darkened state (except the dragged piece)
+        float fadeDuration = 0.2f;
+        foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Value != null)
+            {
+                TransitionToState(kvp.Value, VisualState.Darkened, fadeDuration);
+            }
+        }
+        foreach (var kvp in cellObjects)
+        {
+            if (kvp.Value != null)
+            {
+                foreach (var r in kvp.Value.GetComponentsInChildren<Renderer>())
+                {
+                    if (r != null)
+                    {
+                        TransitionToState(r, VisualState.Darkened, fadeDuration);
+                    }
+                }
+            }
+        }
+        if (piece != null)
+        {
+            foreach (var r in piece.GetComponentsInChildren<Renderer>())
+            {
+                if (r != null)
+                {
+                    TransitionToState(r, VisualState.Normal, fadeDuration);
+                }
+            }
+        }
+    }
+
+    public void UpdateVisualFocus(DraggablePiece piece, bool isSnapped, Vector3Int snapOffset)
+    {
+        if (!isFocusModeActive || piece == null) return;
+
+        Dictionary<Renderer, VisualState> desiredStates = new Dictionary<Renderer, VisualState>();
+
+        var pieceChildren = new List<Transform>();
+        foreach (Transform t in piece.transform) pieceChildren.Add(t);
+
+        var currentCells = piece.CurrentCells;
+        if (currentCells == null || currentCells.Count == 0) return;
+
+        bool placementValid = isSnapped && CanPlace(currentCells, snapOffset);
+
+        // Initialize all grid renderers to Darkened by default
+        foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Value != null) desiredStates[kvp.Value] = VisualState.Darkened;
+        }
+        foreach (var kvp in cellObjects)
+        {
+            if (kvp.Value != null)
+            {
+                foreach (var r in kvp.Value.GetComponentsInChildren<Renderer>())
+                {
+                    if (r != null) desiredStates[r] = VisualState.Darkened;
+                }
+            }
+        }
+
+        // Initialize all piece renderers to Normal by default
+        foreach (var r in piece.GetComponentsInChildren<Renderer>())
+        {
+            if (r != null) desiredStates[r] = VisualState.Normal;
+        }
+
+        if (isSnapped)
+        {
+            for (int i = 0; i < currentCells.Count; i++)
+            {
+                Vector3Int cell = currentCells[i];
+                Vector3Int gridCell = cell + snapOffset;
+
+                Renderer pieceChildRenderer = null;
+                if (i < pieceChildren.Count && pieceChildren[i] != null)
+                {
+                    pieceChildRenderer = pieceChildren[i].GetComponentInChildren<Renderer>();
+                }
+
+                if (placementValid)
+                {
+                    // VALID placement:
+                    if (targetRenderers.TryGetValue(gridCell, out var targetRenderer) && targetRenderer != null)
+                    {
+                        desiredStates[targetRenderer] = VisualState.HighlightedValid;
+                        targetRenderer.enabled = true;
+                    }
+                    
+                    if (pieceChildRenderer != null)
+                    {
+                        desiredStates[pieceChildRenderer] = VisualState.Normal;
+                    }
+                }
+                else
+                {
+                    // INVALID placement:
+                    bool isOverlap = occupiedCells.Contains(gridCell);
+
+                    if (isOverlap)
+                    {
+                        if (cellObjects.TryGetValue(gridCell, out var placedGo) && placedGo != null)
+                        {
+                            foreach (var r in placedGo.GetComponentsInChildren<Renderer>())
+                            {
+                                if (r != null) desiredStates[r] = VisualState.HighlightedInvalid;
+                            }
+                        }
+                    }
+
+                    if (pieceChildRenderer != null)
+                    {
+                        desiredStates[pieceChildRenderer] = VisualState.HighlightedInvalid;
+                    }
+
+                    if (targetCells.Contains(gridCell))
+                    {
+                        if (targetRenderers.TryGetValue(gridCell, out var targetRenderer) && targetRenderer != null)
+                        {
+                            desiredStates[targetRenderer] = VisualState.HighlightedInvalid;
+                            targetRenderer.enabled = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        float fadeDuration = 0.15f; // fast 150ms fade
+        foreach (var kvp in desiredStates)
+        {
+            Renderer r = kvp.Key;
+            VisualState desiredState = kvp.Value;
+
+            if (!activeStates.TryGetValue(r, out VisualState currentState) || currentState != desiredState)
+            {
+                activeStates[r] = desiredState;
+                TransitionToState(r, desiredState, fadeDuration);
+            }
+        }
+    }
+
+    public void StopVisualFocus(DraggablePiece piece)
+    {
+        if (!isFocusModeActive) return;
+
+        isFocusModeActive = false;
+        float fadeDuration = 0.2f;
+
+        // Restore all grid target renderers to normal
+        foreach (var kvp in targetRenderers)
+        {
+            Renderer r = kvp.Value;
+            if (r == null) continue;
+            
+            TransitionToState(r, VisualState.Normal, fadeDuration);
+            
+            Vector3Int cell = kvp.Key;
+            r.enabled = !occupiedCells.Contains(cell);
+        }
+
+        // Restore all grid placed block renderers to normal
+        foreach (var kvp in cellObjects)
+        {
+            GameObject go = kvp.Value;
+            if (go == null) continue;
+            foreach (var r in go.GetComponentsInChildren<Renderer>())
+            {
+                if (r == null) continue;
+                TransitionToState(r, VisualState.Normal, fadeDuration);
+            }
+        }
+
+        // Restore dragged piece's renderers to normal
+        if (piece != null)
+        {
+            foreach (var r in piece.GetComponentsInChildren<Renderer>())
+            {
+                if (r == null) continue;
+                TransitionToState(r, VisualState.Normal, fadeDuration);
+            }
+        }
+
+        activeStates.Clear();
+        originalBaseColors.Clear();
+        originalEmissionColors.Clear();
+        pieceOriginalBaseColors.Clear();
+        pieceOriginalEmissionColors.Clear();
+    }
+
+    private void TransitionToState(Renderer r, VisualState state, float duration)
+    {
+        if (r == null) return;
+
+        r.material.DOKill();
+
+        Color targetBase;
+        Color targetEmission;
+        bool enableEmission = false;
+
+        bool isPieceRenderer = pieceOriginalBaseColors.ContainsKey(r);
+        
+        if (isPieceRenderer)
+        {
+            Color origBase = pieceOriginalBaseColors[r];
+            Color origEmis = pieceOriginalEmissionColors[r];
+
+            switch (state)
+            {
+                case VisualState.Normal:
+                case VisualState.Darkened:
+                default:
+                    targetBase = origBase;
+                    targetEmission = origEmis;
+                    enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
+                    break;
+
+                case VisualState.HighlightedInvalid:
+                    // Gentler warning overlay
+                    targetBase = Color.Lerp(origBase, new Color(0.9f, 0.2f, 0.2f, 1f), 0.5f);
+                    targetEmission = new Color(0.9f, 0.2f, 0.2f) * 0.25f;
+                    enableEmission = true;
+                    break;
+            }
+        }
+        else
+        {
+            if (!originalBaseColors.TryGetValue(r, out Color origBase)) return;
+            originalEmissionColors.TryGetValue(r, out Color origEmis);
+
+            switch (state)
+            {
+                case VisualState.Normal:
+                default:
+                    targetBase = origBase;
+                    targetEmission = origEmis;
+                    enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
+                    break;
+
+                case VisualState.Darkened:
+                    // Darken significantly (40% of original color) to create supreme contrast
+                    targetBase = origBase * 0.4f;
+                    // For transparent guide cubes, also reduce alpha significantly so they fade deeply into background
+                    targetBase.a = origBase.a * 0.4f;
+                    targetEmission = origEmis * 0.4f;
+                    enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
+                    break;
+
+                case VisualState.HighlightedValid:
+                    // Elegant, modern semi-transparent green/blue (teal) ghost preview
+                    Color greenBlueBase = new Color(0.0f, 0.9f, 0.7f, 0.75f);
+                    targetBase = greenBlueBase; 
+                    targetEmission = new Color(0.0f, 0.9f, 0.7f) * 0.3f; // Soft green/blue glow
+                    enableEmission = true;
+                    break;
+
+                case VisualState.HighlightedInvalid:
+                    // Soft, modern glowing red warning
+                    Color redBase = new Color(0.9f, 0.2f, 0.2f, 0.75f);
+                    targetBase = redBase;
+                    targetEmission = new Color(0.9f, 0.2f, 0.2f) * 0.25f; // Gentle warning glow
+                    enableEmission = true;
+                    break;
+            }
+        }
+
+        if (enableEmission)
+        {
+            r.material.EnableKeyword("_EMISSION");
+        }
+        else
+        {
+            r.material.DisableKeyword("_EMISSION");
+        }
+
+        if (r.material.HasProperty("_BaseColor"))
+        {
+            r.material.DOColor(targetBase, "_BaseColor", duration).SetEase(Ease.OutQuad);
+        }
+        else if (r.material.HasProperty("_Color"))
+        {
+            r.material.DOColor(targetBase, "_Color", duration).SetEase(Ease.OutQuad);
+        }
+
+        if (r.material.HasProperty("_EmissionColor"))
+        {
+            r.material.DOColor(targetEmission, "_EmissionColor", duration).SetEase(Ease.OutQuad);
+        }
     }
 }
