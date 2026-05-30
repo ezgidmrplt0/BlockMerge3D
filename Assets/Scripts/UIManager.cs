@@ -45,6 +45,25 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    public void UpdateUIAesthetics(Color[] palette)
+    {
+        if (palette == null || palette.Length < 3) return;
+
+        Color mainColor = palette[0];      // Canlı Magenta / Pembe
+        Color secondaryColor = palette[1]; // Turkuaz / Aqua
+        Color accentColor = palette[2];    // Pastel Sarı / Krem
+
+        if (scoreText) scoreText.color = mainColor;
+        if (targetScoreText) targetScoreText.color = secondaryColor;
+        if (timerText && !timerPulsing) timerText.color = mainColor;
+        
+        if (scoreProgressBar) scoreProgressBar.color = mainColor;
+        if (timerRadialRing) timerRadialRing.color = accentColor;
+        
+        if (winFinalScoreText) winFinalScoreText.color = mainColor;
+        if (loseFinalScoreText) loseFinalScoreText.color = secondaryColor;
+    }
+
     // ─── Level Start ──────────────────────────────────────────────────────────
 
     public void OnLevelStart(int targetScore, float timeLimit)
