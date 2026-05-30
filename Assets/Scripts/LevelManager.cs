@@ -52,16 +52,16 @@ public class LevelManager : MonoBehaviour
 
     private void InitializePremiumPalette()
     {
-        // Define beautiful, modern, curated main colors (rich, harmonious, vibrant colors)
+        // Koyu toprak tonları — açık arka plan üzerinde belirgin, cozy
         Color[] premiumColors = new Color[]
         {
-            new Color(0.92f, 0.25f, 0.30f), // Curated Crimson Red
-            new Color(0.15f, 0.52f, 0.94f), // Sleek Cobalt Blue
-            new Color(0.18f, 0.77f, 0.44f), // Vibrant Emerald Green
-            new Color(0.96f, 0.76f, 0.13f), // Warm Gold/Yellow
-            new Color(0.94f, 0.44f, 0.24f), // Coral Orange
-            new Color(0.61f, 0.34f, 0.95f), // Electric Violet/Purple
-            new Color(0.08f, 0.75f, 0.78f)  // Luminous Cyan/Teal
+            new Color(0.65f, 0.28f, 0.18f), // Koyu Terracotta
+            new Color(0.32f, 0.52f, 0.30f), // Koyu Adaçayı Yeşili
+            new Color(0.25f, 0.42f, 0.62f), // Koyu Toz Mavisi
+            new Color(0.75f, 0.55f, 0.15f), // Koyu Bal Sarısı
+            new Color(0.68f, 0.35f, 0.38f), // Koyu Gül / Kiremit Pembe
+            new Color(0.48f, 0.37f, 0.62f), // Koyu Lavanta
+            new Color(0.55f, 0.38f, 0.22f)  // Kahverengi / Walnut
         };
 
         // Try to find a template material to clone
@@ -117,14 +117,14 @@ public class LevelManager : MonoBehaviour
                 if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
                 else if (m.HasProperty("_Color")) m.SetColor("_Color", col);
 
-                // Make the blocks look exceptionally premium, smooth and modern
-                if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", 0.7f);
-                if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", 0.1f);
+                // Cozy mat/saten görünüm: yüksek smoothness, sıfır metallic, çok düşük emission
+                if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", 0.55f);
+                if (m.HasProperty("_Metallic"))   m.SetFloat("_Metallic",   0.0f);
 
-                // Set emission color to a subtle, matching glow to make the blocks pop beautifully
+                // Çok hafif emission — ışıltı değil, derinlik hissi
                 if (m.HasProperty("_EmissionColor"))
                 {
-                    m.SetColor("_EmissionColor", col * 0.25f);
+                    m.SetColor("_EmissionColor", col * 0.06f);
                     m.EnableKeyword("_EMISSION");
                 }
                 

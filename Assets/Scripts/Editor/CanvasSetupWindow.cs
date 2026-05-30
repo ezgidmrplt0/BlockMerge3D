@@ -259,9 +259,10 @@ public class CanvasSetupWindow : EditorWindow
             var cam = camGO.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0f, 0f, 0f, 0f); 
+            cam.orthographic = true;
+            cam.orthographicSize = 2f;
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 30f;
-            cam.fieldOfView = 38f;
             cam.depth = -2;
 
             cardUI.previewCam = cam;

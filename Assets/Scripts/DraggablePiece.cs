@@ -37,6 +37,12 @@ public class DraggablePiece : MonoBehaviour
     private Vector3 dragStartPos;
     private float dragStartScale = 1f;
 
+    // Swipe-to-step state
+    private Vector3Int currentSnapOffset;
+    private Vector2    accumulatedScreenDelta;
+    private Vector2    lastScreenPos;
+    private const float SwipeStepPixels = 50f;
+
     public static DraggablePiece activeDrag;
     public static bool IsDragging => activeDrag != null;
 
@@ -71,10 +77,17 @@ public class DraggablePiece : MonoBehaviour
         secondTouchConsumed = false;
         if (grid != null) grid.StartVisualFocus(this);
 
-        // Sürükleme düzlemini hazırla
-        dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
+        // İlk snap offset'ini bul (mouse altındaki grid hücresi veya ilk geçerli konum)
+        Ray initSnapRay = mainCam.ScreenPointToRay(Input.mousePosition);
+        if (!grid.TryFindSnapOffset(currentCells, initSnapRay, grid.Step, out currentSnapOffset))
+        {
+            var valids = grid.GetPossibleOffsets(currentCells);
+            currentSnapOffset = valids.Count > 0 ? valids[0] : Vector3Int.zero;
+        }
+        accumulatedScreenDelta = Vector2.zero;
+        lastScreenPos          = Input.mousePosition;
+        isSnapped              = true;
 
-        dragOffset3D         = Vector3.zero; // kart sürüklemesinde offset yok
         transform.localScale = Vector3.one * dragStartScale;
         UpdateChildPositions();
 
@@ -173,15 +186,19 @@ public class DraggablePiece : MonoBehaviour
         isDragging          = true;
         activeDrag          = this;
         secondTouchConsumed = false;
-        dragLerpProgress    = 1f; // Karttan olmadığı için animasyon yok
+        dragLerpProgress    = 1f;
         if (grid != null) grid.StartVisualFocus(this);
 
-        // Origin dunya pozisyonuna geri döndük
-        dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
-        Ray initRay = mainCam.ScreenPointToRay(Input.mousePosition);
-        dragOffset3D = dragPlane.Raycast(initRay, out float initDist)
-            ? transform.position - initRay.GetPoint(initDist)
-            : Vector3.zero;
+        // İlk snap offset'ini bul
+        Ray initSnapRay2 = mainCam.ScreenPointToRay(Input.mousePosition);
+        if (!grid.TryFindSnapOffset(currentCells, initSnapRay2, grid.Step, out currentSnapOffset))
+        {
+            var valids = grid.GetPossibleOffsets(currentCells);
+            currentSnapOffset = valids.Count > 0 ? valids[0] : Vector3Int.zero;
+        }
+        accumulatedScreenDelta = Vector2.zero;
+        lastScreenPos          = Input.mousePosition;
+        isSnapped              = true;
 
         transform.localScale = Vector3.one;
         if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = true;
@@ -189,9 +206,9 @@ public class DraggablePiece : MonoBehaviour
 
     private void HandleDrag()
     {
-        if (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Space)) 
+        if (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Space))
             RotateAroundY();
-            
+
         if (Input.GetKeyDown(KeyCode.E)) RotateAroundX();
 
         if (Input.touchCount >= 2)
@@ -200,74 +217,49 @@ public class DraggablePiece : MonoBehaviour
         }
         else secondTouchConsumed = false;
 
-        // Rotasyon her kosulda sabit kalacak
         transform.rotation = Quaternion.identity;
         UpdateBoardCells();
 
-        Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
-        if (dragPlane.Raycast(mouseRay, out float dist))
+        // --- Swipe-to-Step: Mouse delta'sını grid eksenine çevir ---
+        Vector3 targetPos = grid.OffsetToRoot(currentSnapOffset);
+
+        if (dragLerpProgress < 1f)
         {
-            Vector3 targetDragPos = mouseRay.GetPoint(dist) + dragOffset3D;
-
-            if (dragLerpProgress < 1f)
-            {
-                dragLerpProgress += Time.deltaTime * 7.5f; // ~130ms geçiş süresi
-                if (dragLerpProgress > 1f) dragLerpProgress = 1f;
-
-                transform.position = Vector3.Lerp(dragStartPos, targetDragPos, dragLerpProgress);
-                transform.localScale = Vector3.Lerp(Vector3.one * dragStartScale, Vector3.one, dragLerpProgress);
-            }
-            else
-            {
-                transform.position = targetDragPos;
-                transform.localScale = Vector3.one;
-            }
-        }
-
-        // Geçiş esnasında snapping yapılmaz
-        bool canSnap = dragLerpProgress >= 1f;
-        Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
-        bool wasSnapped = isSnapped;
-        
-        // Surukleme sirasinda HERZAMAN parcadan once gelen katmanlari gizle
-        // (Snap olmadan da calisir - parcanin o anki pozisyonuna gore dinamik)
-        // grid.UpdateOccludingCells(mainCam.transform.position, PieceWorldCenter()); // eski
-
-        if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
-        {
-            transform.position = grid.OffsetToRoot(snapOff);
-            isSnapped = true;
-            if (!wasSnapped)
-            {
-                Debug.Log($"[BM3D Debug] Grid Snap aktifleştir! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
-            }
-
-            // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat
-            var snappedBoardCells = new List<Vector3Int>();
-            foreach (var c in currentCells) snappedBoardCells.Add(c + snapOff);
-            grid.UpdateSnappedPreviewCells(snappedBoardCells);
-
-            // Ilk mekanik: kamera-isini yaklasimi ile snap konumundaki hucreler gizlenir
-            grid.UpdateOccludingCells(mainCam.transform.position, currentCells, snapOff);
-
-            // Görsel odak sistemi güncellemesi
-            grid.UpdateVisualFocus(this, true, snapOff);
+            // Karttan çekme animasyonu: kart pozisyonundan ilk snap konumuna geç
+            dragLerpProgress += Time.deltaTime * 7.5f;
+            if (dragLerpProgress > 1f) dragLerpProgress = 1f;
+            transform.position   = Vector3.Lerp(dragStartPos, targetPos, dragLerpProgress);
+            transform.localScale = Vector3.Lerp(Vector3.one * dragStartScale, Vector3.one, dragLerpProgress);
         }
         else
         {
-            isSnapped = false;
-            if (wasSnapped)
+            transform.position   = targetPos;
+            transform.localScale = Vector3.one;
+
+            // Her frame'deki ekran deltasını biriktir
+            Vector2 currentScreenPos   = Input.mousePosition;
+            accumulatedScreenDelta    += currentScreenPos - lastScreenPos;
+
+            // Eşik geçilince grid'de bir adım at
+            if (accumulatedScreenDelta.magnitude >= SwipeStepPixels)
             {
-                Debug.Log($"[BM3D Debug] Grid Snap kayboldu (serbest surekleme). {gameObject.name}");
+                Vector3Int step      = GetStepFromScreenDelta(accumulatedScreenDelta);
+                Vector3Int newOffset = currentSnapOffset + step;
+                if (grid.IsWithinGridExtents(currentCells, newOffset))
+                    currentSnapOffset = newOffset;
+                accumulatedScreenDelta = Vector2.zero;
             }
-
-            // Snap kaybolduysa gecici olarak gizlenmis grid hucrelerini geri goster
-            grid.ClearSnappedPreviewCells();
-            grid.ClearOccludingCells();
-
-            // Görsel odak sistemi güncellemesi (snap yok)
-            grid.UpdateVisualFocus(this, false, Vector3Int.zero);
         }
+
+        lastScreenPos = Input.mousePosition;
+        isSnapped     = true;
+
+        // Kılavuz hücrelerini gizle / X-Ray / görsel odak
+        var snappedBoardCells = new List<Vector3Int>();
+        foreach (var c in currentCells) snappedBoardCells.Add(c + currentSnapOffset);
+        grid.UpdateSnappedPreviewCells(snappedBoardCells);
+        grid.UpdateOccludingCells(mainCam.transform.position, currentCells, currentSnapOffset);
+        grid.UpdateVisualFocus(this, true, currentSnapOffset);
     }
 
     private void EndDrag()
@@ -281,7 +273,7 @@ public class DraggablePiece : MonoBehaviour
         if (grid != null) grid.ClearOccludingCells();
         if (grid != null) grid.StopVisualFocus(this);
 
-        Vector3Int offset = grid.RootToOffset(transform.position);
+        Vector3Int offset = currentSnapOffset;
 
         Debug.Log($"[BM3D Debug] EndDrag tetiklendi. {gameObject.name}. isSnapped: {isSnapped}, offset: {offset}, currentRotation: {currentRotation.eulerAngles}, targetBoardRotation: {(LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null ? LevelManager.Instance.ActiveMainPiece.transform.rotation.eulerAngles.ToString() : "N/A")}");
 
@@ -413,6 +405,58 @@ public class DraggablePiece : MonoBehaviour
         {
             currentCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
         }
+    }
+
+    /// <summary>
+    /// Ekrandaki swipe yönünü, kameranın o anki açısına ve tahta rotasyonuna göre
+    /// en yakın grid eksenine çevirir. Dönen Vector3Int: +X/-X/+Y/-Y/+Z/-Z adımlarından biri.
+    /// </summary>
+    private Vector3Int GetStepFromScreenDelta(Vector2 screenDelta)
+    {
+        if (screenDelta.sqrMagnitude < 0.001f) return Vector3Int.zero;
+
+        Camera cam = mainCam;
+        if (cam == null || grid == null) return Vector3Int.zero;
+
+        // Tahtanın o anki hedef yaw'u (90° katlara kilitli)
+        float yaw = CameraOrbit.Instance != null ? CameraOrbit.Instance.TargetYaw : 0f;
+        Quaternion boardRot = Quaternion.Euler(0f, yaw, 0f);
+
+        // 6 olası grid adım yönü (board-relative dünya uzayında)
+        Vector3[] worldDirs = {
+             boardRot * Vector3.right,    // +X
+             boardRot * Vector3.left,     // -X
+             Vector3.up,                 // +Y
+             Vector3.down,               // -Y
+             boardRot * Vector3.forward,  // +Z
+             boardRot * Vector3.back      // -Z
+        };
+        Vector3Int[] gridSteps = {
+            Vector3Int.right,
+            Vector3Int.left,
+            Vector3Int.up,
+            Vector3Int.down,
+            new Vector3Int(0, 0,  1),
+            new Vector3Int(0, 0, -1)
+        };
+
+        // Her dünya yönünü ekran uzayına yansıt
+        Vector3 originWorld = grid.Origin;
+        Vector2 origin2D    = (Vector2)(Vector3)cam.WorldToScreenPoint(originWorld);
+        Vector2 normDelta   = screenDelta.normalized;
+
+        float bestDot       = float.NegativeInfinity;
+        Vector3Int bestStep = Vector3Int.zero;
+
+        for (int i = 0; i < worldDirs.Length; i++)
+        {
+            Vector2 pt2D      = (Vector2)(Vector3)cam.WorldToScreenPoint(originWorld + worldDirs[i]);
+            Vector2 screenDir = (pt2D - origin2D).normalized;
+            float dot         = Vector2.Dot(normDelta, screenDir);
+            if (dot > bestDot) { bestDot = dot; bestStep = gridSteps[i]; }
+        }
+
+        return bestStep;
     }
 
     private List<Vector3Int> RotateCellsNoShift(List<Vector3Int> cells, Quaternion q)

@@ -664,6 +664,18 @@ public class GridManager : MonoBehaviour
         return valid;
     }
 
+    public bool IsWithinGridExtents(List<Vector3Int> cells, Vector3Int offset)
+    {
+        foreach (var c in cells)
+        {
+            Vector3Int g = c + offset;
+            if (g.x < gridMinX || g.x > gridMaxX) return false;
+            if (g.y < gridMinY || g.y > gridMaxY) return false;
+            if (g.z < gridMinZ || g.z > gridMaxZ) return false;
+        }
+        return true;
+    }
+
     public Color? GetMergeColor(List<Vector3Int> cells, Vector3Int offset)
     {
         var tempPlaced = new HashSet<Vector3Int>();
