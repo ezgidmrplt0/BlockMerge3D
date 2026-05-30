@@ -561,6 +561,6 @@ public class LevelManager : MonoBehaviour
         }
 
         foreach (var col in shape.GetComponentsInChildren<Collider>())
-            col.enabled = false;
+            col.enabled = true;
     }
 }

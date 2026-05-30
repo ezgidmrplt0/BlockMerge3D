@@ -397,7 +397,7 @@ public class GridManager : MonoBehaviour
                         Mathf.RoundToInt(hit.normal.z)
                     );
                     
-                    Vector3Int targetAnchorCell = hitCell + normalInt;
+                    Vector3Int targetAnchorCell = occupiedCells.Contains(hitCell) ? (hitCell + normalInt) : hitCell;
                     
                     // Find which block of the dragged piece is closest in world space to the hit point
                     int closestIndex = 0;
@@ -543,8 +543,8 @@ public class GridManager : MonoBehaviour
             if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
         }
 
-        // Support check: no blocks floating in the air, must sit on ground or previously placed blocks
-        if (!IsSupported(cells, offset)) return false;
+        // Support check: disabled to allow placing anywhere (floating or bottom) as requested
+        // if (!IsSupported(cells, offset)) return false;
 
         return true;
     }
