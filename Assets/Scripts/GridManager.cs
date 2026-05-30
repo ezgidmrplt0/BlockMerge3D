@@ -543,9 +543,6 @@ public class GridManager : MonoBehaviour
             if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
         }
 
-        // Support check: no blocks floating in the air, must sit on ground or previously placed blocks
-        if (!IsSupported(cells, offset)) return false;
-
         return true;
     }
 
