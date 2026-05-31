@@ -582,42 +582,14 @@ public class LevelManager : MonoBehaviour
     {
         if (ghostTargetMaterial == null) return;
         
-        MaterialPropertyBlock mpb = new MaterialPropertyBlock();
-
         foreach (var r in shape.GetComponentsInChildren<Renderer>())
         {
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r.receiveShadows = false;
             
-            // 1. Orijinal rengi al
-            Color originalColor = Color.white;
-            if (r.sharedMaterial != null)
-            {
-                if (r.sharedMaterial.HasProperty("_BaseColor"))
-                    originalColor = r.sharedMaterial.GetColor("_BaseColor");
-                else if (r.sharedMaterial.HasProperty("_Color"))
-                    originalColor = r.sharedMaterial.GetColor("_Color");
-            }
-            
-            // 2. Ghost materyalinin saydamlığını (alpha) al
-            float ghostAlpha = 0.3f;
-            if (ghostTargetMaterial.HasProperty("_BaseColor"))
-                ghostAlpha = ghostTargetMaterial.GetColor("_BaseColor").a;
-            else if (ghostTargetMaterial.HasProperty("_Color"))
-                ghostAlpha = ghostTargetMaterial.GetColor("_Color").a;
-                
-            originalColor.a = ghostAlpha;
-
-            // 3. Materyali Ghost yap
             var mats = new Material[r.sharedMaterials.Length];
             for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
             r.sharedMaterials = mats;
-            
-            // 4. PropertyBlock ile Rengi (orijinal renk + ghost saydamlığı) ez
-            r.GetPropertyBlock(mpb);
-            mpb.SetColor("_BaseColor", originalColor);
-            mpb.SetColor("_Color", originalColor);
-            r.SetPropertyBlock(mpb);
         }
 
         foreach (var col in shape.GetComponentsInChildren<Collider>())
