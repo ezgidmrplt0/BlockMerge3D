@@ -72,16 +72,23 @@ public class DraggablePiece : MonoBehaviour
         if (grid != null) grid.StartVisualFocus(this);
 
         // Sürükleme düzlemini hazırla
-        dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
-
-        dragOffset3D         = Vector3.zero; // kart sürüklemesinde offset yok
+        // Panel modunda aktif katmanın Y düzlemine kilitle
+        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode && GridManager.Instance != null)
+        {
+            Vector3 layerWorldPos = GridManager.Instance.CellToWorld(
+                new Vector3Int(0, GridManager.Instance.ActiveLayerY, 0));
+            dragPlane = new Plane(Vector3.up, layerWorldPos);
+        }
+        else
+        {
+            dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
+        }
         transform.localScale = Vector3.one * dragStartScale;
         UpdateChildPositions();
 
         if (CameraOrbit.Instance != null)
             CameraOrbit.Instance.IsLocked = true;
 
-        Debug.Log($"[BM3D Debug] BeginDragFromCard tetiklendi. {gameObject.name}. currentRotation: {currentRotation.eulerAngles}, visualCells: {string.Join(", ", visualCells)}");
     }
 
     private void Awake()
@@ -113,7 +120,6 @@ public class DraggablePiece : MonoBehaviour
         if (grid == null) InitializeForCard();
         if (HomePosition == Vector3.zero) HomePosition = transform.position;
 
-        Debug.Log($"[BM3D Debug] Start tetiklendi. {gameObject.name}. currentRotation: {currentRotation.eulerAngles}, visualCells: {string.Join(", ", visualCells)}");
     }
 
     private void OnDestroy()
@@ -125,7 +131,6 @@ public class DraggablePiece : MonoBehaviour
     {
         if (grid != null) grid.ClearSnappedPreviewCells();
         if (grid != null) grid.ClearOccludingCells();
-        if (grid != null) grid.StopVisualFocus(this);
     }
 
     private void Update()
@@ -177,7 +182,17 @@ public class DraggablePiece : MonoBehaviour
         if (grid != null) grid.StartVisualFocus(this);
 
         // Origin dunya pozisyonuna geri döndük
-        dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
+        // Panel modunda aktif katmanın Y düzlemine kilitle
+        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode && GridManager.Instance != null)
+        {
+            Vector3 layerWorldPos = GridManager.Instance.CellToWorld(
+                new Vector3Int(0, GridManager.Instance.ActiveLayerY, 0));
+            dragPlane = new Plane(Vector3.up, layerWorldPos);
+        }
+        else
+        {
+            dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
+        }
         Ray initRay = mainCam.ScreenPointToRay(Input.mousePosition);
         dragOffset3D = dragPlane.Raycast(initRay, out float initDist)
             ? transform.position - initRay.GetPoint(initDist)
@@ -191,8 +206,6 @@ public class DraggablePiece : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Space)) 
             RotateAroundY();
-            
-        if (Input.GetKeyDown(KeyCode.E)) RotateAroundX();
 
         if (Input.touchCount >= 2)
         {
@@ -239,7 +252,6 @@ public class DraggablePiece : MonoBehaviour
             isSnapped = true;
             if (!wasSnapped)
             {
-                Debug.Log($"[BM3D Debug] Grid Snap aktifleştir! {gameObject.name}. snapOffset: {snapOff}, currentRotation: {currentRotation.eulerAngles}, currentCells: {string.Join(", ", currentCells)}");
             }
 
             // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat
@@ -252,13 +264,13 @@ public class DraggablePiece : MonoBehaviour
 
             // Görsel odak sistemi güncellemesi
             grid.UpdateVisualFocus(this, true, snapOff);
+
         }
         else
         {
             isSnapped = false;
             if (wasSnapped)
             {
-                Debug.Log($"[BM3D Debug] Grid Snap kayboldu (serbest surekleme). {gameObject.name}");
             }
 
             // Snap kaybolduysa gecici olarak gizlenmis grid hucrelerini geri goster
@@ -267,6 +279,7 @@ public class DraggablePiece : MonoBehaviour
 
             // Görsel odak sistemi güncellemesi (snap yok)
             grid.UpdateVisualFocus(this, false, Vector3Int.zero);
+
         }
     }
 
@@ -283,7 +296,6 @@ public class DraggablePiece : MonoBehaviour
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 
-        Debug.Log($"[BM3D Debug] EndDrag tetiklendi. {gameObject.name}. isSnapped: {isSnapped}, offset: {offset}, currentRotation: {currentRotation.eulerAngles}, targetBoardRotation: {(LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null ? LevelManager.Instance.ActiveMainPiece.transform.rotation.eulerAngles.ToString() : "N/A")}");
 
         if (isSnapped && grid.TryPlace(currentCells, offset))
         {
@@ -311,7 +323,6 @@ public class DraggablePiece : MonoBehaviour
                 child.position = targetWorldPos;
                 child.rotation = targetWorldRot * currentRotation; // Kendi iç rotasyonunu (dikeylik vb.) koru!
 
-                Debug.Log($"[BM3D Debug] Placed Child [{i}] of {gameObject.name}. worldPos: {child.position}, worldRot: {child.rotation.eulerAngles}, boardCell: {currentCells[i] + offset}");
 
                 var rend  = child.GetComponentInChildren<Renderer>();
                 Color col2 = rend != null ? GridManager.GetMaterialColor(rend.sharedMaterial ?? rend.material) : Color.white;
@@ -366,14 +377,12 @@ public class DraggablePiece : MonoBehaviour
     {
         currentRotation = Quaternion.Euler(0f, 90f, 0f) * currentRotation;
         RebuildCells();
-        Debug.Log($"[BM3D Debug] RotateAroundY tetiklendi. {gameObject.name}. currentRotation: {currentRotation.eulerAngles}, visualCells: {string.Join(", ", visualCells)}");
     }
  
     private void RotateAroundX()
     {
         currentRotation = Quaternion.Euler(90f, 0f, 0f) * currentRotation;
         RebuildCells();
-        Debug.Log($"[BM3D Debug] RotateAroundX tetiklendi. {gameObject.name}. currentRotation: {currentRotation.eulerAngles}, visualCells: {string.Join(", ", visualCells)}");
     }
 
     private void RebuildCells()

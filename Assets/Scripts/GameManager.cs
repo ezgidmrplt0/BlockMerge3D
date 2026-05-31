@@ -76,7 +76,6 @@ public class GameManager : MonoBehaviour
         if (!won) return;
         levelComplete = true;
         timerRunning  = false;
-        Debug.Log($"Level {currentLevelIndex + 1} tamamlandı! Puan: {Score}");
 
         // Merge animasyonu devam ediyorsa bitene kadar bekle
         if (mergeAnimating)
@@ -109,7 +108,6 @@ public class GameManager : MonoBehaviour
         levelComplete = true;
         timerRunning = false;
         UIManager.Instance?.ShowLosePanel(Score);
-        Debug.Log("Oyun Bitti! Yerlestirilecek yer kalmadi veya sure doldu.");
     }
 
     private void OnTimerExpired()
@@ -140,7 +138,6 @@ public class GameManager : MonoBehaviour
         int gained = cellsCleared * pointsPerCell;
         Score += gained;
         UIManager.Instance?.AnimateScore(Score);
-        Debug.Log($"Renk bonusu! {bonusLines} çizgi — +{gained} puan (toplam: {Score})");
 
         // Merge animasyonu başladı — win panel animasyon bitmeden gösterilmeyecek
         mergeAnimating = true;

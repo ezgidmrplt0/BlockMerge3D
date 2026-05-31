@@ -27,12 +27,25 @@ public class GridManager : MonoBehaviour
 
     public int TotalCells   => targetCells.Count;
     public int PlacedCells  => occupiedCells.Count;
+    public IEnumerable<Vector3Int> TargetCells => targetCells;
 
     public bool lineClearEnabled = true;
 
     private int gridMinX, gridMaxX, gridMinY, gridMaxY, gridMinZ, gridMaxZ;
 
     private void Awake() { Instance = this; }
+
+    public int ActiveLayerY { get; private set; }
+
+    public void SetActiveLayer(int y)
+    {
+        ActiveLayerY = Mathf.Clamp(y, gridMinY, gridMaxY);
+        lineClearEnabled = false;
+        RefreshLayerVisibility();
+    }
+
+    public int GridMinY => gridMinY;
+    public int GridMaxY => gridMaxY;
 
     public void Initialize(GameObject mainShape, float cellSize, float spacing, Vector3 origin)
     {
@@ -50,7 +63,6 @@ public class GridManager : MonoBehaviour
         {
             foreach (var r in mainShape.GetComponentsInChildren<Renderer>())
             {
-                // Sadece sahnede aktif ve etkin olan görsel hücreleri baz al!
                 if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
 
                 string name = r.gameObject.name;
@@ -80,6 +92,76 @@ public class GridManager : MonoBehaviour
             if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
             if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
         }
+
+        ActiveLayerY = gridMinY;
+        lineClearEnabled = false; // Layer-by-layer mode
+        RefreshLayerVisibility();
+    }
+
+    public void RefreshLayerVisibility()
+    {
+        bool isPanelMode = false;
+        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode)
+        {
+            isPanelMode = true;
+        }
+
+        foreach (var kvp in targetRenderers)
+        {
+            Vector3Int cell = kvp.Key;
+            Renderer r = kvp.Value;
+            if (r != null)
+            {
+                if (occupiedCells.Contains(cell)) 
+                    r.enabled = false;
+                else if (isPanelMode)
+                    r.enabled = (cell.y == ActiveLayerY);
+                else
+                    r.enabled = true; // 3D modunda hepsi görünür
+            }
+        }
+
+        foreach (var kvp in cellObjects)
+        {
+            Vector3Int cell = kvp.Key;
+            GameObject cube = kvp.Value;
+            if (cube != null)
+            {
+                if (isPanelMode)
+                    cube.SetActive(cell.y == ActiveLayerY);
+                else
+                    cube.SetActive(true);
+            }
+        }
+    }
+
+    public void CheckLayerCompletion(System.Action onLayerComplete, System.Action onLevelComplete)
+    {
+        int cellsInLayer = 0;
+        int occupiedInLayer = 0;
+        foreach (var c in targetCells)
+        {
+            if (c.y == ActiveLayerY)
+            {
+                cellsInLayer++;
+                if (occupiedCells.Contains(c)) occupiedInLayer++;
+            }
+        }
+
+        if (cellsInLayer > 0 && occupiedInLayer == cellsInLayer)
+        {
+            ActiveLayerY++;
+            RefreshLayerVisibility();
+
+            if (ActiveLayerY > gridMaxY)
+            {
+                onLevelComplete?.Invoke();
+            }
+            else
+            {
+                onLayerComplete?.Invoke();
+            }
+        }
     }
 
     public void RegisterCell(Vector3Int cell, GameObject cube, Color color)
@@ -88,7 +170,6 @@ public class GridManager : MonoBehaviour
         cellObjects[cell] = cube;
         cellColors[cell] = color;
 
-        // Hedef saydam kılavuzu gizle ki üst üste binip rengi yutmasın!
         if (targetRenderers.TryGetValue(cell, out var r) && r != null)
         {
             r.enabled = false;
@@ -420,7 +501,7 @@ public class GridManager : MonoBehaviour
                     foreach (var cell in cells)
                     {
                         Vector3Int g = cell + snapOff;
-                        if (!targetCells.Contains(g))
+                        if (!targetCells.Contains(g) || g.y != ActiveLayerY)
                         {
                             outOfBounds = true;
                             break;
@@ -461,7 +542,7 @@ public class GridManager : MonoBehaviour
                 foreach (var cell in cells)
                 {
                     Vector3Int g = cell + off;
-                    if (!targetCells.Contains(g))
+                    if (!targetCells.Contains(g) || g.y != ActiveLayerY)
                     {
                         outOfBounds = true;
                         break;
@@ -538,13 +619,10 @@ public class GridManager : MonoBehaviour
         foreach (var c in cells)
         {
             var g = c + offset;
-            if (!targetCells.Contains(g)) return false;
+            if (!targetCells.Contains(g) || g.y != ActiveLayerY) return false;
             if (occupiedCells.Contains(g)) return false;
             if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
         }
-
-        // Support check: disabled to allow placing anywhere (floating or bottom) as requested
-        // if (!IsSupported(cells, offset)) return false;
 
         return true;
     }
@@ -564,9 +642,18 @@ public class GridManager : MonoBehaviour
             occupiedCells.Remove(cell);
             if (targetRenderers.TryGetValue(cell, out var r) && r != null)
             {
-                r.enabled = true;
+                if (ShouldCellBeVisible(cell)) r.enabled = true;
             }
         }
+    }
+
+    private bool ShouldCellBeVisible(Vector3Int cell)
+    {
+        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode)
+        {
+            return cell.y == ActiveLayerY;
+        }
+        return true;
     }
 
     public void UpdateSnappedPreviewCells(List<Vector3Int> snappedCells)
@@ -583,7 +670,7 @@ public class GridManager : MonoBehaviour
                 {
                     if (targetRenderers.TryGetValue(cell, out var r) && r != null)
                     {
-                        r.enabled = true;
+                        if (ShouldCellBeVisible(cell)) r.enabled = true;
                     }
                 }
             }
@@ -613,7 +700,7 @@ public class GridManager : MonoBehaviour
             {
                 if (targetRenderers.TryGetValue(cell, out var r) && r != null)
                 {
-                    r.enabled = true;
+                    if (ShouldCellBeVisible(cell)) r.enabled = true;
                 }
             }
         }
@@ -751,7 +838,7 @@ public class GridManager : MonoBehaviour
             if (!occupiedCells.Contains(cell) && !temporarilyHiddenGridCells.Contains(cell))
             {
                 if (targetRenderers.TryGetValue(cell, out var r) && r != null)
-                    r.enabled = true;
+                    if (ShouldCellBeVisible(cell)) r.enabled = true;
             }
         }
         occludedGridCells.Clear();
@@ -813,7 +900,7 @@ public class GridManager : MonoBehaviour
             if (!occupiedCells.Contains(cell) && !temporarilyHiddenGridCells.Contains(cell))
             {
                 if (targetRenderers.TryGetValue(cell, out var r) && r != null)
-                    r.enabled = true;
+                    if (ShouldCellBeVisible(cell)) r.enabled = true;
             }
         }
         occludedGridCells.Clear();
@@ -844,52 +931,8 @@ public class GridManager : MonoBehaviour
 
         isFocusModeActive = true;
         activeStates.Clear();
-        originalBaseColors.Clear();
-        originalEmissionColors.Clear();
         pieceOriginalBaseColors.Clear();
         pieceOriginalEmissionColors.Clear();
-
-        // 1. Save original colors for all target (guide) renderers
-        foreach (var kvp in targetRenderers)
-        {
-            Renderer r = kvp.Value;
-            if (r == null) continue;
-            
-            Material mat = r.material; // Instantiates the material
-            
-            Color baseCol = Color.white;
-            if (mat.HasProperty("_BaseColor")) baseCol = mat.GetColor("_BaseColor");
-            else if (mat.HasProperty("_Color")) baseCol = mat.GetColor("_Color");
-            originalBaseColors[r] = baseCol;
-
-            Color emissiveCol = Color.clear;
-            if (mat.HasProperty("_EmissionColor")) emissiveCol = mat.GetColor("_EmissionColor");
-            originalEmissionColors[r] = emissiveCol;
-
-            r.enabled = true;
-        }
-
-        // 2. Save original colors for all placed block renderers
-        foreach (var kvp in cellObjects)
-        {
-            GameObject go = kvp.Value;
-            if (go == null) continue;
-            foreach (var r in go.GetComponentsInChildren<Renderer>())
-            {
-                if (r == null) continue;
-                
-                Material mat = r.material; // Instantiate material
-                
-                Color baseCol = Color.white;
-                if (mat.HasProperty("_BaseColor")) baseCol = mat.GetColor("_BaseColor");
-                else if (mat.HasProperty("_Color")) baseCol = mat.GetColor("_Color");
-                originalBaseColors[r] = baseCol;
-
-                Color emissiveCol = Color.clear;
-                if (mat.HasProperty("_EmissionColor")) emissiveCol = mat.GetColor("_EmissionColor");
-                originalEmissionColors[r] = emissiveCol;
-            }
-        }
 
         // 3. Save original colors for the dragged piece's renderers
         if (piece != null)
@@ -910,147 +953,27 @@ public class GridManager : MonoBehaviour
                 pieceOriginalEmissionColors[r] = emissiveCol;
             }
         }
-
-        // 4. Initially fade everything to Darkened state (except the dragged piece)
-        float fadeDuration = 0.2f;
-        foreach (var kvp in targetRenderers)
-        {
-            if (kvp.Value != null)
-            {
-                TransitionToState(kvp.Value, VisualState.Darkened, fadeDuration);
-            }
-        }
-        foreach (var kvp in cellObjects)
-        {
-            if (kvp.Value != null)
-            {
-                foreach (var r in kvp.Value.GetComponentsInChildren<Renderer>())
-                {
-                    if (r != null)
-                    {
-                        TransitionToState(r, VisualState.Darkened, fadeDuration);
-                    }
-                }
-            }
-        }
-        if (piece != null)
-        {
-            foreach (var r in piece.GetComponentsInChildren<Renderer>())
-            {
-                if (r != null)
-                {
-                    TransitionToState(r, VisualState.Normal, fadeDuration);
-                }
-            }
-        }
     }
 
     public void UpdateVisualFocus(DraggablePiece piece, bool isSnapped, Vector3Int snapOffset)
     {
         if (!isFocusModeActive || piece == null) return;
 
-        Dictionary<Renderer, VisualState> desiredStates = new Dictionary<Renderer, VisualState>();
-
-        var pieceChildren = new List<Transform>();
-        foreach (Transform t in piece.transform) pieceChildren.Add(t);
-
         var currentCells = piece.CurrentCells;
         if (currentCells == null || currentCells.Count == 0) return;
 
         bool placementValid = isSnapped && CanPlace(currentCells, snapOffset);
+        VisualState pieceState = (isSnapped && !placementValid) ? VisualState.HighlightedInvalid : VisualState.Normal;
 
-        // Initialize all grid renderers to Darkened by default
-        foreach (var kvp in targetRenderers)
-        {
-            if (kvp.Value != null) desiredStates[kvp.Value] = VisualState.Darkened;
-        }
-        foreach (var kvp in cellObjects)
-        {
-            if (kvp.Value != null)
-            {
-                foreach (var r in kvp.Value.GetComponentsInChildren<Renderer>())
-                {
-                    if (r != null) desiredStates[r] = VisualState.Darkened;
-                }
-            }
-        }
-
-        // Initialize all piece renderers to Normal by default
         foreach (var r in piece.GetComponentsInChildren<Renderer>())
         {
-            if (r != null) desiredStates[r] = VisualState.Normal;
-        }
-
-        if (isSnapped)
-        {
-            for (int i = 0; i < currentCells.Count; i++)
+            if (r != null)
             {
-                Vector3Int cell = currentCells[i];
-                Vector3Int gridCell = cell + snapOffset;
-
-                Renderer pieceChildRenderer = null;
-                if (i < pieceChildren.Count && pieceChildren[i] != null)
+                if (!activeStates.TryGetValue(r, out VisualState currentState) || currentState != pieceState)
                 {
-                    pieceChildRenderer = pieceChildren[i].GetComponentInChildren<Renderer>();
+                    activeStates[r] = pieceState;
+                    TransitionToState(r, pieceState, 0.2f);
                 }
-
-                if (placementValid)
-                {
-                    // VALID placement:
-                    if (targetRenderers.TryGetValue(gridCell, out var targetRenderer) && targetRenderer != null)
-                    {
-                        desiredStates[targetRenderer] = VisualState.HighlightedValid;
-                        targetRenderer.enabled = true;
-                    }
-                    
-                    if (pieceChildRenderer != null)
-                    {
-                        desiredStates[pieceChildRenderer] = VisualState.Normal;
-                    }
-                }
-                else
-                {
-                    // INVALID placement:
-                    bool isOverlap = occupiedCells.Contains(gridCell);
-
-                    if (isOverlap)
-                    {
-                        if (cellObjects.TryGetValue(gridCell, out var placedGo) && placedGo != null)
-                        {
-                            foreach (var r in placedGo.GetComponentsInChildren<Renderer>())
-                            {
-                                if (r != null) desiredStates[r] = VisualState.HighlightedInvalid;
-                            }
-                        }
-                    }
-
-                    if (pieceChildRenderer != null)
-                    {
-                        desiredStates[pieceChildRenderer] = VisualState.HighlightedInvalid;
-                    }
-
-                    if (targetCells.Contains(gridCell))
-                    {
-                        if (targetRenderers.TryGetValue(gridCell, out var targetRenderer) && targetRenderer != null)
-                        {
-                            desiredStates[targetRenderer] = VisualState.HighlightedInvalid;
-                            targetRenderer.enabled = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        float fadeDuration = 0.15f; // fast 150ms fade
-        foreach (var kvp in desiredStates)
-        {
-            Renderer r = kvp.Key;
-            VisualState desiredState = kvp.Value;
-
-            if (!activeStates.TryGetValue(r, out VisualState currentState) || currentState != desiredState)
-            {
-                activeStates[r] = desiredState;
-                TransitionToState(r, desiredState, fadeDuration);
             }
         }
     }
@@ -1062,31 +985,6 @@ public class GridManager : MonoBehaviour
         isFocusModeActive = false;
         float fadeDuration = 0.2f;
 
-        // Restore all grid target renderers to normal
-        foreach (var kvp in targetRenderers)
-        {
-            Renderer r = kvp.Value;
-            if (r == null) continue;
-            
-            TransitionToState(r, VisualState.Normal, fadeDuration);
-            
-            Vector3Int cell = kvp.Key;
-            r.enabled = !occupiedCells.Contains(cell);
-        }
-
-        // Restore all grid placed block renderers to normal
-        foreach (var kvp in cellObjects)
-        {
-            GameObject go = kvp.Value;
-            if (go == null) continue;
-            foreach (var r in go.GetComponentsInChildren<Renderer>())
-            {
-                if (r == null) continue;
-                TransitionToState(r, VisualState.Normal, fadeDuration);
-            }
-        }
-
-        // Restore dragged piece's renderers to normal
         if (piece != null)
         {
             foreach (var r in piece.GetComponentsInChildren<Renderer>())
@@ -1095,10 +993,7 @@ public class GridManager : MonoBehaviour
                 TransitionToState(r, VisualState.Normal, fadeDuration);
             }
         }
-
         activeStates.Clear();
-        originalBaseColors.Clear();
-        originalEmissionColors.Clear();
         pieceOriginalBaseColors.Clear();
         pieceOriginalEmissionColors.Clear();
     }
@@ -1109,8 +1004,8 @@ public class GridManager : MonoBehaviour
 
         r.material.DOKill();
 
-        Color targetBase;
-        Color targetEmission;
+        Color targetBase = Color.white;
+        Color targetEmission = Color.clear;
         bool enableEmission = false;
 
         bool isPieceRenderer = pieceOriginalBaseColors.ContainsKey(r);
@@ -1123,7 +1018,6 @@ public class GridManager : MonoBehaviour
             switch (state)
             {
                 case VisualState.Normal:
-                case VisualState.Darkened:
                 default:
                     targetBase = origBase;
                     targetEmission = origEmis;
@@ -1131,7 +1025,6 @@ public class GridManager : MonoBehaviour
                     break;
 
                 case VisualState.HighlightedInvalid:
-                    // Gentler warning overlay
                     targetBase = Color.Lerp(origBase, new Color(0.9f, 0.2f, 0.2f, 1f), 0.5f);
                     targetEmission = new Color(0.9f, 0.2f, 0.2f) * 0.25f;
                     enableEmission = true;
@@ -1140,43 +1033,7 @@ public class GridManager : MonoBehaviour
         }
         else
         {
-            if (!originalBaseColors.TryGetValue(r, out Color origBase)) return;
-            originalEmissionColors.TryGetValue(r, out Color origEmis);
-
-            switch (state)
-            {
-                case VisualState.Normal:
-                default:
-                    targetBase = origBase;
-                    targetEmission = origEmis;
-                    enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
-                    break;
-
-                case VisualState.Darkened:
-                    // Darken significantly (40% of original color) to create supreme contrast
-                    targetBase = origBase * 0.4f;
-                    // For transparent guide cubes, also reduce alpha significantly so they fade deeply into background
-                    targetBase.a = origBase.a * 0.4f;
-                    targetEmission = origEmis * 0.4f;
-                    enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
-                    break;
-
-                case VisualState.HighlightedValid:
-                    // Elegant, modern semi-transparent green/blue (teal) ghost preview
-                    Color greenBlueBase = new Color(0.0f, 0.9f, 0.7f, 0.75f);
-                    targetBase = greenBlueBase; 
-                    targetEmission = new Color(0.0f, 0.9f, 0.7f) * 0.3f; // Soft green/blue glow
-                    enableEmission = true;
-                    break;
-
-                case VisualState.HighlightedInvalid:
-                    // Soft, modern glowing red warning
-                    Color redBase = new Color(0.9f, 0.2f, 0.2f, 0.75f);
-                    targetBase = redBase;
-                    targetEmission = new Color(0.9f, 0.2f, 0.2f) * 0.25f; // Gentle warning glow
-                    enableEmission = true;
-                    break;
-            }
+            return;
         }
 
         if (enableEmission)

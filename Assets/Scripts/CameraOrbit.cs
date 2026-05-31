@@ -1,4 +1,5 @@
 using UnityEngine;
+using DG.Tweening;
 
 public class CameraOrbit : MonoBehaviour
 {
@@ -31,6 +32,11 @@ public class CameraOrbit : MonoBehaviour
     private Vector2 swipeStartPos;
     public bool     IsLocked { get; set; }
 
+    // Panel mode: saved 3D state
+    private Vector3    savedCamPos;
+    private Quaternion savedCamRot;
+    public  bool       IsInPanelMode { get; private set; }
+
     private void Awake()
     {
         Instance = this;
@@ -38,6 +44,8 @@ public class CameraOrbit : MonoBehaviour
 
     private void Start()
     {
+        IsLocked = false; // Layer-by-layer mode disables camera rotation
+        
         if (cube == null && pivot != null)
         {
             cube = pivot;
@@ -116,7 +124,6 @@ public class CameraOrbit : MonoBehaviour
         if (cam == null) cam = Camera.main;
         if (cam == null) 
         {
-            Debug.LogError("[BM3D Camera] No Camera found in FitInView!");
             return;
         }
 
@@ -137,7 +144,6 @@ public class CameraOrbit : MonoBehaviour
             float oldOrthSize = cam.orthographicSize;
             cam.orthographicSize = requiredSize * multiplier;
 
-            Debug.Log($"[BM3D Camera] Orthographic mode detected. Bounds Center: {bounds.center}, Extents: {bounds.extents}, Radius: {radius}, Aspect: {cam.aspect}, Multiplier: {multiplier}, Orthographic Size changed from {oldOrthSize} to {cam.orthographicSize}");
 
             // Kırpılmayı önlemek için kamerayı yine de güvenli bir arkaya konumlandırıyoruz
             float distance = radius * 4f;
@@ -146,7 +152,6 @@ public class CameraOrbit : MonoBehaviour
             Vector3 oldPos = transform.position;
             transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
             
-            Debug.Log($"[BM3D Camera] Camera position changed from {oldPos} to {transform.position} (Distance: {distance})");
         }
         else
         {
@@ -157,14 +162,12 @@ public class CameraOrbit : MonoBehaviour
             float multiplier = 2.0f + (radius * 0.15f);
             float distance = (radius / Mathf.Tan(minHalf)) * multiplier;
 
-            Debug.Log($"[BM3D Camera] Perspective mode detected. Bounds Center: {bounds.center}, Extents: {bounds.extents}, Radius: {radius}, FOV: {cam.fieldOfView}, Aspect: {cam.aspect}, Multiplier: {multiplier}, Calculated Distance: {distance}");
 
             Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
             transform.rotation = rot;
             Vector3 oldPos = transform.position;
             transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
             
-            Debug.Log($"[BM3D Camera] Camera position changed from {oldPos} to {transform.position}");
         }
 
         // Küpün yeni başlangıç rotasyonunu belirle
@@ -175,6 +178,40 @@ public class CameraOrbit : MonoBehaviour
             targetYaw  = currentYaw;
             ApplyRotation();
         }
+    }
+
+    public void ZoomToLayer(Vector3 layerWorldCenter, System.Action onComplete = null)
+    {
+        IsInPanelMode = true;
+        IsLocked = true;
+
+        savedCamPos = transform.position;
+        savedCamRot = transform.rotation;
+
+        // Target: straight above the layer center
+        Camera cam = GetComponent<Camera>() ?? Camera.main;
+        float distance = cam != null && cam.orthographic ? cam.orthographicSize * 3f : 20f;
+        Vector3 targetPos = layerWorldCenter + Vector3.up * distance;
+        Quaternion targetRot = Quaternion.Euler(90f, 0f, 0f);
+
+        DOTween.Kill(transform);
+        Sequence seq = DOTween.Sequence();
+        seq.Join(transform.DOMove(targetPos, 0.4f).SetEase(Ease.InOutCubic));
+        seq.Join(transform.DORotateQuaternion(targetRot, 0.4f).SetEase(Ease.InOutCubic));
+        seq.OnComplete(() => onComplete?.Invoke());
+    }
+
+    public void ReturnTo3D(System.Action onComplete = null)
+    {
+        DOTween.Kill(transform);
+        Sequence seq = DOTween.Sequence();
+        seq.Join(transform.DOMove(savedCamPos, 0.4f).SetEase(Ease.InOutCubic));
+        seq.Join(transform.DORotateQuaternion(savedCamRot, 0.4f).SetEase(Ease.InOutCubic));
+        seq.OnComplete(() => {
+            IsInPanelMode = false;
+            IsLocked = false; // 3D modunda kamera dönebilir
+            onComplete?.Invoke();
+        });
     }
 
     private void Update()

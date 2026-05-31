@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using DG.Tweening;
 
 /// <summary>
 /// Ekranın altındaki parça slot kartını yönetir.
@@ -100,9 +101,26 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         draggable = piece != null ? piece.GetComponent<DraggablePiece>() : null;
 
         if (piece3D != null)
+        {
             PlaceInPreview();
+            if (previewImage != null)
+            {
+                previewImage.rectTransform.localScale = Vector3.zero;
+                previewImage.rectTransform.DOScale(Vector3.one, 0.4f).SetEase(Ease.OutBack);
+            }
+        }
 
         UpdateVisuals();
+    }
+
+    public GameObject ExtractPiece()
+    {
+        GameObject extracted = piece3D;
+        piece3D = null;
+        draggable = null;
+        isDraggingOut = false;
+        UpdateVisuals();
+        return extracted;
     }
 
     /// <summary>Parça başarıyla yerleştirildi → kartı boşalt.</summary>
@@ -255,6 +273,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
         if (!HasPiece || draggable == null) return;
         if (DraggablePiece.IsDragging)      return;
+        if (slotIndex != 0) return; // Sadece Aktif kart sürüklenebilir
 
         isDraggingOut = true;
 

@@ -17,7 +17,7 @@ public class LevelManager : MonoBehaviour
     public List<PieceCardUI> pieceCards = new List<PieceCardUI>();
 
     [Header("Visual Settings")]
-    public int   maxVisiblePieces = 3;
+    public int   maxVisiblePieces = 2;
     [Range(0f, 1f)] public float smartSpawnProbability = 0.35f;
     
     private List<bool> activeIsSmart = new List<bool>();
@@ -53,7 +53,6 @@ public class LevelManager : MonoBehaviour
     public void LoadLevel(LevelData level)
     {
         ClearCurrentLevel();
-        if (mainCubeLocation == null) { Debug.LogError("LevelManager: MainCubeLocation atanmadı!"); return; }
 
         if (level.mainShapePrefab != null)
         {
@@ -206,10 +205,8 @@ public class LevelManager : MonoBehaviour
 
     private Quaternion GetRandom90DegreeRotation()
     {
-        float rx = Random.Range(0, 4) * 90f;
         float ry = Random.Range(0, 4) * 90f;
-        float rz = Random.Range(0, 4) * 90f;
-        return Quaternion.Euler(rx, ry, rz);
+        return Quaternion.Euler(0, ry, 0);
     }
 
     private int FindSmallestPieceIndex()
@@ -251,9 +248,7 @@ public class LevelManager : MonoBehaviour
             Quaternion.identity,
             Quaternion.Euler(0, 90, 0),
             Quaternion.Euler(0, 180, 0),
-            Quaternion.Euler(0, 270, 0),
-            Quaternion.Euler(90, 0, 0),
-            Quaternion.Euler(270, 0, 0)
+            Quaternion.Euler(0, 270, 0)
         };
 
         List<int> placeableIndices = new List<int>();
@@ -437,7 +432,43 @@ public class LevelManager : MonoBehaviour
         activePieceDataIndices.RemoveAt(idx);
         activeIsSmart.RemoveAt(idx);
 
+        var lpc = FindObjectOfType<LayerPanelController>();
+        gridManager.CheckLayerCompletion(
+            onLayerComplete: () => {
+                lpc?.RefreshButtonColors();
+            },
+            onLevelComplete: () => {
+                lpc?.ClosePanel();
+                GameManager.Instance?.CheckWin();
+            }
+        );
+
+        // Parça bırakıldıktan sonra otomatik geri dönme (kullanıcı kendi butona basacak)
+
+        // Yeni sistemi çalıştır (Sonraki parçayı Aktif parçaya kaydır)
+        if (pieceCards != null && pieceCards.Count >= 2)
+        {
+            var activeCard = pieceCards[0];
+            var nextCard = pieceCards[1];
+
+            if (nextCard != null && nextCard.HasPiece && activeCard != null && !activeCard.HasPiece)
+            {
+                GameObject nextPieceObj = nextCard.ExtractPiece();
+                if (nextPieceObj != null)
+                {
+                    pieceToCard[nextPieceObj] = activeCard;
+                    activeCard.AssignPiece(nextPieceObj);
+                    
+                    var drag = nextPieceObj.GetComponent<DraggablePiece>();
+                    if (drag != null)
+                        drag.onDragCancelled = () => activeCard.ReturnToPreview();
+                }
+            }
+        }
+
+        // Tüketilen kartın yerine (veya boşalan Next slotuna) hemen yeni parça getir
         SpawnRandomPiece();
+
         CheckGameOver();
     }
 
@@ -454,8 +485,7 @@ public class LevelManager : MonoBehaviour
 
             Quaternion[] possibleRots = { 
                 Quaternion.identity, 
-                Quaternion.Euler(0, 90, 0), Quaternion.Euler(0, 180, 0), Quaternion.Euler(0, 270, 0),
-                Quaternion.Euler(90, 0, 0), Quaternion.Euler(270, 0, 0)
+                Quaternion.Euler(0, 90, 0), Quaternion.Euler(0, 180, 0), Quaternion.Euler(0, 270, 0)
             };
 
             foreach (var rot in possibleRots)
@@ -551,13 +581,43 @@ public class LevelManager : MonoBehaviour
     private void ApplyTargetGhost(GameObject shape)
     {
         if (ghostTargetMaterial == null) return;
+        
+        MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+
         foreach (var r in shape.GetComponentsInChildren<Renderer>())
         {
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r.receiveShadows = false;
+            
+            // 1. Orijinal rengi al
+            Color originalColor = Color.white;
+            if (r.sharedMaterial != null)
+            {
+                if (r.sharedMaterial.HasProperty("_BaseColor"))
+                    originalColor = r.sharedMaterial.GetColor("_BaseColor");
+                else if (r.sharedMaterial.HasProperty("_Color"))
+                    originalColor = r.sharedMaterial.GetColor("_Color");
+            }
+            
+            // 2. Ghost materyalinin saydamlığını (alpha) al
+            float ghostAlpha = 0.3f;
+            if (ghostTargetMaterial.HasProperty("_BaseColor"))
+                ghostAlpha = ghostTargetMaterial.GetColor("_BaseColor").a;
+            else if (ghostTargetMaterial.HasProperty("_Color"))
+                ghostAlpha = ghostTargetMaterial.GetColor("_Color").a;
+                
+            originalColor.a = ghostAlpha;
+
+            // 3. Materyali Ghost yap
             var mats = new Material[r.sharedMaterials.Length];
             for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
             r.sharedMaterials = mats;
+            
+            // 4. PropertyBlock ile Rengi (orijinal renk + ghost saydamlığı) ez
+            r.GetPropertyBlock(mpb);
+            mpb.SetColor("_BaseColor", originalColor);
+            mpb.SetColor("_Color", originalColor);
+            r.SetPropertyBlock(mpb);
         }
 
         foreach (var col in shape.GetComponentsInChildren<Collider>())
