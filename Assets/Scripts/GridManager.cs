@@ -658,7 +658,6 @@ public class GridManager : MonoBehaviour
 
     public void UpdateSnappedPreviewCells(List<Vector3Int> snappedCells)
     {
-        if (isFocusModeActive) return;
         var newSnapped = new HashSet<Vector3Int>(snappedCells);
         
         // 1. Önce eski gizlenmiş olanlardan artık snaplenmeyenleri geri göster
@@ -693,7 +692,6 @@ public class GridManager : MonoBehaviour
 
     public void ClearSnappedPreviewCells()
     {
-        if (isFocusModeActive) return;
         foreach (var cell in temporarilyHiddenGridCells)
         {
             if (!occupiedCells.Contains(cell))
