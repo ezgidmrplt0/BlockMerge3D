@@ -26,6 +26,8 @@ public class GridManager : MonoBehaviour
         return cellColors.TryGetValue(cell, out color);
     }
 
+    public bool IsLayerCleared(int y) => clearedLayers.Contains(y);
+
     public int TotalCells   => targetCells.Count;
     public int PlacedCells  => occupiedCells.Count;
     public IEnumerable<Vector3Int> TargetCells => targetCells;
@@ -150,7 +152,7 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    public void CheckLayerCompletion(System.Action onLayerComplete, System.Action onLevelComplete)
+    public bool IsLayerComplete()
     {
         int cellsInLayer = 0;
         int occupiedInLayer = 0;
@@ -174,7 +176,6 @@ public class GridManager : MonoBehaviour
 
         bool allOccupied = (cellsInLayer > 0 && occupiedInLayer == cellsInLayer);
 
-        // Katmanın temizlenmesi için hem tüm hücrelerin dolu olması hem de hepsinin AYNI RENKTE olması gerekir.
         bool allSameColor = true;
         if (colorsInLayer.Count > 0)
         {
@@ -193,56 +194,70 @@ public class GridManager : MonoBehaviour
             allSameColor = false;
         }
 
-        if (allOccupied && allSameColor)
+        return (allOccupied && allSameColor);
+    }
+
+    public void ExplodeActiveLayer(System.Action onLayerComplete, System.Action onLevelComplete)
+    {
+        List<Vector3Int> cellsToRemove = new List<Vector3Int>();
+        foreach (var c in targetCells)
         {
-            List<Vector3Int> cellsToRemove = new List<Vector3Int>();
-            foreach (var c in targetCells)
+            if (c.y == ActiveLayerY)
             {
-                if (c.y == ActiveLayerY)
-                {
-                    cellsToRemove.Add(c);
-                }
+                cellsToRemove.Add(c);
             }
+        }
 
-            // Yok edilen katmanın fiziksel merkezini hesapla
-            Vector3 center = Vector3.zero;
-            int count = 0;
-            foreach (var cell in cellsToRemove)
+        // Yok edilen katmanın fiziksel merkezini hesapla
+        Vector3 center = Vector3.zero;
+        int count = 0;
+        foreach (var cell in cellsToRemove)
+        {
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
             {
-                if (cellObjects.TryGetValue(cell, out var go) && go != null)
-                {
-                    center += go.transform.position;
-                    count++;
-                }
+                center += go.transform.position;
+                count++;
             }
-            if (count > 0) center /= count;
+        }
+        if (count > 0) center /= count;
 
-            int idx = 0;
-            foreach (var cell in cellsToRemove)
+        int idx = 0;
+        foreach (var cell in cellsToRemove)
+        {
+            occupiedCells.Remove(cell);
+            cellColors.Remove(cell);
+
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
             {
-                occupiedCells.Remove(cell);
-                cellColors.Remove(cell);
-
-                if (cellObjects.TryGetValue(cell, out var go) && go != null)
-                {
-                    cellObjects.Remove(cell);
-                    AnimateLayerBlockDisappear(go, idx * 0.05f, center);
-                    idx++;
-                }
+                cellObjects.Remove(cell);
+                AnimateLayerBlockDisappear(go, idx * 0.05f, center);
+                idx++;
             }
+        }
 
-            clearedLayers.Add(ActiveLayerY);
-            ActiveLayerY++;
-            RefreshLayerVisibility();
+        clearedLayers.Add(ActiveLayerY);
 
-            if (ActiveLayerY > gridMaxY)
+        bool allCleared = true;
+        for (int y = gridMinY; y <= gridMaxY; y++)
+        {
+            if (!clearedLayers.Contains(y))
             {
-                onLevelComplete?.Invoke();
+                allCleared = false;
+                ActiveLayerY = y;
+                break;
             }
-            else
-            {
-                onLayerComplete?.Invoke();
-            }
+        }
+
+        RefreshLayerVisibility();
+
+        if (allCleared)
+        {
+            ActiveLayerY = gridMaxY + 1;
+            onLevelComplete?.Invoke();
+        }
+        else
+        {
+            onLayerComplete?.Invoke();
         }
     }
 
@@ -836,7 +851,7 @@ public class GridManager : MonoBehaviour
     }
 
     public bool IsComplete()
-        => targetCells.Count > 0 && ActiveLayerY > gridMaxY;
+        => targetCells.Count > 0 && clearedLayers.Count == (gridMaxY - gridMinY + 1);
 
     // --- Smart Spawn Helpers ---
 

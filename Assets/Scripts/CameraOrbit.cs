@@ -70,6 +70,10 @@ public class CameraOrbit : MonoBehaviour
 
     public void FitInView(Bounds bounds)
     {
+        DOTween.Kill(transform);
+        IsInPanelMode = false;
+        IsLocked = false;
+
         // Eğer cube henüz atanmamışsa sahneden bulmaya çalış (fallback)
         if (cube == null)
         {

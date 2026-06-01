@@ -273,7 +273,6 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
         if (!HasPiece || draggable == null) return;
         if (DraggablePiece.IsDragging)      return;
-        if (slotIndex != 0) return; // Sadece Aktif kart sürüklenebilir
 
         isDraggingOut = true;
 

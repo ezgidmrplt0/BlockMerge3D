@@ -212,7 +212,7 @@ public class CanvasSetupWindow : EditorWindow
         SerializedProperty cardsProp = lmSO?.FindProperty("pieceCards");
         if (cardsProp != null) cardsProp.ClearArray();
 
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 3; i++)
         {
             var card = new GameObject($"PieceCard_{i}", typeof(RectTransform));
             Undo.RegisterCreatedObjectUndo(card, "Create PieceCard");
@@ -224,32 +224,13 @@ public class CanvasSetupWindow : EditorWindow
 
             // Slot Arka Plan (GUI_52)
             var cardImg = card.AddComponent<Image>();
-            cardImg.color = i == 0 ? Color.white : new Color(0.8f, 0.8f, 0.8f, 0.9f); // Next slot biraz daha sönük
+            cardImg.color = Color.white;
             cardImg.sprite = GetSprite("GUI_52");
             cardImg.type = Image.Type.Sliced;
             
             var le = card.AddComponent<LayoutElement>();
-            le.preferredWidth = i == 0 ? 250f : 150f;
-            le.preferredHeight = i == 0 ? 250f : 150f;
-            
-            if (i == 1)
-            {
-                var nextTextGO = new GameObject("NextText", typeof(RectTransform));
-                nextTextGO.transform.SetParent(card.transform, false);
-                var ntRT = nextTextGO.GetComponent<RectTransform>();
-                ntRT.anchorMin = new Vector2(0f, 1f);
-                ntRT.anchorMax = new Vector2(1f, 1f);
-                ntRT.pivot = new Vector2(0.5f, 1f);
-                ntRT.anchoredPosition = new Vector2(0, -10f);
-                ntRT.sizeDelta = new Vector2(0, 40f);
-                var nextText = nextTextGO.AddComponent<Text>();
-                nextText.text = "NEXT";
-                nextText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-                nextText.fontStyle = FontStyle.Bold;
-                nextText.fontSize = 24;
-                nextText.alignment = TextAnchor.MiddleCenter;
-                nextText.color = new Color(0.2f, 0.2f, 0.2f, 1f);
-            }
+            le.preferredWidth = 180f;
+            le.preferredHeight = 180f;
 
             var rawGO = new GameObject("PreviewImage", typeof(RectTransform));
             rawGO.transform.SetParent(card.transform, false);

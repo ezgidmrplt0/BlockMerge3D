@@ -126,6 +126,9 @@ public class LevelManager : MonoBehaviour
         for (int i = 0; i < maxVisiblePieces; i++)
             SpawnRandomPiece();
         FitCameraToScene();
+
+        var lpc = FindObjectOfType<LayerPanelController>();
+        if (lpc != null) lpc.ResetPanel();
     }
 
     [Header("Color Palette Settings (Material-Based)")]
@@ -479,40 +482,45 @@ public class LevelManager : MonoBehaviour
         activeIsSmart.RemoveAt(idx);
 
         var lpc = FindObjectOfType<LayerPanelController>();
-        gridManager.CheckLayerCompletion(
-            onLayerComplete: () => {
-                lpc?.RefreshButtonColors();
-            },
-            onLevelComplete: () => {
-                lpc?.ClosePanel();
-                GameManager.Instance?.CheckWin();
-            }
-        );
-
-        // Parça bırakıldıktan sonra otomatik geri dönme (kullanıcı kendi butona basacak)
-
-        // Yeni sistemi çalıştır (Sonraki parçayı Aktif parçaya kaydır)
-        if (pieceCards != null && pieceCards.Count >= 2)
+        
+        if (gridManager.IsLayerComplete())
         {
-            var activeCard = pieceCards[0];
-            var nextCard = pieceCards[1];
-
-            if (nextCard != null && nextCard.HasPiece && activeCard != null && !activeCard.HasPiece)
+            if (lpc != null)
             {
-                GameObject nextPieceObj = nextCard.ExtractPiece();
-                if (nextPieceObj != null)
+                lpc.ClosePanel(() => 
                 {
-                    pieceToCard[nextPieceObj] = activeCard;
-                    activeCard.AssignPiece(nextPieceObj);
-                    
-                    var drag = nextPieceObj.GetComponent<DraggablePiece>();
-                    if (drag != null)
-                        drag.onDragCancelled = () => activeCard.ReturnToPreview();
-                }
+                    gridManager.ExplodeActiveLayer(
+                        onLayerComplete: () => {
+                            lpc.BuildLayerButtons();
+                            HandlePostPiecePlaced();
+                        },
+                        onLevelComplete: () => {
+                            GameManager.Instance?.CheckWin();
+                        }
+                    );
+                });
+            }
+            else
+            {
+                gridManager.ExplodeActiveLayer(
+                    onLayerComplete: () => {
+                        HandlePostPiecePlaced();
+                    },
+                    onLevelComplete: () => {
+                        GameManager.Instance?.CheckWin();
+                    }
+                );
             }
         }
+        else
+        {
+            HandlePostPiecePlaced();
+        }
+    }
 
-        // Tüketilen kartın yerine (veya boşalan Next slotuna) hemen yeni parça getir
+    private void HandlePostPiecePlaced()
+    {
+        // Tüketilen parçanın (boşalan kartın) yerine hemen yenisini getir
         SpawnRandomPiece();
 
         CheckGameOver();
