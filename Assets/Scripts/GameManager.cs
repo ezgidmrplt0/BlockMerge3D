@@ -70,9 +70,14 @@ public class GameManager : MonoBehaviour
     public void CheckWin()
     {
         if (levelComplete) return;
-        bool won = currentTargetScore > 0
-            ? Score >= currentTargetScore
-            : (GridManager.Instance?.IsComplete() ?? false);
+        
+        // Bölümü kazanmak için tüm katmanların (gridin tamamının) kusursuzca temizlenmiş olması gerekir.
+        bool won = false;
+        if (GridManager.Instance != null && GridManager.Instance.IsComplete())
+        {
+            won = true;
+        }
+
         if (!won) return;
         levelComplete = true;
         timerRunning  = false;

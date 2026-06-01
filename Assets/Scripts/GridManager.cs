@@ -7,8 +7,9 @@ public class GridManager : MonoBehaviour
 {
     public static GridManager Instance { get; private set; }
 
-    private HashSet<Vector3Int> targetCells   = new HashSet<Vector3Int>();
-    private HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
+    public HashSet<Vector3Int> targetCells   = new HashSet<Vector3Int>();
+    public HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
+    private HashSet<int> clearedLayers = new HashSet<int>();
     private Dictionary<Vector3Int, GameObject> cellObjects = new Dictionary<Vector3Int, GameObject>();
     private Dictionary<Vector3Int, Color>      cellColors  = new Dictionary<Vector3Int, Color>();
     private Dictionary<Vector3Int, Renderer>    targetRenderers = new Dictionary<Vector3Int, Renderer>();
@@ -53,6 +54,7 @@ public class GridManager : MonoBehaviour
         Spacing  = spacing;
         Origin   = origin;
         occupiedCells.Clear();
+        clearedLayers.Clear();
         ClearAllCellObjects();
 
         targetCells.Clear();
@@ -68,18 +70,16 @@ public class GridManager : MonoBehaviour
                 string name = r.gameObject.name;
                 if (name.StartsWith("Cube_"))
                 {
-                    string[] parts = name.Split('_');
-                    if (parts.Length >= 4)
-                    {
-                        if (int.TryParse(parts[1], out int x) &&
-                            int.TryParse(parts[2], out int y) &&
-                            int.TryParse(parts[3], out int z))
-                        {
-                            var cell = new Vector3Int(x, y, z);
-                            targetCells.Add(cell);
-                            targetRenderers[cell] = r;
-                        }
-                    }
+                    // mainShape.transform.InverseTransformPoint kullanımı iç içe geçmiş (nested) parent gameobject'ler olsa dahi
+                    // her zaman kök nesneye (mainShape) göre gerçek 3D konumu 100% doğru hesaplamamızı sağlar!
+                    Vector3 localPos = mainShape.transform.InverseTransformPoint(r.transform.position);
+                    int x = Mathf.RoundToInt(localPos.x / step);
+                    int y = Mathf.RoundToInt(localPos.y / step);
+                    int z = Mathf.RoundToInt(localPos.z / step);
+
+                    var cell = new Vector3Int(x, y, z);
+                    targetCells.Add(cell);
+                    targetRenderers[cell] = r;
                 }
             }
         }
@@ -98,6 +98,19 @@ public class GridManager : MonoBehaviour
         RefreshLayerVisibility();
     }
 
+    private static int ParseCoordinate(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return 0;
+        string clean = "";
+        foreach (char c in s)
+        {
+            if (char.IsDigit(c) || c == '-') clean += c;
+            else break;
+        }
+        if (int.TryParse(clean, out int val)) return val;
+        return 0;
+    }
+
     public void RefreshLayerVisibility()
     {
         bool isPanelMode = false;
@@ -112,7 +125,9 @@ public class GridManager : MonoBehaviour
             Renderer r = kvp.Value;
             if (r != null)
             {
-                if (occupiedCells.Contains(cell)) 
+                if (clearedLayers.Contains(cell.y))
+                    r.enabled = false; // Temizlenmiş katmanların rehberleri tamamen gizlenir
+                else if (occupiedCells.Contains(cell)) 
                     r.enabled = false;
                 else if (isPanelMode)
                     r.enabled = (cell.y == ActiveLayerY);
@@ -139,17 +154,84 @@ public class GridManager : MonoBehaviour
     {
         int cellsInLayer = 0;
         int occupiedInLayer = 0;
+        List<Color> colorsInLayer = new List<Color>();
+
         foreach (var c in targetCells)
         {
             if (c.y == ActiveLayerY)
             {
                 cellsInLayer++;
-                if (occupiedCells.Contains(c)) occupiedInLayer++;
+                if (occupiedCells.Contains(c))
+                {
+                    occupiedInLayer++;
+                    if (cellColors.TryGetValue(c, out Color col))
+                    {
+                        colorsInLayer.Add(col);
+                    }
+                }
             }
         }
 
-        if (cellsInLayer > 0 && occupiedInLayer == cellsInLayer)
+        bool allOccupied = (cellsInLayer > 0 && occupiedInLayer == cellsInLayer);
+
+        // Katmanın temizlenmesi için hem tüm hücrelerin dolu olması hem de hepsinin AYNI RENKTE olması gerekir.
+        bool allSameColor = true;
+        if (colorsInLayer.Count > 0)
         {
+            Color firstColor = colorsInLayer[0];
+            foreach (var col in colorsInLayer)
+            {
+                if (!ColorsApproxEqual(col, firstColor))
+                {
+                    allSameColor = false;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            allSameColor = false;
+        }
+
+        if (allOccupied && allSameColor)
+        {
+            List<Vector3Int> cellsToRemove = new List<Vector3Int>();
+            foreach (var c in targetCells)
+            {
+                if (c.y == ActiveLayerY)
+                {
+                    cellsToRemove.Add(c);
+                }
+            }
+
+            // Yok edilen katmanın fiziksel merkezini hesapla
+            Vector3 center = Vector3.zero;
+            int count = 0;
+            foreach (var cell in cellsToRemove)
+            {
+                if (cellObjects.TryGetValue(cell, out var go) && go != null)
+                {
+                    center += go.transform.position;
+                    count++;
+                }
+            }
+            if (count > 0) center /= count;
+
+            int idx = 0;
+            foreach (var cell in cellsToRemove)
+            {
+                occupiedCells.Remove(cell);
+                cellColors.Remove(cell);
+
+                if (cellObjects.TryGetValue(cell, out var go) && go != null)
+                {
+                    cellObjects.Remove(cell);
+                    AnimateLayerBlockDisappear(go, idx * 0.05f, center);
+                    idx++;
+                }
+            }
+
+            clearedLayers.Add(ActiveLayerY);
             ActiveLayerY++;
             RefreshLayerVisibility();
 
@@ -404,6 +486,54 @@ public class GridManager : MonoBehaviour
         }
     }
 
+    private static void AnimateLayerBlockDisappear(GameObject go, float delay, Vector3 center)
+    {
+        if (go == null) return;
+        var t = go.transform;
+        
+        // Merkezden dışarıya doğru patlama yönü + yukarı ivme
+        Vector3 dir = t.position - center;
+        dir.y = 0f; // Sadece yatayda patlama
+        if (dir.sqrMagnitude < 0.001f)
+        {
+            dir = new Vector3(Random.Range(-1f, 1f), 0, Random.Range(-1f, 1f));
+        }
+        dir = dir.normalized * 1.5f; // Patlama hızı/mesafesi
+        dir.y = Random.Range(1.8f, 2.5f); // Yukarı fırlama ivmesi
+
+        var r = go.GetComponentInChildren<Renderer>();
+        Color originalColor = Color.white;
+        if (r != null)
+        {
+            originalColor = r.material.color;
+        }
+
+        var seq = DOTween.Sequence().SetLink(go);
+        if (delay > 0f) seq.AppendInterval(delay);
+
+        // 1. Aşama: Şok ve Beyaz Enerji Parlaması (Squash/Punch Scale + Shake + Flash)
+        seq.Append(t.DOScale(t.localScale * 1.4f, 0.08f).SetEase(Ease.OutBack));
+        if (r != null)
+        {
+            seq.Join(r.material.DOColor(Color.white, 0.06f));
+        }
+        seq.Join(t.DOShakePosition(0.08f, 0.15f, 20, 90));
+
+        // 2. Aşama: Havaya Fırlayarak Hızlı Dönme ve Küçülerek Kaybolma (Explosion + Spin + Fade out)
+        seq.Append(t.DOMove(t.position + dir, 0.45f).SetEase(Ease.OutQuad));
+        seq.Join(t.DORotate(new Vector3(Random.Range(-360, 360), Random.Range(-360, 360), Random.Range(-360, 360)), 0.45f, RotateMode.FastBeyond360));
+        seq.Join(t.DOScale(Vector3.zero, 0.4f).SetEase(Ease.InCubic));
+        if (r != null)
+        {
+            seq.Join(r.material.DOColor(new Color(originalColor.r, originalColor.g, originalColor.b, 0f), 0.35f));
+        }
+
+        seq.OnComplete(() =>
+        {
+            if (go != null) Object.Destroy(go);
+        });
+    }
+
     public Vector3 CellToWorld(Vector3Int cell)
     {
         Vector3 localPos = new Vector3(cell.x, cell.y, cell.z) * Step + Vector3.one * (CellSize * 0.5f);
@@ -518,7 +648,7 @@ public class GridManager : MonoBehaviour
         }
 
         // 2. Proximity-based Snapping Fallback (when dragging in empty space near the grid)
-        float minD = 4.5f; 
+
         bool found = false;
         var seen = new HashSet<Vector3Int>();
         
@@ -706,7 +836,7 @@ public class GridManager : MonoBehaviour
     }
 
     public bool IsComplete()
-        => targetCells.Count > 0 && occupiedCells.SetEquals(targetCells);
+        => targetCells.Count > 0 && ActiveLayerY > gridMaxY;
 
     // --- Smart Spawn Helpers ---
 

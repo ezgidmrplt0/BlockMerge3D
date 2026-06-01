@@ -147,57 +147,36 @@ public class LevelManager : MonoBehaviour
         // Kart sistemi varsa ama boş kart yoksa çık
         if (pieceCards != null && pieceCards.Count > 0 && targetCard == null) return;
 
-        float fullness = (float)GridManager.Instance.PlacedCells / GridManager.Instance.TotalCells;
-        
-        // 1. Yerlesebilir parcalari bul
-        List<int> validIndices = new List<int>();
+        // Sahadaki yerleştirilmiş parçalara ve boşluklara yerleşebilecek (uygun) parçaları bul
+        List<int> placeableIndices = new List<int>();
         for (int i = 0; i < allPiecePrefabs.Count; i++)
         {
-            var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
-            if (h == null) continue;
-            
-            // Herhangi bir rotasyonda sigiyor mu?
-            bool canFitAnywhere = false;
-            Quaternion[] rots = { Quaternion.identity, Quaternion.Euler(0,90,0), Quaternion.Euler(90,0,0) };
-            foreach(var r in rots)
+            if (IsShapePlaceable(allPiecePrefabs[i]))
             {
-                if (GridManager.Instance.GetPossibleOffsets(GridManager.RotateCells(h.occupiedCells, r)).Count > 0)
-                {
-                    canFitAnywhere = true;
-                    break;
-                }
+                placeableIndices.Add(i);
             }
-            if (canFitAnywhere) validIndices.Add(i);
         }
 
-        // Eger hicbir parca sigmiyorsa veya saha cok doluysa, en kucuk parcayi zorla
-        bool forceSmall = (validIndices.Count == 0 || fullness > 0.8f);
-        
-        bool shouldBeSmart = (Random.value < smartSpawnProbability);
+        int indexToSpawn = -1;
 
-        if (forceSmall)
+        if (placeableIndices.Count > 0)
         {
-            int smallIdx = FindSmallestPieceIndex();
+            // Sahadaki boşluklara tam oturan/uygun parçalardan rastgele birini seç!
+            indexToSpawn = placeableIndices[Random.Range(0, placeableIndices.Count)];
             activeIsSmart.Add(true);
-            SpawnPieceAtIndex(smallIdx, GetRandom90DegreeRotation(), GetDominantMaterialOnGrid(), targetCard);
-        }
-        else if (shouldBeSmart)
-        {
-            int index = FindBestPieceIndex(out Quaternion rot, out Color? recCol, out bool foundMerge);
-            activeIsSmart.Add(foundMerge); 
-            Material recMat = null;
-            if (recCol.HasValue && pieceMaterials != null)
-            {
-                recMat = pieceMaterials.FirstOrDefault(m => m != null && GridManager.ColorsApproxEqual(GridManager.GetMaterialColor(m), recCol.Value));
-            }
-            SpawnPieceAtIndex(index, rot, recMat, targetCard);
         }
         else
         {
-            int index = validIndices[Random.Range(0, validIndices.Count)];
-            activeIsSmart.Add(false);
-            SpawnPieceAtIndex(index, GetRandom90DegreeRotation(), null, targetCard);
+            // Eğer hiçbir parça sığmıyorsa (sıkışmayı önlemek için) en küçük parçayı spawn et
+            indexToSpawn = FindSmallestPieceIndex();
+            activeIsSmart.Add(true);
         }
+
+        // Aktif katmandaki renk uyumuna göre akıllı materyal/renk seçimi yap!
+        Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+
+        // Parçayı spawn et
+        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
 
         // Parca uretildikten sonra hala hamle var mi bak
         CheckGameOver();
@@ -227,11 +206,78 @@ public class LevelManager : MonoBehaviour
 
     private Material GetDominantMaterialOnGrid()
     {
+        return GetDominantMaterialOnActiveLayer();
+    }
+
+    private Material GetDominantMaterialOnActiveLayer()
+    {
+        if (gridManager == null) return null;
+
+        var colorCounts = new Dictionary<Color, int>();
+        foreach (var c in gridManager.targetCells)
+        {
+            if (c.y == gridManager.ActiveLayerY)
+            {
+                if (gridManager.occupiedCells.Contains(c))
+                {
+                    if (gridManager.GetCellColor(c, out Color col))
+                    {
+                        Color matchedColor = col;
+                        bool found = false;
+                        foreach (var key in colorCounts.Keys)
+                        {
+                            if (GridManager.ColorsApproxEqual(col, key))
+                            {
+                                matchedColor = key;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found) colorCounts[matchedColor]++;
+                        else colorCounts[matchedColor] = 1;
+                    }
+                }
+            }
+        }
+
+        // Eğer aktif katmanda hiç blok yoksa, oyuncunun katmana yeni bir renkle başlama esnekliği olsun diye paletten rastgele seçilir.
+        Color? dominantColor = null;
+        if (colorCounts.Count > 0)
+        {
+            int maxCount = 0;
+            foreach (var kvp in colorCounts)
+            {
+                if (kvp.Value > maxCount)
+                {
+                    maxCount = kvp.Value;
+                    dominantColor = kvp.Key;
+                }
+            }
+        }
+
+        // Bu renge ait Materyali pieceMaterials içinden bul
+        if (dominantColor.HasValue && pieceMaterials != null)
+        {
+            foreach (var m in pieceMaterials)
+            {
+                if (m != null)
+                {
+                    Color mCol = GridManager.GetMaterialColor(m);
+                    if (GridManager.ColorsApproxEqual(dominantColor.Value, mCol))
+                    {
+                        return m;
+                    }
+                }
+            }
+        }
+
+        // Dominant renk bulunamadıysa (katman boşsa) paletten rastgele seç
         if (pieceMaterials != null && pieceMaterials.Length > 0)
         {
             var valid = pieceMaterials.Where(m => m != null).ToList();
             if (valid.Count > 0) return valid[Random.Range(0, valid.Count)];
         }
+
         return null;
     }
 
@@ -594,5 +640,30 @@ public class LevelManager : MonoBehaviour
 
         foreach (var col in shape.GetComponentsInChildren<Collider>())
             col.enabled = true;
+    }
+
+    private bool IsShapePlaceable(GameObject shapePrefabOrGO)
+    {
+        if (shapePrefabOrGO == null) return false;
+        var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
+        if (h == null) return false;
+
+        Quaternion[] rots = {
+            Quaternion.identity,
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0),
+            Quaternion.Euler(90, 0, 0),
+            Quaternion.Euler(270, 0, 0)
+        };
+
+        foreach (var r in rots)
+        {
+            var rotated = GridManager.RotateCells(h.occupiedCells, r);
+            var offsets = gridManager.GetPossibleOffsets(rotated);
+            if (offsets.Count > 0) return true;
+        }
+
+        return false;
     }
 }
