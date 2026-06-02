@@ -87,7 +87,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private const string LEVELS_PATH       = "Assets/Levels";
     private const string EDITOR_OBJECT_NAME = "Shape_Editor_Object";
 
-    [MenuItem("BlockMerge3D/Cube Shape Builder Pro")]
+    [MenuItem("BlockMerge3D/⚙ Legacy/Cube Shape Builder (Legacy)")]
     public static void ShowWindow()
     {
         var w = GetWindow<CubeShapeEditorWindow>("Cube Shape Builder");
