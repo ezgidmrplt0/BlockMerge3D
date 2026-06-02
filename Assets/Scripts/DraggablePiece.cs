@@ -325,8 +325,24 @@ public class DraggablePiece : MonoBehaviour
 
 
                 var rend  = child.GetComponentInChildren<Renderer>();
-                Color col2 = rend != null ? GridManager.GetMaterialColor(rend.sharedMaterial ?? rend.material) : Color.white;
-                grid.RegisterCell(currentCells[i] + offset, child.gameObject, col2);
+                Material usedMat = rend != null ? (rend.sharedMaterial ?? rend.material) : null;
+                Color col2 = GridManager.GetMaterialColor(usedMat);
+                
+                // Materyali pieceMaterials listesiyle eşleştirip indeks bul
+                int matIdx = -1;
+                if (LevelManager.Instance != null && LevelManager.Instance.PieceMaterials != null && usedMat != null)
+                {
+                    var mats = LevelManager.Instance.PieceMaterials;
+                    for (int m = 0; m < mats.Length; m++)
+                    {
+                        if (mats[m] == usedMat || (mats[m] != null && mats[m].name == usedMat.name.Replace(" (Instance)", "")))
+                        {
+                            matIdx = m;
+                            break;
+                        }
+                    }
+                }
+                grid.AddCell(currentCells[i] + offset, child.gameObject, col2, matIdx);
             }
 
             placedOffset       = offset;

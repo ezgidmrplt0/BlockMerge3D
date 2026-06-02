@@ -7,20 +7,19 @@ using System.Linq;
 public class CubeShapeEditorWindow : EditorWindow
 {
     private enum GridOrigin { BottomLeft, Center }
-    private enum ToolMode  { Add, Remove }
+    private enum ToolMode  { Add, Remove, AddPrefilled }
     private enum ShapeType { MainShape, Piece }
 
-    private static readonly Color[] PIECE_COLORS =
+    private static readonly Color[] FALLBACK_COLORS = new Color[]
     {
-        new Color(1f,    0.38f, 0.38f),
-        new Color(0.38f, 0.78f, 0.42f),
-        new Color(0.38f, 0.58f, 1f),
-        new Color(1f,    0.85f, 0.25f),
-        new Color(0.85f, 0.38f, 0.9f),
-        new Color(0.3f,  0.88f, 0.88f),
-        new Color(1f,    0.58f, 0.25f),
-        new Color(0.75f, 0.75f, 0.8f),
+        new Color(0.9f, 0.2f, 0.2f),
+        new Color(0.2f, 0.6f, 0.9f),
+        new Color(0.2f, 0.8f, 0.2f),
+        new Color(0.9f, 0.8f, 0.1f),
+        new Color(0.6f, 0.1f, 0.8f),
+        new Color(0.9f, 0.5f, 0.1f)
     };
+    private Color[] pieceColors = FALLBACK_COLORS;
 
     // --- State ---
     private Vector3Int gridSize  = new Vector3Int(5, 5, 5);
@@ -29,6 +28,9 @@ public class CubeShapeEditorWindow : EditorWindow
     private int        xSlice    = -1;
     private int        ySlice    = -1;
     private int        zSlice    = -1;
+    
+    private int activePrefilledColorIndex = 0;
+
     private GridOrigin gridOrigin  = GridOrigin.BottomLeft;
     private ToolMode   currentTool = ToolMode.Add;
     private string     shapeName   = "NewCubeShape";
@@ -127,17 +129,61 @@ public class CubeShapeEditorWindow : EditorWindow
         removeMaterial     = Mat(1f, 0.2f, 0.1f);
         unassignedMaterial = Mat(0.32f, 0.32f, 0.36f);
         ghostSliceMaterial = Mat(0.14f, 0.14f, 0.17f);
-        pieceMaterials = new Material[PIECE_COLORS.Length];
-        for (int i = 0; i < PIECE_COLORS.Length; i++)
-            pieceMaterials[i] = Mat(PIECE_COLORS[i]);
+
+        // Try to load PremiumMaterials directly from Assets
+        List<Material> premiumMats = new List<Material>();
+        for (int i = 0; i < 7; i++)
+        {
+            Material pm = AssetDatabase.LoadAssetAtPath<Material>($"Assets/Materials/Premium/PremiumMaterial_{i}.mat");
+            if (pm != null) premiumMats.Add(pm);
+        }
+
+        if (premiumMats.Count > 0)
+        {
+            pieceColors = new Color[premiumMats.Count];
+            pieceMaterials = new Material[premiumMats.Count];
+            for (int i = 0; i < premiumMats.Count; i++)
+            {
+                pieceColors[i] = GridManager.GetMaterialColor(premiumMats[i]);
+                pieceMaterials[i] = Mat(pieceColors[i]); // Use Unlit for PreviewRenderUtility
+            }
+        }
+        else
+        {
+            LevelManager lm = FindObjectOfType<LevelManager>();
+            if (lm != null && lm.pieceMaterials != null && lm.pieceMaterials.Length > 0)
+            {
+                pieceColors = new Color[lm.pieceMaterials.Length];
+                pieceMaterials = new Material[lm.pieceMaterials.Length];
+                for (int i = 0; i < lm.pieceMaterials.Length; i++)
+                {
+                    if (lm.pieceMaterials[i] != null)
+                    {
+                        pieceColors[i] = GridManager.GetMaterialColor(lm.pieceMaterials[i]);
+                        pieceMaterials[i] = Mat(pieceColors[i]); // Use Unlit for PreviewRenderUtility
+                    }
+                    else
+                    {
+                        pieceColors[i] = Color.white;
+                        pieceMaterials[i] = Mat(Color.white);
+                    }
+                }
+            }
+            else
+            {
+                pieceColors = FALLBACK_COLORS;
+                pieceMaterials = new Material[pieceColors.Length];
+                for (int i = 0; i < pieceColors.Length; i++)
+                    pieceMaterials[i] = Mat(pieceColors[i]);
+            }
+        }
     }
 
     private void DestroyMaterials()
     {
-        void D(Material m) { if (m) DestroyImmediate(m); }
+        void D(Material m) { if (m && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m))) DestroyImmediate(m); }
         D(cubeMaterial); D(gizmoMaterial); D(hoverMaterial);
         D(hoveredMaterial); D(removeMaterial); D(unassignedMaterial); D(ghostSliceMaterial);
-        if (pieceMaterials != null) foreach (var m in pieceMaterials) D(m);
     }
 
     private void EnsureMaterials()
@@ -217,15 +263,43 @@ public class CubeShapeEditorWindow : EditorWindow
         EditorGUILayout.LabelField("TOOLS", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUI.BeginDisabledGroup(pieceAssignmentMode);
+        
         GUI.backgroundColor = currentTool == ToolMode.Add ? Color.green : Color.white;
         if (GUILayout.Button("ADD CUBE MODE", toolButtonStyle)) currentTool = ToolMode.Add;
+        
         GUI.backgroundColor = currentTool == ToolMode.Remove ? Color.red : Color.white;
         if (GUILayout.Button("REMOVE CUBE MODE", toolButtonStyle)) currentTool = ToolMode.Remove;
+        
+        GUI.backgroundColor = currentTool == ToolMode.AddPrefilled ? Color.magenta : Color.white;
+        if (GUILayout.Button("ADD PREFILLED CUBE", toolButtonStyle)) currentTool = ToolMode.AddPrefilled;
+        
+        if (currentTool == ToolMode.AddPrefilled)
+        {
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Prefilled Color:", EditorStyles.miniLabel);
+            EditorGUILayout.BeginHorizontal();
+            for (int i = 0; i < pieceColors.Length; i++)
+            {
+                GUI.backgroundColor = pieceColors[i];
+                if (GUILayout.Button("", GUILayout.Width(30), GUILayout.Height(30)))
+                    activePrefilledColorIndex = i;
+            }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndHorizontal();
+            
+            Rect r = GUILayoutUtility.GetLastRect();
+            float w = 30f;
+            float x = r.x + activePrefilledColorIndex * (w + 4);
+            EditorGUI.DrawRect(new Rect(x, r.y + 32, w, 3), pieceColors[activePrefilledColorIndex]);
+        }
+        
         GUI.backgroundColor = Color.white;
+        
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button("FILL ALL"))  FillAll();
         if (GUILayout.Button("CLEAR ALL")) ClearShape();
         EditorGUILayout.EndHorizontal();
+        
         EditorGUI.EndDisabledGroup();
         EditorGUILayout.EndVertical();
 
@@ -262,7 +336,6 @@ public class CubeShapeEditorWindow : EditorWindow
                 levelTime   = EditorGUILayout.FloatField("Süre (sn)", levelTime);
                 levelTarget = EditorGUILayout.IntField("Hedef Puan", levelTarget);
 
-                // Append/Overwrite seçeneği — mevcut bir level dosyası varsa göster
                 string existingLdPath = $"{LEVELS_PATH}/{levelName}/{levelName}_LevelData.asset";
                 bool levelExists = System.IO.File.Exists(existingLdPath);
                 if (levelExists)
@@ -279,7 +352,7 @@ public class CubeShapeEditorWindow : EditorWindow
                 }
                 else
                 {
-                    appendPieces = false; // Yeni level için her zaman overwrite
+                    appendPieces = false;
                 }
 
                 EditorGUILayout.Space(4);
@@ -321,7 +394,7 @@ public class CubeShapeEditorWindow : EditorWindow
         for (int i = 0; i < pieceCount; i++)
         {
             int count = pieceCells[i].Count;
-            Color c   = PIECE_COLORS[i % PIECE_COLORS.Length];
+            Color c   = pieceColors[i % pieceColors.Length];
             EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = activePiece == i ? c : c * 0.55f;
             var btn = new GUIStyle(GUI.skin.button)
@@ -419,7 +492,6 @@ public class CubeShapeEditorWindow : EditorWindow
 
         if (e.type == EventType.MouseDown && e.button == 0)
         {
-            // Piece assignment click
             if (pieceAssignmentMode && hoveredCell.HasValue)
             {
                 EnsurePieceCells();
@@ -432,9 +504,16 @@ public class CubeShapeEditorWindow : EditorWindow
             }
 
             if (e.shift || currentTool == ToolMode.Remove)
-            { if (hoveredCell.HasValue) RemoveCube(hoveredCell.Value); }
-            else if (currentTool == ToolMode.Add)
-            { if (placementCell.HasValue) AddCube(placementCell.Value); }
+            { 
+                if (hoveredCell.HasValue)
+                {
+                    RemoveCube(hoveredCell.Value); 
+                }
+            }
+            else if (currentTool == ToolMode.Add || currentTool == ToolMode.AddPrefilled)
+            { 
+                if (placementCell.HasValue) AddCube(placementCell.Value); 
+            }
             e.Use();
         }
     }
@@ -448,7 +527,7 @@ public class CubeShapeEditorWindow : EditorWindow
         float step     = cellSize + spacing;
         Vector3 origin = isViewport ? -(Vector3)gridSize * step * 0.5f : GetOriginOffset();
         float bestDist = float.MaxValue;
-
+        
         foreach (var cell in dataHolder.occupiedCells)
         {
             if (!PassesSlice(cell)) continue;
@@ -521,15 +600,27 @@ public class CubeShapeEditorWindow : EditorWindow
                         continue;
                     }
 
-                    Material mat;
+                    Material mat = cubeMaterial;
                     if (pieceAssignmentMode)
                     {
                         EnsurePieceCells();
-                        mat = pieceCells[activePiece].Contains(cell)
-                            ? pieceMaterials[activePiece % PIECE_COLORS.Length]
-                            : unassignedMaterial;
+                        if (activePiece >= 0 && activePiece < pieceCount)
+                        {
+                            mat = pieceCells[activePiece].Contains(cell)
+                                ? pieceMaterials[activePiece % pieceColors.Length]
+                                : unassignedMaterial;
+                        }
                     }
-                    else mat = cubeMaterial;
+                    else if (dataHolder.prefilledCells != null)
+                    {
+                        int pIdx = dataHolder.prefilledCells.IndexOf(cell);
+                        if (pIdx >= 0 && dataHolder.prefilledMaterialIndices != null && pIdx < dataHolder.prefilledMaterialIndices.Count)
+                        {
+                            int matIdx = dataHolder.prefilledMaterialIndices[pIdx];
+                            if (matIdx >= 0 && matIdx < pieceMaterials.Length)
+                                mat = pieceMaterials[matIdx];
+                        }
+                    }
 
                     previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), mat, 0);
                     DrawCubeEdges(pos, cubeScale);
@@ -542,11 +633,21 @@ public class CubeShapeEditorWindow : EditorWindow
                     previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * (cubeScale + 0.06f)), hm, 0);
                 }
 
-                if (placementCell.HasValue && currentTool == ToolMode.Add && !pieceAssignmentMode)
+                if (placementCell.HasValue && !pieceAssignmentMode)
                 {
-                    Vector3 pos = offset + (Vector3)placementCell.Value * step + Vector3.one * (cellSize * 0.5f);
-                    previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), hoverMaterial, 0);
+                    if (currentTool == ToolMode.Add)
+                    {
+                        Vector3 pos = offset + (Vector3)placementCell.Value * step + Vector3.one * (cellSize * 0.5f);
+                        previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), hoverMaterial, 0);
+                    }
+                    else if (currentTool == ToolMode.AddPrefilled)
+                    {
+                        Material hm = pieceMaterials[activePrefilledColorIndex % pieceColors.Length];
+                        Vector3 pos = offset + (Vector3)placementCell.Value * step + Vector3.one * (cellSize * 0.5f);
+                        previewUtility.DrawMesh(cubeMesh, Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one * cubeScale), hm, 0);
+                    }
                 }
+                
             }
 
             DrawAxisGizmoHUD(camRot);
@@ -687,7 +788,7 @@ public class CubeShapeEditorWindow : EditorWindow
         for (int i = 0; i < pieceCount; i++)
         {
             var cells = pieceCells[i].ToList();
-            Color pc = PIECE_COLORS[i % PIECE_COLORS.Length];
+            Color pc = pieceColors[i % pieceColors.Length];
 
             var labelStyle = new GUIStyle(EditorStyles.miniBoldLabel);
             labelStyle.normal.textColor = pc;
@@ -798,7 +899,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
         if (e.button == 0 && !e.shift)
         {
-            if (currentTool == ToolMode.Add    && placementCell.HasValue) AddCube(placementCell.Value);
+            if (currentTool == ToolMode.Add && placementCell.HasValue) AddCube(placementCell.Value);
             else if (currentTool == ToolMode.Remove && hoveredCell.HasValue)  RemoveCube(hoveredCell.Value);
             e.Use();
         }
@@ -836,17 +937,37 @@ public class CubeShapeEditorWindow : EditorWindow
 
     private void AddCube(Vector3Int c)
     {
-        if (dataHolder.occupiedCells.Contains(c)) return;
-        Undo.RegisterCompleteObjectUndo(dataHolder, "Add Cube");
-        GameObject cube = cubePrefab != null
-            ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
-            : GameObject.CreatePrimitive(PrimitiveType.Cube);
-        cube.transform.SetParent(currentShapeObject.transform);
-        cube.transform.position   = GetOriginOffset() + (Vector3)c * (cellSize + spacing) + Vector3.one * (cellSize * 0.5f);
-        cube.transform.localScale = Vector3.one * cellSize;
-        cube.name = $"Cube_{c.x}_{c.y}_{c.z}";
-        dataHolder.occupiedCells.Add(c);
-        Undo.RegisterCreatedObjectUndo(cube, "Add Cube");
+        if (!dataHolder.occupiedCells.Contains(c))
+        {
+            Undo.RegisterCompleteObjectUndo(dataHolder, "Add Cube");
+            GameObject cube = cubePrefab != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.SetParent(currentShapeObject.transform);
+            cube.transform.position   = GetOriginOffset() + (Vector3)c * (cellSize + spacing) + Vector3.one * (cellSize * 0.5f);
+            cube.transform.localScale = Vector3.one * cellSize;
+            cube.name = $"Cube_{c.x}_{c.y}_{c.z}";
+            dataHolder.occupiedCells.Add(c);
+            Undo.RegisterCreatedObjectUndo(cube, "Add Cube");
+        }
+
+        if (currentTool == ToolMode.AddPrefilled && !dataHolder.prefilledCells.Contains(c))
+        {
+            Undo.RegisterCompleteObjectUndo(dataHolder, "Add Prefilled");
+            dataHolder.prefilledCells.Add(c);
+            dataHolder.prefilledColors.Add(pieceColors[activePrefilledColorIndex]);
+            dataHolder.prefilledMaterialIndices.Add(activePrefilledColorIndex);
+            EditorUtility.SetDirty(dataHolder);
+        }
+        else if (currentTool == ToolMode.Add && dataHolder.prefilledCells.Contains(c))
+        {
+            Undo.RegisterCompleteObjectUndo(dataHolder, "Remove Prefilled");
+            int idx = dataHolder.prefilledCells.IndexOf(c);
+            dataHolder.prefilledCells.RemoveAt(idx);
+            if (idx < dataHolder.prefilledColors.Count) dataHolder.prefilledColors.RemoveAt(idx);
+            if (dataHolder.prefilledMaterialIndices != null && idx < dataHolder.prefilledMaterialIndices.Count) dataHolder.prefilledMaterialIndices.RemoveAt(idx);
+            EditorUtility.SetDirty(dataHolder);
+        }
     }
 
     private void RemoveCube(Vector3Int c)
@@ -854,7 +975,19 @@ public class CubeShapeEditorWindow : EditorWindow
         if (!dataHolder.occupiedCells.Contains(c)) return;
         Undo.RegisterCompleteObjectUndo(dataHolder, "Remove Cube");
         Transform t = currentShapeObject.transform.Find($"Cube_{c.x}_{c.y}_{c.z}");
-        if (t != null) { Undo.DestroyObjectImmediate(t.gameObject); dataHolder.occupiedCells.Remove(c); foreach (var s in pieceCells) s.Remove(c); }
+        if (t != null) { 
+            Undo.DestroyObjectImmediate(t.gameObject); 
+            dataHolder.occupiedCells.Remove(c); 
+            int idx = dataHolder.prefilledCells.IndexOf(c);
+            if(idx >= 0) {
+                dataHolder.prefilledCells.RemoveAt(idx);
+                if(idx < dataHolder.prefilledColors.Count) dataHolder.prefilledColors.RemoveAt(idx);
+                if (dataHolder.prefilledMaterialIndices != null && idx < dataHolder.prefilledMaterialIndices.Count)
+                    dataHolder.prefilledMaterialIndices.RemoveAt(idx);
+            }
+            foreach (var s in pieceCells) s.Remove(c); 
+            EditorUtility.SetDirty(dataHolder); 
+        }
     }
 
     private void FillAll()
@@ -908,6 +1041,26 @@ public class CubeShapeEditorWindow : EditorWindow
 
         CreateNewShape();
         foreach (var cell in data.occupiedCells) AddCube(cell);
+        if (data.prefilledCells != null)
+        {
+            for(int i=0; i<data.prefilledCells.Count; i++)
+            {
+                var cell = data.prefilledCells[i];
+                if (!dataHolder.prefilledCells.Contains(cell))
+                {
+                    dataHolder.prefilledCells.Add(cell);
+                    if (data.prefilledColors != null && i < data.prefilledColors.Count)
+                        dataHolder.prefilledColors.Add(data.prefilledColors[i]);
+                    else
+                        dataHolder.prefilledColors.Add(Color.white);
+                        
+                    if (data.prefilledMaterialIndices != null && i < data.prefilledMaterialIndices.Count)
+                        dataHolder.prefilledMaterialIndices.Add(data.prefilledMaterialIndices[i]);
+                    else
+                        dataHolder.prefilledMaterialIndices.Add(0);
+                }
+            }
+        }
 
         if (shapeType == ShapeType.MainShape)
             TryLoadPieceAssignments(data);
@@ -962,20 +1115,32 @@ public class CubeShapeEditorWindow : EditorWindow
             for (int i = 0; i < cells.Count; i++) cells[i] -= shift;
         }
 
-        CubeShapeData asset  = ScriptableObject.CreateInstance<CubeShapeData>();
+        string assetPath = Path.ChangeExtension(path, ".asset");
+        CubeShapeData asset = AssetDatabase.LoadAssetAtPath<CubeShapeData>(assetPath);
+        bool assetExists = (asset != null);
+        if (!assetExists) asset = ScriptableObject.CreateInstance<CubeShapeData>();
+        
         asset.shapeName      = shapeName;
         asset.gridSize       = gridSize;
         asset.cellSize       = cellSize;
         asset.spacing        = spacing;
         asset.occupiedCells  = cells;
+        asset.prefilledCells = new List<Vector3Int>(dataHolder.prefilledCells);
+        asset.prefilledColors = new List<Color>(dataHolder.prefilledColors);
+        asset.prefilledMaterialIndices = new List<int>(dataHolder.prefilledMaterialIndices);
         asset.cubePrefab     = cubePrefab;
-        AssetDatabase.CreateAsset(asset, Path.ChangeExtension(path, ".asset"));
+        
+        if (!assetExists) AssetDatabase.CreateAsset(asset, assetPath);
+        else EditorUtility.SetDirty(asset);
 
         float step     = cellSize + spacing;
         GameObject root = new GameObject(Path.GetFileNameWithoutExtension(path));
         var h           = root.AddComponent<CubeShapeDataHolder>();
         h.shapeName     = shapeName; h.gridSize = gridSize; h.cellSize = cellSize;
         h.spacing       = spacing;   h.occupiedCells = cells;
+        h.prefilledCells = new List<Vector3Int>(dataHolder.prefilledCells);
+        h.prefilledColors = new List<Color>(dataHolder.prefilledColors);
+        h.prefilledMaterialIndices = new List<int>(dataHolder.prefilledMaterialIndices);
         foreach (var cell in cells)
         {
             GameObject cube = cubePrefab != null
@@ -1080,6 +1245,9 @@ public class CubeShapeEditorWindow : EditorWindow
         var fh               = fullRoot.AddComponent<CubeShapeDataHolder>();
         fh.shapeName         = levelName; fh.gridSize = gridSize; fh.cellSize = cellSize;
         fh.spacing           = spacing;  fh.occupiedCells = new List<Vector3Int>(dataHolder.occupiedCells);
+        fh.prefilledCells    = new List<Vector3Int>(dataHolder.prefilledCells);
+        fh.prefilledColors   = new List<Color>(dataHolder.prefilledColors);
+        fh.prefilledMaterialIndices = new List<int>(dataHolder.prefilledMaterialIndices);
         foreach (var cell in dataHolder.occupiedCells)
         {
             GameObject cube = cubePrefab != null
@@ -1093,16 +1261,19 @@ public class CubeShapeEditorWindow : EditorWindow
         GameObject savedFull = PrefabUtility.SaveAsPrefabAsset(fullRoot, fullPath);
         DestroyImmediate(fullRoot);
 
-        if (existingLd != null)
-            AssetDatabase.DeleteAsset(ldPath);
-
-        LevelData ld              = ScriptableObject.CreateInstance<LevelData>();
+        LevelData ld = existingLd;
+        bool ldExists = (ld != null);
+        if (!ldExists) ld = ScriptableObject.CreateInstance<LevelData>();
+        
         ld.levelName              = levelName;
         ld.mainShapePrefab        = savedFull;
         ld.complementaryPieces    = piecePrefabs;
         ld.timeLimit              = levelTime;
         ld.targetScore            = levelTarget;
-        AssetDatabase.CreateAsset(ld, ldPath);
+        
+        if (!ldExists) AssetDatabase.CreateAsset(ld, ldPath);
+        else EditorUtility.SetDirty(ld);
+        
         AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
         EditorUtility.DisplayDialog("Export Tamamlandı!",
             $"{pieceCount} parça  •  1 tam şekil  •  1 LevelData\n\n{levelDir}/", "Tamam");

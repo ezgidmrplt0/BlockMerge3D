@@ -8,9 +8,11 @@ public class GridManager : MonoBehaviour
     public static GridManager Instance { get; private set; }
 
     public HashSet<Vector3Int> targetCells   = new HashSet<Vector3Int>();
+    public HashSet<Vector3Int> allShapeCells = new HashSet<Vector3Int>();
     public HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
-    private Dictionary<Vector3Int, GameObject> cellObjects = new Dictionary<Vector3Int, GameObject>();
-    private Dictionary<Vector3Int, Color>      cellColors  = new Dictionary<Vector3Int, Color>();
+    private Dictionary<Vector3Int, GameObject> cellObjects  = new Dictionary<Vector3Int, GameObject>();
+    private Dictionary<Vector3Int, Color>       cellColors   = new Dictionary<Vector3Int, Color>();
+    private Dictionary<Vector3Int, int>         cellMatIndex = new Dictionary<Vector3Int, int>(); // -1 = unknown
     private Dictionary<Vector3Int, Renderer>    targetRenderers = new Dictionary<Vector3Int, Renderer>();
     private HashSet<Vector3Int> temporarilyHiddenGridCells = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> occludedGridCells           = new HashSet<Vector3Int>();
@@ -55,29 +57,51 @@ public class GridManager : MonoBehaviour
         Spacing  = spacing;
         Origin   = origin;
         occupiedCells.Clear();
+        targetCells.Clear();
+        allShapeCells.Clear();
+        cellMatIndex.Clear();
         ClearAllCellObjects();
 
-        targetCells.Clear();
         targetRenderers.Clear();
         float step = cellSize + spacing;
 
         if (mainShape != null)
         {
+            var holder = mainShape.GetComponent<CubeShapeDataHolder>();
+            List<Vector3Int> prefilled = holder != null && holder.prefilledCells != null ? holder.prefilledCells : new List<Vector3Int>();
+
             foreach (var r in mainShape.GetComponentsInChildren<Renderer>())
             {
                 if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
-
                 string name = r.gameObject.name;
-                if (name.StartsWith("Cube_"))
-                {
-                    // mainShape.transform.InverseTransformPoint kullanımı iç içe geçmiş (nested) parent gameobject'ler olsa dahi
-                    // her zaman kök nesneye (mainShape) göre gerçek 3D konumu 100% doğru hesaplamamızı sağlar!
-                    Vector3 localPos = mainShape.transform.InverseTransformPoint(r.transform.position);
-                    int x = Mathf.RoundToInt(localPos.x / step);
-                    int y = Mathf.RoundToInt(localPos.y / step);
-                    int z = Mathf.RoundToInt(localPos.z / step);
+                bool isCube = name.StartsWith("Cube_");
+                bool isPrefilled = name.StartsWith("Prefilled_");
+                if (!isCube && !isPrefilled) continue;
 
-                    var cell = new Vector3Int(x, y, z);
+                Vector3 localPos = mainShape.transform.InverseTransformPoint(r.transform.position);
+                int x = Mathf.RoundToInt(localPos.x / step);
+                int y = Mathf.RoundToInt(localPos.y / step);
+                int z = Mathf.RoundToInt(localPos.z / step);
+
+                var cell = new Vector3Int(x, y, z);
+                allShapeCells.Add(cell);
+                
+                if (isPrefilled)
+                {
+                    occupiedCells.Add(cell);
+                    cellObjects[cell] = r.gameObject;
+                    // "Prefilled_matIdx_x_y_z" → parse matIdx
+                    var parts = name.Split('_');
+                    if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedIdx))
+                        cellMatIndex[cell] = parsedIdx;
+                }
+                else if (prefilled.Contains(cell)) // eski format fallback
+                {
+                    occupiedCells.Add(cell);
+                    cellObjects[cell] = r.gameObject;
+                }
+                else
+                {
                     targetCells.Add(cell);
                     targetRenderers[cell] = r;
                 }
@@ -86,7 +110,7 @@ public class GridManager : MonoBehaviour
 
         gridMinX = gridMinY = gridMinZ = int.MaxValue;
         gridMaxX = gridMaxY = gridMaxZ = int.MinValue;
-        foreach (var c in targetCells)
+        foreach (var c in allShapeCells)
         {
             if (c.x < gridMinX) gridMinX = c.x; if (c.x > gridMaxX) gridMaxX = c.x;
             if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
@@ -150,11 +174,11 @@ public class GridManager : MonoBehaviour
 
     public bool IsLayerComplete()
     {
-        int cellsInLayer = 0;
+        int cellsInLayer    = 0;
         int occupiedInLayer = 0;
-        List<Color> colorsInLayer = new List<Color>();
+        List<int> indicesInLayer = new List<int>();
 
-        foreach (var c in targetCells)
+        foreach (var c in allShapeCells)
         {
             if (c.y == ActiveLayerY)
             {
@@ -162,32 +186,24 @@ public class GridManager : MonoBehaviour
                 if (occupiedCells.Contains(c))
                 {
                     occupiedInLayer++;
-                    if (cellColors.TryGetValue(c, out Color col))
-                    {
-                        colorsInLayer.Add(col);
-                    }
+                    int matIdx = cellMatIndex.TryGetValue(c, out int idx) ? idx : -1;
+                    indicesInLayer.Add(matIdx);
                 }
             }
         }
 
         bool allOccupied = (cellsInLayer > 0 && occupiedInLayer == cellsInLayer);
 
-        bool allSameColor = true;
-        if (colorsInLayer.Count > 0)
+        // Eğer tüm indeksler aynı sayıysa ve -1 değilse → aynı materyal
+        bool allSameColor = false;
+        if (indicesInLayer.Count > 0)
         {
-            Color firstColor = colorsInLayer[0];
-            foreach (var col in colorsInLayer)
+            int first = indicesInLayer[0];
+            allSameColor = (first >= 0);
+            foreach (var idx in indicesInLayer)
             {
-                if (!ColorsApproxEqual(col, firstColor))
-                {
-                    allSameColor = false;
-                    break;
-                }
+                if (idx != first) { allSameColor = false; break; }
             }
-        }
-        else
-        {
-            allSameColor = false;
         }
 
         return (allOccupied && allSameColor);
@@ -199,6 +215,13 @@ public class GridManager : MonoBehaviour
         foreach (var c in targetCells)
         {
             if (c.y == ActiveLayerY)
+            {
+                cellsToRemove.Add(c);
+            }
+        }
+        foreach (var c in occupiedCells)
+        {
+            if (c.y == ActiveLayerY && !cellsToRemove.Contains(c))
             {
                 cellsToRemove.Add(c);
             }
@@ -255,6 +278,7 @@ public class GridManager : MonoBehaviour
         var newOccupiedCells = new HashSet<Vector3Int>();
         var newCellObjects = new Dictionary<Vector3Int, GameObject>();
         var newCellColors = new Dictionary<Vector3Int, Color>();
+        var newCellMatIndex = new Dictionary<Vector3Int, int>();
         var newTargetRenderers = new Dictionary<Vector3Int, Renderer>();
 
         foreach (var c in targetCells)
@@ -270,12 +294,14 @@ public class GridManager : MonoBehaviour
             newOccupiedCells.Add(newC);
             if (cellObjects.TryGetValue(c, out var go)) newCellObjects[newC] = go;
             if (cellColors.TryGetValue(c, out var col)) newCellColors[newC] = col;
+            if (cellMatIndex.TryGetValue(c, out var mi)) newCellMatIndex[newC] = mi;
         }
 
         targetCells = newTargetCells;
         occupiedCells = newOccupiedCells;
         cellObjects = newCellObjects;
         cellColors = newCellColors;
+        cellMatIndex = newCellMatIndex;
         targetRenderers = newTargetRenderers;
 
         if (gridMaxY > gridMinY) gridMaxY--;
@@ -332,11 +358,22 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    public void RegisterCell(Vector3Int cell, GameObject cube, Color color)
+    public void SetCellColor(Vector3Int cell, Color color)
+    {
+        cellColors[cell] = color;
+    }
+
+    public void SetCellMatIndex(Vector3Int cell, int matIndex)
+    {
+        cellMatIndex[cell] = matIndex;
+    }
+
+    public void AddCell(Vector3Int cell, GameObject cube, Color color, int matIndex = -1)
     {
         occupiedCells.Add(cell);
         cellObjects[cell] = cube;
         cellColors[cell] = color;
+        cellMatIndex[cell] = matIndex;
 
         if (targetRenderers.TryGetValue(cell, out var r) && r != null)
         {
@@ -592,8 +629,13 @@ public class GridManager : MonoBehaviour
             var r = block.GetComponentInChildren<Renderer>();
             if (r != null)
             {
-                Color originalColor = r.material.color;
-                seq.Join(r.material.DOColor(new Color(originalColor.r, originalColor.g, originalColor.b, 0f), 0.4f));
+                Color originalColor = GetMaterialColor(r.material);
+                Color transparentColor = new Color(originalColor.r, originalColor.g, originalColor.b, 0f);
+                
+                if (r.material.HasProperty("_BaseColor"))
+                    seq.Join(r.material.DOColor(transparentColor, "_BaseColor", 0.4f));
+                else if (r.material.HasProperty("_Color"))
+                    seq.Join(r.material.DOColor(transparentColor, "_Color", 0.4f));
             }
         }
 
@@ -717,8 +759,6 @@ public class GridManager : MonoBehaviour
         }
 
         // 2. Proximity-based Snapping Fallback (when dragging in empty space near the grid)
-
-        bool found = false;
         var seen = new HashSet<Vector3Int>();
         
         float bestValidD = 4.5f;

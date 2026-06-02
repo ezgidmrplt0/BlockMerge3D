@@ -88,34 +88,34 @@ public class LevelManager : MonoBehaviour
         }
 
         allPiecePrefabs.Clear();
-        allPieceWidths.Clear();
-        allPieceHeights.Clear();
-        allPieceDepths.Clear();
-
-        foreach (var prefab in level.complementaryPieces)
+        if (level.complementaryPieces != null && level.complementaryPieces.Count > 0)
         {
-            if (prefab == null) continue;
-            var ph = prefab.GetComponent<CubeShapeDataHolder>();
-            allPiecePrefabs.Add(prefab);
-            if (ph != null)
+            foreach (var p in level.complementaryPieces)
             {
-                float step = ph.cellSize + ph.spacing;
-                int maxX = 0, maxY = 0, maxZ = 0;
-                foreach (var c in ph.occupiedCells)
+                if (p != null)
                 {
-                    if (c.x > maxX) maxX = c.x;
-                    if (c.y > maxY) maxY = c.y;
-                    if (c.z > maxZ) maxZ = c.z;
+                    allPiecePrefabs.Add(p);
+                    var holder2 = p.GetComponent<CubeShapeDataHolder>();
+                    if (holder2 != null && holder2.occupiedCells.Count > 0)
+                    {
+                        float st = holder2.cellSize + holder2.spacing;
+                        float minX = holder2.occupiedCells.Min(c => c.x) * st;
+                        float maxX = holder2.occupiedCells.Max(c => c.x) * st + holder2.cellSize;
+                        float minY = holder2.occupiedCells.Min(c => c.y) * st;
+                        float maxY = holder2.occupiedCells.Max(c => c.y) * st + holder2.cellSize;
+                        float minZ = holder2.occupiedCells.Min(c => c.z) * st;
+                        float maxZ = holder2.occupiedCells.Max(c => c.z) * st + holder2.cellSize;
+                        allPieceWidths.Add(maxX - minX);
+                        allPieceHeights.Add(maxY - minY);
+                        allPieceDepths.Add(maxZ - minZ);
+                    }
+                    else
+                    {
+                        allPieceWidths.Add(2f);
+                        allPieceHeights.Add(2f);
+                        allPieceDepths.Add(2f);
+                    }
                 }
-                allPieceWidths.Add((maxX + 1) * step);
-                allPieceHeights.Add((maxY + 1) * step);
-                allPieceDepths.Add((maxZ + 1) * step);
-            }
-            else
-            {
-                allPieceWidths.Add(2f);
-                allPieceHeights.Add(2f);
-                allPieceDepths.Add(2f);
             }
         }
 
@@ -134,6 +134,7 @@ public class LevelManager : MonoBehaviour
     [Header("Color Palette Settings (Material-Based)")]
     [Tooltip("Sürüklenen oyun parçaları için kullanılacak Material (Malzeme) paleti")]
     public Material[] pieceMaterials;
+    public Material[] PieceMaterials => pieceMaterials;
 
     [Tooltip("Yarı saydam hedef kılavuz küpü için kullanılacak Material")]
     public Material ghostTargetMaterial;
@@ -638,12 +639,86 @@ public class LevelManager : MonoBehaviour
         
         foreach (var r in shape.GetComponentsInChildren<Renderer>())
         {
-            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            r.receiveShadows = false;
+            string cubeName = r.gameObject.name;
             
-            var mats = new Material[r.sharedMaterials.Length];
-            for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
-            r.sharedMaterials = mats;
+            if (cubeName.StartsWith("Prefilled_"))
+            {
+                // "Prefilled_matIdx_x_y_z" — matIdx'i doğrudan isimden oku
+                var parts = cubeName.Split('_');
+                int matIdx = -1;
+                if (parts.Length >= 2) int.TryParse(parts[1], out matIdx);
+                
+                Material prefilledMat = null;
+                if (pieceMaterials != null && matIdx >= 0 && matIdx < pieceMaterials.Length)
+                    prefilledMat = pieceMaterials[matIdx];
+                
+                if (prefilledMat == null)
+                    prefilledMat = pieceMaterials != null && pieceMaterials.Length > 0 ? pieceMaterials[0] : null;
+                
+                if (prefilledMat != null)
+                {
+                    var mats = new Material[r.sharedMaterials.Length];
+                    for (int i = 0; i < mats.Length; i++) mats[i] = prefilledMat;
+                    r.sharedMaterials = mats;
+                }
+                
+                // GridManager'a kaydet
+                var holder2 = shape.GetComponent<CubeShapeDataHolder>();
+                float step2 = holder2 != null ? holder2.cellSize + holder2.spacing : 1f;
+                Vector3 lp = shape.transform.InverseTransformPoint(r.transform.position);
+                var cell2 = new Vector3Int(
+                    Mathf.RoundToInt(lp.x / step2),
+                    Mathf.RoundToInt(lp.y / step2),
+                    Mathf.RoundToInt(lp.z / step2));
+                
+                GridManager.Instance.occupiedCells.Add(cell2);
+                if (prefilledMat != null)
+                    GridManager.Instance.SetCellColor(cell2, GridManager.GetMaterialColor(prefilledMat));
+                GridManager.Instance.SetCellMatIndex(cell2, matIdx);
+            }
+            else if (cubeName.StartsWith("Cube_"))
+            {
+                // Koordinat hesapla
+                var holderF = shape.GetComponent<CubeShapeDataHolder>();
+                float stepF = holderF != null ? holderF.cellSize + holderF.spacing : 1f;
+                Vector3 lpF = shape.transform.InverseTransformPoint(r.transform.position);
+                var cellF = new Vector3Int(
+                    Mathf.RoundToInt(lpF.x / stepF),
+                    Mathf.RoundToInt(lpF.y / stepF),
+                    Mathf.RoundToInt(lpF.z / stepF));
+
+                var prefilledList = holderF?.prefilledCells;
+                int pfListIdx = prefilledList != null ? prefilledList.IndexOf(cellF) : -1;
+
+                if (pfListIdx >= 0) // Eski format: Cube_ isimli ama prefilledCells'te var
+                {
+                    int matIdx = (holderF?.prefilledMaterialIndices != null && pfListIdx < holderF.prefilledMaterialIndices.Count)
+                        ? holderF.prefilledMaterialIndices[pfListIdx] : 0;
+
+                    Material prefilledMat = (pieceMaterials != null && matIdx >= 0 && matIdx < pieceMaterials.Length)
+                        ? pieceMaterials[matIdx] : (pieceMaterials?.Length > 0 ? pieceMaterials[0] : null);
+
+                    if (prefilledMat != null)
+                    {
+                        var mats2 = new Material[r.sharedMaterials.Length];
+                        for (int i = 0; i < mats2.Length; i++) mats2[i] = prefilledMat;
+                        r.sharedMaterials = mats2;
+                    }
+
+                    GridManager.Instance.occupiedCells.Add(cellF);
+                    if (prefilledMat != null)
+                        GridManager.Instance.SetCellColor(cellF, GridManager.GetMaterialColor(prefilledMat));
+                    GridManager.Instance.SetCellMatIndex(cellF, matIdx);
+                }
+                else // Normal hedef (Ghost)
+                {
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    r.receiveShadows = false;
+                    var mats = new Material[r.sharedMaterials.Length];
+                    for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
+                    r.sharedMaterials = mats;
+                }
+            }
         }
 
         foreach (var col in shape.GetComponentsInChildren<Collider>())
