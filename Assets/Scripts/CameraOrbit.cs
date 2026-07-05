@@ -218,6 +218,11 @@ public class CameraOrbit : MonoBehaviour
         });
     }
 
+    public void Shake(float duration = 0.25f, float strength = 0.15f)
+    {
+        transform.DOShakePosition(duration, strength, 15, 90, false, true);
+    }
+
     private void Update()
     {
         // Animasyon: currentYaw'u hedefine doğru yumuşakça çek

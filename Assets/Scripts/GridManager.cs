@@ -1362,9 +1362,14 @@ public class GridManager : MonoBehaviour
 
     // ─── NEW MECHANIC: FROZEN CELLS RESOLUTION ─────────────────────────────────
 
-    public bool CheckAndResolveFrozenCells(System.Action onComplete)
+    public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
     {
-        List<Vector3Int> occupiedList = new List<Vector3Int>(occupiedCells);
+        if (newlyPlacedCells == null || newlyPlacedCells.Count == 0)
+        {
+            onComplete?.Invoke(false);
+            return false;
+        }
+
         HashSet<Vector3Int> cellsToExplode = new HashSet<Vector3Int>();
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
 
@@ -1374,69 +1379,111 @@ public class GridManager : MonoBehaviour
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        for (int i = 0; i < occupiedList.Count; i++)
+        // Check each frozen cell on the board
+        foreach (var frozenCell in frozenCells)
         {
-            Vector3Int cellA = occupiedList[i];
-            foreach (var offset in neighbors)
+            // Find newly placed cells that are in the same layer (same Y coordinate) as this frozen cell
+            List<Vector3Int> newlyPlacedInLayer = new List<Vector3Int>();
+            foreach (var cell in newlyPlacedCells)
             {
-                Vector3Int cellB = cellA + offset;
-                if (occupiedCells.Contains(cellB))
+                if (cell.y == frozenCell.y)
                 {
-                    bool shouldExplode = false;
+                    newlyPlacedInLayer.Add(cell);
+                }
+            }
 
-                    // Case 1: At least one of the adjacent occupied cells is frozen
-                    if (frozenCells.Contains(cellA))
-                    {
-                        shouldExplode = true;
-                        cellsToThaw.Add(cellA);
-                    }
-                    if (frozenCells.Contains(cellB))
-                    {
-                        shouldExplode = true;
-                        cellsToThaw.Add(cellB);
-                    }
+            // Condition: The placed piece must have at least 2 blocks in this layer
+            if (newlyPlacedInLayer.Count < 2)
+            {
+                continue;
+            }
 
-                    // Case 2: One of the adjacent occupied cells is next to a frozen cell
-                    foreach (var offA in neighbors)
+            // Check if at least one of these newly placed blocks in the same layer is adjacent to the frozen cell
+            bool isAdjacent = false;
+            foreach (var cell in newlyPlacedInLayer)
+            {
+                foreach (var offset in neighbors)
+                {
+                    if (cell + offset == frozenCell)
                     {
-                        Vector3Int nA = cellA + offA;
-                        if (frozenCells.Contains(nA))
-                        {
-                            shouldExplode = true;
-                            cellsToThaw.Add(nA);
-                        }
+                        isAdjacent = true;
+                        break;
                     }
-                    foreach (var offB in neighbors)
-                    {
-                        Vector3Int nB = cellB + offB;
-                        if (frozenCells.Contains(nB))
-                        {
-                            shouldExplode = true;
-                            cellsToThaw.Add(nB);
-                        }
-                    }
+                }
+                if (isAdjacent) break;
+            }
 
-                    if (shouldExplode)
+            // If both conditions are met, thaw the ice and explode only the placed blocks in this layer
+            if (isAdjacent)
+            {
+                cellsToThaw.Add(frozenCell);
+                foreach (var cell in newlyPlacedInLayer)
+                {
+                    if (occupiedCells.Contains(cell))
                     {
-                        cellsToExplode.Add(cellA);
-                        cellsToExplode.Add(cellB);
+                        cellsToExplode.Add(cell);
                     }
                 }
             }
         }
 
-        if (cellsToExplode.Count == 0)
+        if (cellsToThaw.Count == 0)
         {
-            onComplete?.Invoke();
+            onComplete?.Invoke(false);
             return false;
         }
 
-        StartCoroutine(AnimateExplodeAndThaw(cellsToExplode, cellsToThaw, onComplete));
+        StartCoroutine(AnimateExplodeAndThaw(cellsToExplode, cellsToThaw, () => onComplete?.Invoke(true)));
         return true;
     }
 
     private IEnumerator AnimateExplodeAndThaw(HashSet<Vector3Int> cellsToExplode, HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
     {
+        List<GameObject> allCracks = new List<GameObject>();
+
+        // 1. ANTICIPATION PHASE (Shake and flash)
+        foreach (var cell in cellsToExplode)
+        {
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                go.transform.DOShakePosition(0.25f, 0.08f, 20);
+                go.transform.DOPunchScale(Vector3.one * 0.1f, 0.25f);
+            }
+        }
+
+        foreach (var cell in cellsToThaw)
+        {
+            if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)
+            {
+                rend.transform.DOShakePosition(0.25f, 0.08f, 20);
+                
+                MaterialPropertyBlock prop = new MaterialPropertyBlock();
+                rend.GetPropertyBlock(prop);
+                prop.SetColor("_EmissionColor", Color.white * 3.0f); // Bright white glow!
+                rend.SetPropertyBlock(prop);
+
+                // Spawn procedural crack lines parented to the shaking ice block
+                Vector3 cellWorldPos = OffsetToRoot(cell);
+                allCracks.AddRange(SpawnProceduralCracks(cellWorldPos, rend.transform));
+            }
+        }
+
+        yield return new WaitForSeconds(0.25f);
+
+        // Clean up crack lines as the ice breaks
+        foreach (var crack in allCracks)
+        {
+            if (crack != null) Destroy(crack);
+        }
+        allCracks.Clear();
+
+        // Camera shake on shatter impact
+        if (CameraOrbit.Instance != null)
+        {
+            CameraOrbit.Instance.Shake(0.32f, 0.2f);
+        }
+
+        // 2. SHATTER AND DETONATE PHASE
         // Trigger shatter effects for exploding occupied blocks
         foreach (var cell in cellsToExplode)
         {
@@ -1454,10 +1501,40 @@ public class GridManager : MonoBehaviour
         foreach (var cell in cellsToThaw)
         {
             Vector3 cellWorldPos = OffsetToRoot(cell);
-            CreateShatterEffect(cellWorldPos, new Color(0.75f, 0.9f, 1.0f, 0.8f));
+            CreateIceShatterEffect(cellWorldPos);
+
+            if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)
+            {
+                Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
+                Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
+                if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                {
+                    defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
+                }
+
+                Color startEmission = Color.white * 3.0f;
+                Color endEmission = Color.clear;
+
+                float lerpVal = 0f;
+                DOTween.To(() => lerpVal, x => {
+                    lerpVal = x;
+                    if (rend != null)
+                    {
+                        MaterialPropertyBlock prop = new MaterialPropertyBlock();
+                        rend.GetPropertyBlock(prop);
+                        Color lerpedCol = Color.Lerp(iceColor, defaultColor, lerpVal);
+                        Color lerpedEmission = Color.Lerp(startEmission, endEmission, lerpVal);
+                        prop.SetColor("_BaseColor", lerpedCol);
+                        prop.SetColor("_Color", lerpedCol);
+                        prop.SetColor("_EmissionColor", lerpedEmission);
+                        rend.SetPropertyBlock(prop);
+                    }
+                }, 1f, 0.5f).SetEase(Ease.OutQuad);
+            }
         }
 
-        yield return new WaitForSeconds(0.4f);
+        // Wait for the shards to fully disperse and shrink (0.65s)
+        yield return new WaitForSeconds(0.65f);
 
         foreach (var cell in cellsToExplode)
         {
@@ -1479,6 +1556,130 @@ public class GridManager : MonoBehaviour
 
         RefreshLayerVisibility();
         onComplete?.Invoke();
+    }
+
+    public void CreateIceShatterEffect(Vector3 centerPosition)
+    {
+        int numShards = 16; // Rich shard density for ice
+        Shader blockShader = null;
+        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+        {
+            blockShader = LevelManager.Instance.ghostTargetMaterial.shader;
+        }
+        if (blockShader == null)
+        {
+            blockShader = Shader.Find("Universal Render Pipeline/Lit");
+        }
+
+        for (int i = 0; i < numShards; i++)
+        {
+            GameObject shard = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var col = shard.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+
+            shard.transform.position = centerPosition + new Vector3(
+                Random.Range(-0.2f, 0.2f),
+                Random.Range(-0.2f, 0.2f),
+                Random.Range(-0.2f, 0.2f)
+            );
+            
+            // Varied crystal shapes (needles, slivers, blocks)
+            float sx = Random.Range(0.08f, 0.35f);
+            float sy = Random.Range(0.08f, 0.35f);
+            float sz = Random.Range(0.08f, 0.35f);
+            shard.transform.localScale = new Vector3(sx, sy, sz);
+
+            var r = shard.GetComponent<Renderer>();
+            if (r != null && blockShader != null)
+            {
+                r.material = new Material(blockShader);
+                r.material.color = new Color(0.8f, 0.95f, 1.0f, 0.85f); // Frosty ice-blue
+                
+                r.material.EnableKeyword("_EMISSION");
+                r.material.SetColor("_EmissionColor", new Color(0.15f, 0.5f, 0.85f) * 2.5f);
+            }
+
+            Vector3 burstDir = Random.insideUnitSphere * Random.Range(1.8f, 3.2f);
+            burstDir.y = Mathf.Abs(burstDir.y) + Random.Range(0.5f, 1.5f); // upward burst force
+
+            Vector3 targetPosition = shard.transform.position + burstDir;
+
+            float duration = Random.Range(0.45f, 0.65f);
+            shard.transform.DOMove(targetPosition, duration).SetEase(Ease.OutQuad);
+            shard.transform.DORotate(new Vector3(Random.Range(-360, 360), Random.Range(-360, 360), Random.Range(-360, 360)), duration);
+            shard.transform.DOScale(Vector3.zero, duration).SetEase(Ease.InQuad).OnComplete(() => {
+                if (r != null && r.material != null) Destroy(r.material);
+                Destroy(shard);
+            });
+        }
+    }
+
+    private List<GameObject> SpawnProceduralCracks(Vector3 center, Transform parent)
+    {
+        List<GameObject> cracks = new List<GameObject>();
+        int numLines = 5;
+        
+        Shader blockShader = null;
+        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+        {
+            blockShader = LevelManager.Instance.ghostTargetMaterial.shader;
+        }
+        if (blockShader == null)
+        {
+            blockShader = Shader.Find("Universal Render Pipeline/Lit");
+        }
+
+        for (int i = 0; i < numLines; i++)
+        {
+            GameObject line = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var col = line.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+
+            line.transform.SetParent(parent, true);
+
+            // Thin crack line
+            line.transform.localScale = new Vector3(
+                Random.Range(0.015f, 0.03f),
+                Random.Range(0.2f, 0.55f),
+                Random.Range(0.015f, 0.03f)
+            );
+
+            // Positioned on the face of the cube
+            Vector3 offset = new Vector3(
+                Random.Range(-0.46f, 0.46f),
+                Random.Range(-0.46f, 0.46f),
+                Random.Range(-0.46f, 0.46f)
+            );
+            
+            // Push one axis to the extreme to put it on the face
+            int axis = Random.Range(0, 3);
+            if (axis == 0) offset.x = Mathf.Sign(offset.x) * 0.47f;
+            else if (axis == 1) offset.y = Mathf.Sign(offset.y) * 0.47f;
+            else offset.z = Mathf.Sign(offset.z) * 0.47f;
+
+            line.transform.position = center + offset;
+            
+            // Random rotation for organic cracks
+            line.transform.localRotation = Quaternion.Euler(
+                Random.Range(0f, 360f),
+                Random.Range(0f, 360f),
+                Random.Range(0f, 360f)
+            );
+
+            var r = line.GetComponent<Renderer>();
+            if (r != null && blockShader != null)
+            {
+                r.material = new Material(blockShader);
+                // Dark crack color
+                r.material.color = new Color(0.12f, 0.18f, 0.28f, 0.92f);
+                r.material.EnableKeyword("_EMISSION");
+                r.material.SetColor("_EmissionColor", new Color(0.02f, 0.08f, 0.18f));
+            }
+
+            cracks.Add(line);
+        }
+
+        return cracks;
     }
 
     public void CreateShatterEffect(Vector3 centerPosition, Color shardColor)

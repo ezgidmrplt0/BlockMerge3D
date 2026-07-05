@@ -482,8 +482,16 @@ public class LevelManager : MonoBehaviour
         activePieceDataIndices.RemoveAt(idx);
         activeIsSmart.RemoveAt(idx);
 
+        // Calculate placed coordinates for the newly placed piece
+        List<Vector3Int> newlyPlacedCells = new List<Vector3Int>();
+        Vector3Int boardOffset = gridManager.RootToOffset(piece.transform.position);
+        foreach (var cell in piece.CurrentCells)
+        {
+            newlyPlacedCells.Add(cell + boardOffset);
+        }
+
         // Check if there are frozen cells to thaw/explode
-        gridManager.CheckAndResolveFrozenCells(onComplete: () =>
+        gridManager.CheckAndResolveFrozenCells(newlyPlacedCells, onComplete: (iceResolved) =>
         {
             var lpc = FindObjectOfType<LayerPanelController>();
             
@@ -514,6 +522,20 @@ public class LevelManager : MonoBehaviour
                             GameManager.Instance?.CheckWin();
                         }
                     );
+                }
+            }
+            else if (iceResolved)
+            {
+                if (lpc != null && CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode)
+                {
+                    lpc.ClosePanel(() =>
+                    {
+                        HandlePostPiecePlaced();
+                    });
+                }
+                else
+                {
+                    HandlePostPiecePlaced();
                 }
             }
             else
