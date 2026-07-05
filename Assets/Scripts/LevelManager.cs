@@ -482,41 +482,45 @@ public class LevelManager : MonoBehaviour
         activePieceDataIndices.RemoveAt(idx);
         activeIsSmart.RemoveAt(idx);
 
-        var lpc = FindObjectOfType<LayerPanelController>();
-        
-        if (gridManager.IsLayerComplete())
+        // Check if there are frozen cells to thaw/explode
+        gridManager.CheckAndResolveFrozenCells(onComplete: () =>
         {
-            if (lpc != null)
+            var lpc = FindObjectOfType<LayerPanelController>();
+            
+            if (gridManager.IsLayerComplete())
             {
-                lpc.ClosePanel(() => 
+                if (lpc != null)
+                {
+                    lpc.ClosePanel(() => 
+                    {
+                        gridManager.ExplodeActiveLayer(
+                            onLayerComplete: () => {
+                                lpc.BuildLayerButtons();
+                                HandlePostPiecePlaced();
+                            },
+                            onLevelComplete: () => {
+                                GameManager.Instance?.CheckWin();
+                            }
+                        );
+                    });
+                }
+                else
                 {
                     gridManager.ExplodeActiveLayer(
                         onLayerComplete: () => {
-                            lpc.BuildLayerButtons();
                             HandlePostPiecePlaced();
                         },
                         onLevelComplete: () => {
                             GameManager.Instance?.CheckWin();
                         }
                     );
-                });
+                }
             }
             else
             {
-                gridManager.ExplodeActiveLayer(
-                    onLayerComplete: () => {
-                        HandlePostPiecePlaced();
-                    },
-                    onLevelComplete: () => {
-                        GameManager.Instance?.CheckWin();
-                    }
-                );
+                HandlePostPiecePlaced();
             }
-        }
-        else
-        {
-            HandlePostPiecePlaced();
-        }
+        });
     }
 
     private void HandlePostPiecePlaced()

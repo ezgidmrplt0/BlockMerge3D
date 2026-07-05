@@ -10,6 +10,7 @@ public class GridManager : MonoBehaviour
     public HashSet<Vector3Int> targetCells   = new HashSet<Vector3Int>();
     public HashSet<Vector3Int> allShapeCells = new HashSet<Vector3Int>();
     public HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
+    public HashSet<Vector3Int> frozenCells   = new HashSet<Vector3Int>();
     private Dictionary<Vector3Int, GameObject> cellObjects  = new Dictionary<Vector3Int, GameObject>();
     private Dictionary<Vector3Int, Color>       cellColors   = new Dictionary<Vector3Int, Color>();
     private Dictionary<Vector3Int, int>         cellMatIndex = new Dictionary<Vector3Int, int>(); // -1 = unknown
@@ -60,6 +61,7 @@ public class GridManager : MonoBehaviour
         targetCells.Clear();
         allShapeCells.Clear();
         cellMatIndex.Clear();
+        frozenCells.Clear();
         ClearAllCellObjects();
 
         targetRenderers.Clear();
@@ -117,6 +119,37 @@ public class GridManager : MonoBehaviour
             if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
         }
 
+        // Designate some target cells as frozen per layer
+        var layers = new Dictionary<int, List<Vector3Int>>();
+        foreach (var cell in targetCells)
+        {
+            if (!layers.ContainsKey(cell.y))
+                layers[cell.y] = new List<Vector3Int>();
+            layers[cell.y].Add(cell);
+        }
+
+        foreach (var kvp in layers)
+        {
+            var layerCells = kvp.Value;
+            if (layerCells.Count >= 3)
+            {
+                int numToFreeze = Mathf.Clamp(Mathf.RoundToInt(layerCells.Count * 0.25f), 1, 3);
+                // Simple shuffle to pick random cells
+                for (int i = 0; i < layerCells.Count; i++)
+                {
+                    Vector3Int temp = layerCells[i];
+                    int randomIndex = Random.Range(i, layerCells.Count);
+                    layerCells[i] = layerCells[randomIndex];
+                    layerCells[randomIndex] = temp;
+                }
+
+                for (int i = 0; i < numToFreeze; i++)
+                {
+                    frozenCells.Add(layerCells[i]);
+                }
+            }
+        }
+
         ActiveLayerY = gridMinY;
         lineClearEnabled = false; // Layer-by-layer mode
         RefreshLayerVisibility();
@@ -134,6 +167,9 @@ public class GridManager : MonoBehaviour
         if (int.TryParse(clean, out int val)) return val;
         return 0;
     }
+
+    private static MaterialPropertyBlock _propBlock;
+    private static MaterialPropertyBlock PropBlock => _propBlock ??= new MaterialPropertyBlock();
 
     public void RefreshLayerVisibility()
     {
@@ -155,6 +191,32 @@ public class GridManager : MonoBehaviour
                     r.enabled = (cell.y == ActiveLayerY);
                 else
                     r.enabled = true; // 3D modunda hepsi görünür
+
+                if (r.enabled)
+                {
+                    r.GetPropertyBlock(PropBlock);
+                    if (frozenCells.Contains(cell))
+                    {
+                        Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
+                        PropBlock.SetColor("_BaseColor", iceColor);
+                        PropBlock.SetColor("_Color", iceColor);
+                        
+                        Color emissionColor = new Color(0.1f, 0.4f, 0.7f) * 1.8f;
+                        PropBlock.SetColor("_EmissionColor", emissionColor);
+                    }
+                    else
+                    {
+                        Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
+                        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                        {
+                            defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
+                        }
+                        PropBlock.SetColor("_BaseColor", defaultColor);
+                        PropBlock.SetColor("_Color", defaultColor);
+                        PropBlock.SetColor("_EmissionColor", Color.clear);
+                    }
+                    r.SetPropertyBlock(PropBlock);
+                }
             }
         }
 
@@ -860,6 +922,7 @@ public class GridManager : MonoBehaviour
             var g = c + offset;
             if (!targetCells.Contains(g) || g.y != ActiveLayerY) return false;
             if (occupiedCells.Contains(g)) return false;
+            if (frozenCells.Contains(g)) return false;
             if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
         }
 
@@ -1294,6 +1357,183 @@ public class GridManager : MonoBehaviour
         if (r.material.HasProperty("_EmissionColor"))
         {
             r.material.DOColor(targetEmission, "_EmissionColor", duration).SetEase(Ease.OutQuad);
+        }
+    }
+
+    // ─── NEW MECHANIC: FROZEN CELLS RESOLUTION ─────────────────────────────────
+
+    public bool CheckAndResolveFrozenCells(System.Action onComplete)
+    {
+        List<Vector3Int> occupiedList = new List<Vector3Int>(occupiedCells);
+        HashSet<Vector3Int> cellsToExplode = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
+
+        Vector3Int[] neighbors = {
+            Vector3Int.left, Vector3Int.right,
+            Vector3Int.up, Vector3Int.down,
+            new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
+        };
+
+        for (int i = 0; i < occupiedList.Count; i++)
+        {
+            Vector3Int cellA = occupiedList[i];
+            foreach (var offset in neighbors)
+            {
+                Vector3Int cellB = cellA + offset;
+                if (occupiedCells.Contains(cellB))
+                {
+                    bool shouldExplode = false;
+
+                    // Case 1: At least one of the adjacent occupied cells is frozen
+                    if (frozenCells.Contains(cellA))
+                    {
+                        shouldExplode = true;
+                        cellsToThaw.Add(cellA);
+                    }
+                    if (frozenCells.Contains(cellB))
+                    {
+                        shouldExplode = true;
+                        cellsToThaw.Add(cellB);
+                    }
+
+                    // Case 2: One of the adjacent occupied cells is next to a frozen cell
+                    foreach (var offA in neighbors)
+                    {
+                        Vector3Int nA = cellA + offA;
+                        if (frozenCells.Contains(nA))
+                        {
+                            shouldExplode = true;
+                            cellsToThaw.Add(nA);
+                        }
+                    }
+                    foreach (var offB in neighbors)
+                    {
+                        Vector3Int nB = cellB + offB;
+                        if (frozenCells.Contains(nB))
+                        {
+                            shouldExplode = true;
+                            cellsToThaw.Add(nB);
+                        }
+                    }
+
+                    if (shouldExplode)
+                    {
+                        cellsToExplode.Add(cellA);
+                        cellsToExplode.Add(cellB);
+                    }
+                }
+            }
+        }
+
+        if (cellsToExplode.Count == 0)
+        {
+            onComplete?.Invoke();
+            return false;
+        }
+
+        StartCoroutine(AnimateExplodeAndThaw(cellsToExplode, cellsToThaw, onComplete));
+        return true;
+    }
+
+    private IEnumerator AnimateExplodeAndThaw(HashSet<Vector3Int> cellsToExplode, HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
+    {
+        // Trigger shatter effects for exploding occupied blocks
+        foreach (var cell in cellsToExplode)
+        {
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                Color blockColor = Color.white;
+                if (cellColors.TryGetValue(cell, out var col)) blockColor = col;
+
+                CreateShatterEffect(go.transform.position, blockColor);
+                go.transform.DOScale(Vector3.zero, 0.2f).SetEase(Ease.InBack);
+            }
+        }
+
+        // Trigger shatter effects for thawing ice blocks
+        foreach (var cell in cellsToThaw)
+        {
+            Vector3 cellWorldPos = OffsetToRoot(cell);
+            CreateShatterEffect(cellWorldPos, new Color(0.75f, 0.9f, 1.0f, 0.8f));
+        }
+
+        yield return new WaitForSeconds(0.4f);
+
+        foreach (var cell in cellsToExplode)
+        {
+            occupiedCells.Remove(cell);
+            cellColors.Remove(cell);
+            cellMatIndex.Remove(cell);
+
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                Destroy(go);
+                cellObjects.Remove(cell);
+            }
+        }
+
+        foreach (var cell in cellsToThaw)
+        {
+            frozenCells.Remove(cell);
+        }
+
+        RefreshLayerVisibility();
+        onComplete?.Invoke();
+    }
+
+    public void CreateShatterEffect(Vector3 centerPosition, Color shardColor)
+    {
+        int numShards = 8;
+        Shader blockShader = null;
+        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+        {
+            blockShader = LevelManager.Instance.ghostTargetMaterial.shader;
+        }
+        if (blockShader == null)
+        {
+            blockShader = Shader.Find("Universal Render Pipeline/Lit");
+        }
+
+        for (int i = 0; i < numShards; i++)
+        {
+            GameObject shard = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var col = shard.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+
+            shard.transform.position = centerPosition + new Vector3(
+                Random.Range(-0.25f, 0.25f),
+                Random.Range(-0.25f, 0.25f),
+                Random.Range(-0.25f, 0.25f)
+            );
+            shard.transform.localScale = Vector3.one * Random.Range(0.18f, 0.32f);
+
+            var r = shard.GetComponent<Renderer>();
+            if (r != null && blockShader != null)
+            {
+                r.material = new Material(blockShader);
+                r.material.color = shardColor;
+                
+                // If it looks like ice (bluish-white), enable emission
+                if (shardColor.r > 0.6f && shardColor.g > 0.8f)
+                {
+                    r.material.EnableKeyword("_EMISSION");
+                    r.material.SetColor("_EmissionColor", new Color(0.1f, 0.4f, 0.7f) * 1.5f);
+                }
+            }
+
+            Vector3 burstDir = new Vector3(
+                Random.Range(-1.8f, 1.8f),
+                Random.Range(0.5f, 2.2f),
+                Random.Range(-1.8f, 1.8f)
+            );
+            Vector3 targetPosition = shard.transform.position + burstDir;
+
+            shard.transform.DOMove(targetPosition, 0.55f).SetEase(Ease.OutQuad);
+            shard.transform.DORotate(new Vector3(Random.Range(-270, 270), Random.Range(-270, 270), Random.Range(-270, 270)), 0.55f);
+            shard.transform.DOScale(Vector3.zero, 0.55f).SetEase(Ease.InQuad).OnComplete(() => {
+                if (r != null && r.material != null) Destroy(r.material);
+                Destroy(shard);
+            });
         }
     }
 }
