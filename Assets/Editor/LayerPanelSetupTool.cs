@@ -5,7 +5,7 @@ using TMPro;
 
 public class LayerPanelSetupTool : EditorWindow
 {
-    [MenuItem("Tools/BlockMerge3D/Setup Layer Panel")]
+    // [MenuItem("Tools/BlockMerge3D/Setup Layer Panel")]
     public static void SetupLayerPanel()
     {
         // 1. Find or create the LayerPanelController object

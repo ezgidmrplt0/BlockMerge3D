@@ -56,14 +56,23 @@ public class PieceSplitterWindow : EditorWindow
     private const string SHAPES_PATH = "Assets/Shapes";
     private const string LEVELS_PATH = "Assets/Levels";
 
-    [MenuItem("BlockMerge3D/Piece Splitter")]
-    public static void ShowWindow()
+    public System.Action onRepaintRequested;
+
+    new public void Repaint()
     {
-        var w = GetWindow<PieceSplitterWindow>("Piece Splitter");
-        w.minSize = new Vector2(960, 600);
+        base.Repaint();
+        if (onRepaintRequested != null)
+            onRepaintRequested();
     }
 
-    private void OnEnable()
+    // [MenuItem("BlockMerge3D/Piece Splitter")]
+    // public static void ShowWindow()
+    // {
+    //     var w = GetWindow<PieceSplitterWindow>("Piece Splitter");
+    //     w.minSize = new Vector2(960, 600);
+    // }
+
+    public void OnEnable()
     {
         if (previewUtility != null) { try { previewUtility.Cleanup(); } catch { } }
         previewUtility = new PreviewRenderUtility();
@@ -92,7 +101,7 @@ public class PieceSplitterWindow : EditorWindow
         }
     }
 
-    private void OnDisable()
+    public void OnDisable()
     {
         if (previewUtility != null) previewUtility.Cleanup();
         if (unassignedMaterial != null) DestroyImmediate(unassignedMaterial);
@@ -112,7 +121,7 @@ public class PieceSplitterWindow : EditorWindow
         sidebarStyle = new GUIStyle(GUI.skin.box);
     }
 
-    private void OnGUI()
+    public void OnGUI()
     {
         InitStyles();
         EditorGUILayout.BeginHorizontal();
@@ -133,7 +142,7 @@ public class PieceSplitterWindow : EditorWindow
         EditorGUILayout.LabelField("KAYNAK ŞEKIL", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUI.BeginChangeCheck();
-        sourceShape = (CubeShapeData)EditorGUILayout.ObjectField("Shape Asset", sourceShape, typeof(CubeShapeData), false);
+        sourceShape = (CubeShapeData)EditorGUILayout.ObjectField("Şekil Varlığı (Shape)", sourceShape, typeof(CubeShapeData), false);
         if (EditorGUI.EndChangeCheck() && sourceShape != null) LoadShape(sourceShape);
 
         if (Directory.Exists(SHAPES_PATH))
@@ -160,7 +169,7 @@ public class PieceSplitterWindow : EditorWindow
         EditorGUILayout.Space(15);
         EditorGUILayout.LabelField("GÖRÜNÜM", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        useOrthographic = EditorGUILayout.Toggle("Orthographic", useOrthographic);
+        useOrthographic = EditorGUILayout.Toggle("Ortografik (İzometrik)", useOrthographic);
         if (GUILayout.Button("Odakla")) FocusCamera();
 
         EditorGUILayout.Space(6);
@@ -278,7 +287,7 @@ public class PieceSplitterWindow : EditorWindow
         EditorGUILayout.BeginVertical(sidebarStyle, GUILayout.Width(290), GUILayout.ExpandHeight(true));
         rightScroll = EditorGUILayout.BeginScrollView(rightScroll);
 
-        EditorGUILayout.LabelField("EXPORT", headerStyle);
+        EditorGUILayout.LabelField("DIŞA AKTAR (EXPORT)", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         levelName   = EditorGUILayout.TextField("Level Adı",   levelName);
         levelTime   = EditorGUILayout.FloatField("Süre (sn)",   levelTime);
@@ -298,11 +307,11 @@ public class PieceSplitterWindow : EditorWindow
             else if (!allPiecesHaveCells)
                 EditorGUILayout.HelpBox("Boş parça var — her parçada en az 1 küp olmalı.", MessageType.Warning);
             else
-                EditorGUILayout.HelpBox("Hazır. Export edebilirsin.", MessageType.Info);
+                EditorGUILayout.HelpBox("Hazır. Dışa aktarabilirsin.", MessageType.Info);
 
             EditorGUI.BeginDisabledGroup(!allAssigned || !allPiecesHaveCells);
             GUI.backgroundColor = new Color(0.4f, 1f, 0.5f, 0.9f);
-            if (GUILayout.Button("EXPORT LEVEL", GUILayout.Height(45))) ExportLevel();
+            if (GUILayout.Button("SEVİYEYİ DIŞA AKTAR", GUILayout.Height(45))) ExportLevel();
             GUI.backgroundColor = Color.white;
             EditorGUI.EndDisabledGroup();
         }
@@ -329,7 +338,7 @@ public class PieceSplitterWindow : EditorWindow
         EditorGUILayout.LabelField("3. Küpe sol tıkla → parçaya atar",   EditorStyles.miniLabel);
         EditorGUILayout.LabelField("   Shift+tıkla → atamayı kaldırır", EditorStyles.miniLabel);
         EditorGUILayout.LabelField("4. Tüm küpler atandıktan sonra",     EditorStyles.miniLabel);
-        EditorGUILayout.LabelField("   'Export Level' düğmesine bas",    EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("   'Seviyeyi Dışa Aktar' düğmesine bas",    EditorStyles.miniLabel);
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndScrollView();
@@ -544,13 +553,13 @@ public class PieceSplitterWindow : EditorWindow
     {
         Vector3 f = rot * Vector3.forward;
         string label;
-        if (Vector3.Dot(f, Vector3.forward) > 0.8f)      label = "Front";
-        else if (Vector3.Dot(f, Vector3.back)    > 0.8f) label = "Back";
-        else if (Vector3.Dot(f, Vector3.up)      > 0.8f) label = "Bottom";
-        else if (Vector3.Dot(f, Vector3.down)    > 0.8f) label = "Top";
-        else if (Vector3.Dot(f, Vector3.left)    > 0.8f) label = "Right";
-        else if (Vector3.Dot(f, Vector3.right)   > 0.8f) label = "Left";
-        else label = useOrthographic ? "Isometric" : "Perspective";
+        if (Vector3.Dot(f, Vector3.forward) > 0.8f)      label = "Ön";
+        else if (Vector3.Dot(f, Vector3.back)    > 0.8f) label = "Arka";
+        else if (Vector3.Dot(f, Vector3.up)      > 0.8f) label = "Alt";
+        else if (Vector3.Dot(f, Vector3.down)    > 0.8f) label = "Üst";
+        else if (Vector3.Dot(f, Vector3.left)    > 0.8f) label = "Sağ";
+        else if (Vector3.Dot(f, Vector3.right)   > 0.8f) label = "Sol";
+        else label = useOrthographic ? "İzometrik" : "Perspektif";
 
         GUI.Label(new Rect(r.x + r.width - 100, r.y + r.height - 30, 90, 20), label,
             new GUIStyle(EditorStyles.boldLabel)

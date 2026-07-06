@@ -59,6 +59,11 @@ public class LevelBuilderWindow : EditorWindow
     private bool     showGhostLayers  = true;
     private Vector2  leftScroll, rightScroll;
     private Vector2? hoverCell;
+    private int      clearRowIndex    = 0;
+    private int      clearColIndex    = 0;
+    private bool     isLeftMouseDown  = false;
+    private bool     isRightMouseDown = false;
+    private bool     hideEmptyGrid    = false;
 
     private GameObject cubePrefab;
 
@@ -66,16 +71,56 @@ public class LevelBuilderWindow : EditorWindow
     private GUIStyle styleHeader, styleBox, styleModeBtn;
     private bool     stylesBuilt;
 
-    // ─────────────────────────────────────────────────────────────
-    [MenuItem("BlockMerge3D/🗂  Level Builder")]
-    public static void Open()
+    public System.Action onRepaintRequested;
+
+    new public void Repaint()
     {
-        var w = GetWindow<LevelBuilderWindow>("Level Builder");
-        w.minSize = new Vector2(900, 560);
+        base.Repaint();
+        if (onRepaintRequested != null)
+            onRepaintRequested();
     }
 
-    private void OnGUI()
+    // [MenuItem("BlockMerge3D/🗂  Level Builder")]
+    // public static void Open()
+    // {
+    //     var w = GetWindow<LevelBuilderWindow>("Level Builder");
+    //     w.minSize = new Vector2(900, 560);
+    // }
+
+    public void OnGUI()
     {
+        // Handle keyboard shortcuts for switching layers
+        Event e = Event.current;
+        if (e.type == EventType.KeyDown)
+        {
+            if (e.keyCode == KeyCode.UpArrow || e.keyCode == KeyCode.PageUp)
+            {
+                if (activeLayer < gridSize.y - 1)
+                {
+                    activeLayer++;
+                    Repaint();
+                    e.Use();
+                }
+            }
+            else if (e.keyCode == KeyCode.DownArrow || e.keyCode == KeyCode.PageDown)
+            {
+                if (activeLayer > 0)
+                {
+                    activeLayer--;
+                    Repaint();
+                    e.Use();
+                }
+            }
+            else if (e.keyCode == KeyCode.Delete || e.keyCode == KeyCode.Backspace)
+            {
+                if (EditorUtility.DisplayDialog("Katmanı Temizle", $"Y={activeLayer} katmanındaki tüm küpleri temizlemek istiyor musunuz?", "Evet", "Hayır"))
+                {
+                    ClearLayer(activeLayer);
+                    e.Use();
+                }
+            }
+        }
+
         BuildStyles();
         DrawToolbar();
         EditorGUILayout.BeginHorizontal();
@@ -111,19 +156,13 @@ public class LevelBuilderWindow : EditorWindow
 
         GUILayout.Space(10);
         showGhostLayers = GUILayout.Toggle(showGhostLayers, "Diğer Katmanlar", EditorStyles.toolbarButton);
+        GUILayout.Space(5);
+        hideEmptyGrid = GUILayout.Toggle(hideEmptyGrid, "Boş Gridleri Gizle", EditorStyles.toolbarButton);
 
         GUILayout.FlexibleSpace();
 
         GUILayout.Label("Zoom:", EditorStyles.toolbarButton, GUILayout.Width(42));
         cellPx = EditorGUILayout.Slider(cellPx, MIN_CELL_PX, MAX_CELL_PX, GUILayout.Width(110));
-
-        GUILayout.Space(10);
-
-        GUI.backgroundColor = new Color(0.35f, 1f, 0.45f, 0.9f);
-        GUI.enabled = occupiedCells.Count > 0;
-        if (GUILayout.Button("⬆  Export Level", EditorStyles.toolbarButton, GUILayout.Width(120))) ExportLevel();
-        GUI.enabled = true;
-        GUI.backgroundColor = Color.white;
 
         EditorGUILayout.EndHorizontal();
     }
@@ -133,6 +172,29 @@ public class LevelBuilderWindow : EditorWindow
     {
         EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(280), GUILayout.ExpandHeight(true));
         leftScroll = EditorGUILayout.BeginScrollView(leftScroll);
+
+        // Kaydet & Dışa Aktar Bölümü
+        GUILayout.Label("KAYDET VE DIŞA AKTAR", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        GUI.backgroundColor = new Color(0.2f, 0.6f, 1f, 1f); // Doygun mavi
+        if (GUILayout.Button("💾  SEVİYEYİ KAYDET", GUILayout.Height(36)))
+        {
+            ExportLevel(true);
+        }
+        
+        GUILayout.Space(5);
+        
+        GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Doygun yeşil
+        if (GUILayout.Button("⬆  SEVİYEYİ DIŞA AKTAR", GUILayout.Height(36)))
+        {
+            ExportLevel(false);
+        }
+        
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(12);
 
         // Level Ayarları
         GUILayout.Label("LEVEL AYARLARI", styleHeader);
@@ -171,6 +233,12 @@ public class LevelBuilderWindow : EditorWindow
             GUI.backgroundColor = Color.white;
             Rect mini = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(22), GUILayout.ExpandWidth(true));
             if (Event.current.type == EventType.Repaint) DrawMiniLayer(mini, y);
+            if (Event.current.type == EventType.MouseDown && mini.Contains(Event.current.mousePosition))
+            {
+                activeLayer = y;
+                Repaint();
+                Event.current.Use();
+            }
             GUILayout.Space(2);
         }
         EditorGUILayout.EndVertical();
@@ -188,6 +256,25 @@ public class LevelBuilderWindow : EditorWindow
         if (GUILayout.Button("Hepsini Doldur"))   FillAll();
         if (GUILayout.Button("Hepsini Temizle"))  ClearAll();
         EditorGUILayout.EndHorizontal();
+
+        GUILayout.Space(6);
+        EditorGUILayout.LabelField("Özel Temizleme (Bu Katman)", EditorStyles.miniBoldLabel);
+
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("Hazır Küpleri Sil", EditorStyles.miniButton)) ClearPrefilledInLayer(activeLayer);
+        if (GUILayout.Button("Şekil Küplerini Sil", EditorStyles.miniButton)) ClearShapesInLayer(activeLayer);
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.BeginHorizontal();
+        clearRowIndex = EditorGUILayout.IntField("Satır Sil (Z)", clearRowIndex);
+        if (GUILayout.Button("Satır Temizle", EditorStyles.miniButton, GUILayout.Width(95))) ClearRowInLayer(activeLayer, clearRowIndex);
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.BeginHorizontal();
+        clearColIndex = EditorGUILayout.IntField("Sütun Sil (X)", clearColIndex);
+        if (GUILayout.Button("Sütun Temizle", EditorStyles.miniButton, GUILayout.Width(95))) ClearColumnInLayer(activeLayer, clearColIndex);
+        EditorGUILayout.EndHorizontal();
+
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndScrollView();
@@ -248,7 +335,27 @@ public class LevelBuilderWindow : EditorWindow
         float ox = area.x + (area.width  - tw) * 0.5f;
         float oy = area.y + (area.height - th) * 0.5f;
 
-        EditorGUI.DrawRect(area, COL_BG);
+        if (hideEmptyGrid)
+        {
+            // Sadece dolu olan hücreler için arka plan ve çerçeve çiz
+            foreach (var cell in occupiedCells)
+            {
+                if (cell.y != activeLayer) continue;
+                Rect cellRect = new Rect(ox + cell.x * cellPx, oy + cell.z * cellPx, cellPx, cellPx);
+                EditorGUI.DrawRect(cellRect, COL_BG);
+                DrawOutline(cellRect, COL_GRID, 1);
+            }
+        }
+        else
+        {
+            EditorGUI.DrawRect(area, COL_BG);
+
+            // Grid çizgileri
+            for (int x = 0; x <= W; x++)
+                EditorGUI.DrawRect(new Rect(ox + x * cellPx, oy, 1, th), COL_GRID);
+            for (int z = 0; z <= D; z++)
+                EditorGUI.DrawRect(new Rect(ox, oy + z * cellPx, tw, 1), COL_GRID);
+        }
 
         // Ghost
         if (showGhostLayers)
@@ -261,12 +368,6 @@ public class LevelBuilderWindow : EditorWindow
                     new Color(COL_GHOST.r, COL_GHOST.g, COL_GHOST.b, a));
             }
         }
-
-        // Grid çizgileri
-        for (int x = 0; x <= W; x++)
-            EditorGUI.DrawRect(new Rect(ox + x * cellPx, oy, 1, th), COL_GRID);
-        for (int z = 0; z <= D; z++)
-            EditorGUI.DrawRect(new Rect(ox, oy + z * cellPx, tw, 1), COL_GRID);
 
         // Hücreler
         foreach (var cell in occupiedCells)
@@ -321,15 +422,57 @@ public class LevelBuilderWindow : EditorWindow
         }
         else hoverCell = null;
 
-        if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && e.button == 0 && inside && hoverCell.HasValue)
+        if (e.rawType == EventType.MouseDown)
         {
-            ApplyBrush(new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y)));
-            e.Use(); Repaint();
+            if (e.button == 0) { isLeftMouseDown = true; isRightMouseDown = false; }
+            if (e.button == 1) { isRightMouseDown = true; isLeftMouseDown = false; }
         }
-        if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && e.button == 1 && inside && hoverCell.HasValue)
+        else if (e.rawType == EventType.MouseUp)
         {
-            EraseCell(new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y)));
-            e.Use(); Repaint();
+            if (e.button == 0) isLeftMouseDown = false;
+            if (e.button == 1) isRightMouseDown = false;
+        }
+
+        if (e.type == EventType.ContextClick && inside)
+        {
+            e.Use();
+        }
+
+        if (inside && hoverCell.HasValue)
+        {
+            if (isLeftMouseDown)
+            {
+                ApplyBrush(new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y)));
+                if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
+                Repaint();
+            }
+            else if (isRightMouseDown)
+            {
+                EraseCell(new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y)));
+                if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
+                Repaint();
+            }
+        }
+        if (e.type == EventType.ScrollWheel && inside)
+        {
+            if (e.delta.y < 0)
+            {
+                if (activeLayer < gridSize.y - 1)
+                {
+                    activeLayer++;
+                    Repaint();
+                    e.Use();
+                }
+            }
+            else if (e.delta.y > 0)
+            {
+                if (activeLayer > 0)
+                {
+                    activeLayer--;
+                    Repaint();
+                    e.Use();
+                }
+            }
         }
         if (e.type == EventType.MouseMove || e.type == EventType.MouseDrag) Repaint();
     }
@@ -399,7 +542,24 @@ public class LevelBuilderWindow : EditorWindow
             {
                 string dname = Path.GetFileName(dir);
                 EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button(dname, EditorStyles.miniButton)) TryLoadLevel(dname);
+                if (GUILayout.Button(dname, EditorStyles.miniButton, GUILayout.ExpandWidth(true))) TryLoadLevel(dname);
+                
+                GUI.backgroundColor = new Color(1f, 0.35f, 0.35f, 0.9f); // Yumuşak kırmızı
+                if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
+                {
+                    if (EditorUtility.DisplayDialog("Seviyeyi Sil", $"'{dname}' seviyesini ve içerdiği tüm dosyaları silmek istediğinize emin misiniz?", "Evet", "Hayır"))
+                    {
+                        string path = $"{LEVELS_PATH}/{dname}";
+                        if (Directory.Exists(path))
+                        {
+                            Directory.Delete(path, true);
+                            string metaPath = $"{path}.meta";
+                            if (File.Exists(metaPath)) File.Delete(metaPath);
+                            AssetDatabase.Refresh();
+                        }
+                    }
+                }
+                GUI.backgroundColor = Color.white;
                 EditorGUILayout.EndHorizontal();
             }
         }
@@ -410,8 +570,25 @@ public class LevelBuilderWindow : EditorWindow
         if (Directory.Exists(SHAPES_PATH))
         {
             foreach (var f in Directory.GetFiles(SHAPES_PATH, "*.asset"))
-                if (GUILayout.Button(Path.GetFileNameWithoutExtension(f), EditorStyles.miniButton))
+            {
+                string fname = Path.GetFileNameWithoutExtension(f);
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button(fname, EditorStyles.miniButton, GUILayout.ExpandWidth(true)))
                     TryLoadShapeAsBase(f.Replace('\\', '/'));
+                
+                GUI.backgroundColor = new Color(1f, 0.35f, 0.35f, 0.9f); // Yumuşak kırmızı
+                if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
+                {
+                    if (EditorUtility.DisplayDialog("Şekli Sil", $"'{fname}' şekil asset'ini silmek istediğinize emin misiniz?", "Evet", "Hayır"))
+                    {
+                        string assetPath = f.Replace('\\', '/');
+                        AssetDatabase.DeleteAsset(assetPath);
+                        AssetDatabase.Refresh();
+                    }
+                }
+                GUI.backgroundColor = Color.white;
+                EditorGUILayout.EndHorizontal();
+            }
         }
         else GUILayout.Label("Henüz şekil yok.", EditorStyles.centeredGreyMiniLabel);
 
@@ -427,7 +604,7 @@ public class LevelBuilderWindow : EditorWindow
             $"Y={activeLayer}  •  {occupiedCells.Count} küp  •  {prefilledCells.Count} prefilled  •  Mod: {ModeLabel()}",
             EditorStyles.miniLabel);
         GUILayout.FlexibleSpace();
-        EditorGUILayout.LabelField("BlockMerge3D  •  Level Builder", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("BlockMerge3D  •  Seviye Tasarımcısı", EditorStyles.miniLabel);
         EditorGUILayout.EndHorizontal();
     }
 
@@ -444,6 +621,45 @@ public class LevelBuilderWindow : EditorWindow
     private void ClearLayer(int y) { var rem = occupiedCells.Where(c => c.y == y).ToList(); foreach (var c in rem) EraseCell(c); Repaint(); }
     private void FillAll()  { for (int y = 0; y < gridSize.y; y++) FillLayer(y); }
     private void ClearAll() { occupiedCells.Clear(); prefilledCells.Clear(); prefilledMatIdx.Clear(); Repaint(); }
+
+    private void ClearPrefilledInLayer(int y)
+    {
+        var rem = prefilledCells.Where(c => c.y == y).ToList();
+        foreach (var c in rem)
+        {
+            int idx = prefilledCells.IndexOf(c);
+            if (idx >= 0)
+            {
+                prefilledCells.RemoveAt(idx);
+                if (idx < prefilledMatIdx.Count) prefilledMatIdx.RemoveAt(idx);
+            }
+        }
+        Repaint();
+    }
+
+    private void ClearShapesInLayer(int y)
+    {
+        var rem = occupiedCells.Where(c => c.y == y && !prefilledCells.Contains(c)).ToList();
+        foreach (var c in rem)
+        {
+            occupiedCells.Remove(c);
+        }
+        Repaint();
+    }
+
+    private void ClearRowInLayer(int y, int z)
+    {
+        var rem = occupiedCells.Where(c => c.y == y && c.z == z).ToList();
+        foreach (var c in rem) EraseCell(c);
+        Repaint();
+    }
+
+    private void ClearColumnInLayer(int y, int x)
+    {
+        var rem = occupiedCells.Where(c => c.y == y && c.x == x).ToList();
+        foreach (var c in rem) EraseCell(c);
+        Repaint();
+    }
 
     // ── Load ──────────────────────────────────────────────────────
     private void TryLoadShapeAsBase(string assetPath)
@@ -485,7 +701,7 @@ public class LevelBuilderWindow : EditorWindow
     }
 
     // ── Export Level ──────────────────────────────────────────────
-    private void ExportLevel()
+    private void ExportLevel(bool silent = false)
     {
         if (occupiedCells.Count == 0) { EditorUtility.DisplayDialog("Hata", "Hiç küp yok!", "Tamam"); return; }
         if (string.IsNullOrWhiteSpace(levelName)) levelName = "NewLevel";
@@ -534,8 +750,15 @@ public class LevelBuilderWindow : EditorWindow
         else       EditorUtility.SetDirty(ld);
         AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
 
-        EditorUtility.DisplayDialog("Export Tamamlandı!",
-            $"✅  FullShape prefab\n✅  LevelData asset\n\n{levelDir}/\n\nParçaları atamak için\n🧩 Piece Designer'ı kullan.", "Tamam");
+        if (silent)
+        {
+            this.ShowNotification(new GUIContent("💾 Seviye Kaydedildi!"));
+        }
+        else
+        {
+            EditorUtility.DisplayDialog("Export Tamamlandı!",
+                $"✅  FullShape prefab\n✅  LevelData asset\n\n{levelDir}/\n\nParçaları atamak için\n🧩 Piece Designer'ı kullan.", "Tamam");
+        }
     }
 
     // ── Yardımcılar ───────────────────────────────────────────────

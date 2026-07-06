@@ -69,6 +69,8 @@ public class PieceDesignerWindow : EditorWindow
     private Vector2  leftScroll, rightScroll;
     private Vector2? hoverCell;
     private bool     levelLoaded     = false;
+    private bool     isLeftMouseDown  = false;
+    private bool     isRightMouseDown = false;
 
     // ── Stil ─────────────────────────────────────────────────────
     private GUIStyle styleHeader, styleBox, styleWarn;
@@ -77,17 +79,57 @@ public class PieceDesignerWindow : EditorWindow
     // Ertelenmiş level yükleme (GUILayout state bozulmasını önler)
     private LevelData pendingLevelToLoad = null;
 
-    // ─────────────────────────────────────────────────────────────
-    [MenuItem("BlockMerge3D/🧩  Piece Designer")]
-    public static void Open()
+    public System.Action onRepaintRequested;
+
+    new public void Repaint()
     {
-        var w = GetWindow<PieceDesignerWindow>("Piece Designer");
-        w.minSize = new Vector2(860, 540);
+        base.Repaint();
+        if (onRepaintRequested != null)
+            onRepaintRequested();
     }
 
+    // [MenuItem("BlockMerge3D/🧩  Piece Designer")]
+    // public static void Open()
+    // {
+    //     var w = GetWindow<PieceDesignerWindow>("Piece Designer");
+    //     w.minSize = new Vector2(860, 540);
+    // }
+
     // ══ OnGUI ══════════════════════════════════════════════════
-    private void OnGUI()
+    public void OnGUI()
     {
+        // Handle keyboard shortcuts for switching layers
+        Event e = Event.current;
+        if (levelLoaded && e.type == EventType.KeyDown)
+        {
+            if (e.keyCode == KeyCode.UpArrow || e.keyCode == KeyCode.PageUp)
+            {
+                if (activeLayer < shapeGridSize.y - 1)
+                {
+                    activeLayer++;
+                    Repaint();
+                    e.Use();
+                }
+            }
+            else if (e.keyCode == KeyCode.DownArrow || e.keyCode == KeyCode.PageDown)
+            {
+                if (activeLayer > 0)
+                {
+                    activeLayer--;
+                    Repaint();
+                    e.Use();
+                }
+            }
+            else if (e.keyCode == KeyCode.Delete || e.keyCode == KeyCode.Backspace)
+            {
+                if (EditorUtility.DisplayDialog("Katmanı Temizle", $"Y={activeLayer} katmanındaki tüm parça atamalarını temizlemek istiyor musunuz?", "Evet", "Hayır"))
+                {
+                    ClearLayer(activeLayer);
+                    e.Use();
+                }
+            }
+        }
+
         // Layout pass başlamadan önce bekleyen level yükleme varsa işle
         if (pendingLevelToLoad != null && Event.current.type == EventType.Layout)
         {
@@ -241,6 +283,12 @@ public class PieceDesignerWindow : EditorWindow
 
                 Rect mini = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(24), GUILayout.ExpandWidth(true));
                 if (Event.current.type == EventType.Repaint) DrawMiniLayer(mini, y);
+                if (Event.current.type == EventType.MouseDown && mini.Contains(Event.current.mousePosition))
+                {
+                    activeLayer = y;
+                    Repaint();
+                    Event.current.Use();
+                }
                 GUILayout.Space(2);
             }
             EditorGUILayout.EndVertical();
@@ -419,19 +467,62 @@ public class PieceDesignerWindow : EditorWindow
         }
         else hoverCell = null;
 
-        if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && e.button == 0 && inside && hoverCell.HasValue)
+        if (e.rawType == EventType.MouseDown)
         {
-            var coord = new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y));
-            if (!shapeCells.Contains(coord)) { e.Use(); return; }
-            if (eraseMode) UnassignCell(coord);
-            else           AssignCell(coord, activePiece);
-            e.Use(); Repaint();
+            if (e.button == 0) { isLeftMouseDown = true; isRightMouseDown = false; }
+            if (e.button == 1) { isRightMouseDown = true; isLeftMouseDown = false; }
         }
-        if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && e.button == 1 && inside && hoverCell.HasValue)
+        else if (e.rawType == EventType.MouseUp)
+        {
+            if (e.button == 0) isLeftMouseDown = false;
+            if (e.button == 1) isRightMouseDown = false;
+        }
+
+        if (e.type == EventType.ContextClick && inside)
+        {
+            e.Use();
+        }
+
+        if (inside && hoverCell.HasValue)
         {
             var coord = new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y));
-            UnassignCell(coord);
-            e.Use(); Repaint();
+            if (shapeCells.Contains(coord))
+            {
+                if (isLeftMouseDown)
+                {
+                    if (eraseMode) UnassignCell(coord);
+                    else           AssignCell(coord, activePiece);
+                    if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
+                    Repaint();
+                }
+                else if (isRightMouseDown)
+                {
+                    UnassignCell(coord);
+                    if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
+                    Repaint();
+                }
+            }
+        }
+        if (e.type == EventType.ScrollWheel && inside)
+        {
+            if (e.delta.y < 0)
+            {
+                if (activeLayer < shapeGridSize.y - 1)
+                {
+                    activeLayer++;
+                    Repaint();
+                    e.Use();
+                }
+            }
+            else if (e.delta.y > 0)
+            {
+                if (activeLayer > 0)
+                {
+                    activeLayer--;
+                    Repaint();
+                    e.Use();
+                }
+            }
         }
         if (e.type == EventType.MouseMove || e.type == EventType.MouseDrag) Repaint();
     }

@@ -15,18 +15,27 @@ public class CanvasSetupWindow : EditorWindow
     private Color textColor      = new Color(1.00f, 1.00f, 1.00f, 1f); // Beyaz metin
     private Color darkTextColor  = new Color(0.15f, 0.15f, 0.20f, 1f); // Koyu metin (açık zeminler için)
 
-    [MenuItem("BlockMerge3D/Canvas Setup")]
-    public static void ShowWindow()
+    public System.Action onRepaintRequested;
+
+    new public void Repaint()
     {
-        var w = GetWindow<CanvasSetupWindow>("Canvas Setup");
-        w.minSize = new Vector2(400, 500);
+        base.Repaint();
+        if (onRepaintRequested != null)
+            onRepaintRequested();
     }
+
+    // [MenuItem("BlockMerge3D/Canvas Setup")]
+    // public static void ShowWindow()
+    // {
+    //     var w = GetWindow<CanvasSetupWindow>("Canvas Setup");
+    //     w.minSize = new Vector2(400, 500);
+    // }
 
     private GUIStyle _title;
     private GUIStyle TitleStyle => _title ??= new GUIStyle(EditorStyles.boldLabel)
         { fontSize = 14, normal = { textColor = accentColor } };
 
-    private void OnGUI()
+    public void OnGUI()
     {
         EditorGUILayout.LabelField("CANVAS KURULUM (Sıfırdan Premium UI)", TitleStyle);
         EditorGUILayout.Space(8);

@@ -20,33 +20,42 @@ public class AestheticSetupTool : EditorWindow
     private float materialMetallic = 0.0f;
     private float materialEmissionMultiplier = 0.25f;
 
-    [MenuItem("BlockMerge3D/Aesthetic Setup Tool")]
-    public static void ShowWindow()
+    public System.Action onRepaintRequested;
+
+    new public void Repaint()
     {
-        GetWindow<AestheticSetupTool>("Aesthetic Setup");
+        base.Repaint();
+        if (onRepaintRequested != null)
+            onRepaintRequested();
     }
 
-    private void OnGUI()
+    // [MenuItem("BlockMerge3D/Aesthetic Setup Tool")]
+    // public static void ShowWindow()
+    // {
+    //     GetWindow<AestheticSetupTool>("Aesthetic Setup");
+    // }
+
+    public void OnGUI()
     {
-        GUILayout.Label("Spider-Verse / Premium Aesthetic Setup", EditorStyles.boldLabel);
-        EditorGUILayout.HelpBox("This tool generates persistent Material assets (.mat) and assigns them to the LevelManager in the scene.", MessageType.Info);
+        GUILayout.Label("Spider-Verse / Premium Görsel Ayarları", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox("Bu araç, kalıcı Materyal varlıkları (.mat) oluşturur ve bunları sahnedeki LevelManager'a atar.", MessageType.Info);
 
         EditorGUILayout.Space();
-        GUILayout.Label("Colors", EditorStyles.boldLabel);
+        GUILayout.Label("Renkler", EditorStyles.boldLabel);
         for (int i = 0; i < premiumColors.Length; i++)
         {
-            premiumColors[i] = EditorGUILayout.ColorField($"Color {i + 1}", premiumColors[i]);
+            premiumColors[i] = EditorGUILayout.ColorField($"Renk {i + 1}", premiumColors[i]);
         }
 
         EditorGUILayout.Space();
-        GUILayout.Label("Shader Properties", EditorStyles.boldLabel);
-        materialSmoothness = EditorGUILayout.Slider("Smoothness", materialSmoothness, 0f, 1f);
-        materialMetallic = EditorGUILayout.Slider("Metallic", materialMetallic, 0f, 1f);
-        materialEmissionMultiplier = EditorGUILayout.Slider("Emission Multiplier", materialEmissionMultiplier, 0f, 2f);
+        GUILayout.Label("Gölgelendirici (Shader) Özellikleri", EditorStyles.boldLabel);
+        materialSmoothness = EditorGUILayout.Slider("Pürüzsüzlük (Smoothness)", materialSmoothness, 0f, 1f);
+        materialMetallic = EditorGUILayout.Slider("Metaliklik (Metallic)", materialMetallic, 0f, 1f);
+        materialEmissionMultiplier = EditorGUILayout.Slider("Işıma Çarpanı (Emission Multiplier)", materialEmissionMultiplier, 0f, 2f);
 
         EditorGUILayout.Space();
 
-        if (GUILayout.Button("Generate Assets & Apply to Scene", GUILayout.Height(40)))
+        if (GUILayout.Button("Materyalleri Üret & Sahneye Uygula", GUILayout.Height(40)))
         {
             GenerateAndApply();
         }

@@ -87,16 +87,25 @@ public class CubeShapeEditorWindow : EditorWindow
     private const string LEVELS_PATH       = "Assets/Levels";
     private const string EDITOR_OBJECT_NAME = "Shape_Editor_Object";
 
-    [MenuItem("BlockMerge3D/⚙ Legacy/Cube Shape Builder (Legacy)")]
-    public static void ShowWindow()
+    public System.Action onRepaintRequested;
+
+    new public void Repaint()
     {
-        var w = GetWindow<CubeShapeEditorWindow>("Cube Shape Builder");
-        w.minSize = new Vector2(900, 600);
+        base.Repaint();
+        if (onRepaintRequested != null)
+            onRepaintRequested();
     }
+
+    // [MenuItem("BlockMerge3D/⚙ Legacy/Cube Shape Builder (Legacy)")]
+    // public static void ShowWindow()
+    // {
+    //     var w = GetWindow<CubeShapeEditorWindow>("Cube Shape Builder");
+    //     w.minSize = new Vector2(900, 600);
+    // }
 
     // ─── Enable / Disable ─────────────────────────────────────────────────────
 
-    private void OnEnable()
+    public void OnEnable()
     {
         SceneView.duringSceneGui += OnSceneGUI;
         if (previewUtility != null) { try { previewUtility.Cleanup(); } catch { } }
@@ -109,7 +118,7 @@ public class CubeShapeEditorWindow : EditorWindow
         FindExistingEditorObject();
     }
 
-    private void OnDisable()
+    public void OnDisable()
     {
         SceneView.duringSceneGui -= OnSceneGUI;
         if (previewUtility != null)
@@ -227,7 +236,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
     // ─── OnGUI ────────────────────────────────────────────────────────────────
 
-    private void OnGUI()
+    public void OnGUI()
     {
         InitializeStyles();
         EnsureMaterials();
@@ -245,38 +254,38 @@ public class CubeShapeEditorWindow : EditorWindow
         sidebarScroll = EditorGUILayout.BeginScrollView(sidebarScroll);
 
         // Shape Settings
-        EditorGUILayout.LabelField("SHAPE SETTINGS", headerStyle);
+        EditorGUILayout.LabelField("ŞEKİL AYARLARI", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        shapeName = EditorGUILayout.TextField("Name", shapeName);
-        shapeType = (ShapeType)EditorGUILayout.EnumPopup("Shape Type", shapeType);
-        gridSize  = EditorGUILayout.Vector3IntField("Grid Size", gridSize);
-        cellSize  = EditorGUILayout.FloatField("Cell Size", cellSize);
+        shapeName = EditorGUILayout.TextField("Şekil Adı", shapeName);
+        shapeType = (ShapeType)EditorGUILayout.EnumPopup("Şekil Türü", shapeType);
+        gridSize  = EditorGUILayout.Vector3IntField("Izgara Boyutu", gridSize);
+        cellSize  = EditorGUILayout.FloatField("Hücre Boyutu", cellSize);
         EditorGUI.BeginChangeCheck();
-        spacing = EditorGUILayout.Slider("Gap (Spacing)", spacing, 0f, 0.5f);
+        spacing = EditorGUILayout.Slider("Aralık (Boşluk)", spacing, 0f, 0.5f);
         if (EditorGUI.EndChangeCheck() && dataHolder != null) dataHolder.spacing = spacing;
-        gridOrigin = (GridOrigin)EditorGUILayout.EnumPopup("Origin", gridOrigin);
-        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Cube Prefab", cubePrefab, typeof(GameObject), false);
+        gridOrigin = (GridOrigin)EditorGUILayout.EnumPopup("Kök Noktası (Origin)", gridOrigin);
+        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Küp Prefab'ı", cubePrefab, typeof(GameObject), false);
         EditorGUILayout.EndVertical();
 
         // Tools
         EditorGUILayout.Space(15);
-        EditorGUILayout.LabelField("TOOLS", headerStyle);
+        EditorGUILayout.LabelField("ARAÇLAR", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUI.BeginDisabledGroup(pieceAssignmentMode);
         
         GUI.backgroundColor = currentTool == ToolMode.Add ? Color.green : Color.white;
-        if (GUILayout.Button("ADD CUBE MODE", toolButtonStyle)) currentTool = ToolMode.Add;
+        if (GUILayout.Button("KÜP EKLEME MODU", toolButtonStyle)) currentTool = ToolMode.Add;
         
         GUI.backgroundColor = currentTool == ToolMode.Remove ? Color.red : Color.white;
-        if (GUILayout.Button("REMOVE CUBE MODE", toolButtonStyle)) currentTool = ToolMode.Remove;
+        if (GUILayout.Button("KÜP SİLME MODU", toolButtonStyle)) currentTool = ToolMode.Remove;
         
         GUI.backgroundColor = currentTool == ToolMode.AddPrefilled ? Color.magenta : Color.white;
-        if (GUILayout.Button("ADD PREFILLED CUBE", toolButtonStyle)) currentTool = ToolMode.AddPrefilled;
+        if (GUILayout.Button("PREFILLED KÜP EKLE", toolButtonStyle)) currentTool = ToolMode.AddPrefilled;
         
         if (currentTool == ToolMode.AddPrefilled)
         {
             EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("Prefilled Color:", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("Prefilled Rengi:", EditorStyles.miniLabel);
             EditorGUILayout.BeginHorizontal();
             for (int i = 0; i < pieceColors.Length; i++)
             {
@@ -296,8 +305,8 @@ public class CubeShapeEditorWindow : EditorWindow
         GUI.backgroundColor = Color.white;
         
         EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("FILL ALL"))  FillAll();
-        if (GUILayout.Button("CLEAR ALL")) ClearShape();
+        if (GUILayout.Button("TÜMÜNÜ DOLDUR"))  FillAll();
+        if (GUILayout.Button("TÜMÜNÜ TEMİZLE")) ClearShape();
         EditorGUILayout.EndHorizontal();
         
         EditorGUI.EndDisabledGroup();
@@ -305,7 +314,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
         // View Options
         EditorGUILayout.Space(15);
-        EditorGUILayout.LabelField("VIEW OPTIONS", headerStyle);
+        EditorGUILayout.LabelField("GÖRÜNÜM SEÇENEKLERİ", headerStyle);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUILayout.LabelField("Dilim Filtresi  (-1 = tümü)", EditorStyles.miniLabel);
         EditorGUI.BeginChangeCheck();
@@ -317,17 +326,17 @@ public class CubeShapeEditorWindow : EditorWindow
             if (GUILayout.Button("Sıfırla", EditorStyles.miniButton))
                 { xSlice = -1; ySlice = -1; zSlice = -1; Repaint(); }
         EditorGUILayout.Space(4);
-        useOrthographic = EditorGUILayout.Toggle("Orthographic", useOrthographic);
-        if (GUILayout.Button("Focus Viewport")) FocusCamera();
+        useOrthographic = EditorGUILayout.Toggle("Ortografik (İzometrik)", useOrthographic);
+        if (GUILayout.Button("Görünümü Odakla")) FocusCamera();
         EditorGUILayout.EndVertical();
 
         // Piece Assignment (only for MainShape)
         if (isEditing && shapeType == ShapeType.MainShape)
         {
             EditorGUILayout.Space(15);
-            EditorGUILayout.LabelField("PIECE ASSIGNMENT", headerStyle);
+            EditorGUILayout.LabelField("PARÇA ATAMALARI", headerStyle);
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            pieceAssignmentMode = EditorGUILayout.Toggle("Enable", pieceAssignmentMode);
+            pieceAssignmentMode = EditorGUILayout.Toggle("Aktif", pieceAssignmentMode);
 
             if (pieceAssignmentMode)
             {
@@ -367,7 +376,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
                 EditorGUI.BeginDisabledGroup(!allPiecesHaveCells);
                 GUI.backgroundColor = new Color(0.4f, 1f, 0.5f, 0.9f);
-                string exportLabel = appendPieces && levelExists ? "PARÇA EKLE (APPEND)" : "EXPORT LEVEL";
+                string exportLabel = appendPieces && levelExists ? "PARÇA EKLE (APPEND)" : "SEVİYEYİ DIŞA AKTAR";
                 if (GUILayout.Button(exportLabel, GUILayout.Height(36))) ExportLevel();
                 GUI.backgroundColor = Color.white;
                 EditorGUI.EndDisabledGroup();
@@ -380,7 +389,7 @@ public class CubeShapeEditorWindow : EditorWindow
         GUI.backgroundColor = shapeType == ShapeType.Piece
             ? new Color(0.5f, 1f, 0.4f, 0.9f)
             : new Color(0.4f, 0.8f, 1f, 0.8f);
-        string saveLabel = shapeType == ShapeType.Piece ? "SAVE AS PIECE" : "SAVE AS PREFAB";
+        string saveLabel = shapeType == ShapeType.Piece ? "PARÇA OLARAK KAYDET" : "PREFAB OLARAK KAYDET";
         if (GUILayout.Button(saveLabel, GUILayout.Height(45))) SaveAsPrefab();
         GUI.backgroundColor = Color.white;
 

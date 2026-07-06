@@ -1,0 +1,232 @@
+using UnityEngine;
+using UnityEditor;
+
+public class BlockMerge3DHubWindow : EditorWindow
+{
+    private enum Tab
+    {
+        LevelBuilder,
+        PieceDesigner,
+        PieceSplitter,
+        CanvasSetup,
+        Aesthetics,
+        LegacyCubeShapeEditor
+    }
+
+    private Tab activeTab = Tab.LevelBuilder;
+    private Tab previousTab = Tab.LevelBuilder;
+
+    private readonly string[] tabNames = new string[]
+    {
+        "🗂 Seviye Tasarımcısı",
+        "🧩 Parça Tasarımcısı",
+        "✂ Parça Bölücü",
+        "📺 Arayüz Kurulumu",
+        "🎨 Görsel & Kurulum",
+        "⚙ Eski Yapıcı"
+    };
+
+    // Sub-window instances
+    private LevelBuilderWindow levelBuilder;
+    private PieceDesignerWindow pieceDesigner;
+    private PieceSplitterWindow pieceSplitter;
+    private CanvasSetupWindow canvasSetup;
+    private AestheticSetupTool aestheticSetup;
+    private CubeShapeEditorWindow legacyCubeShape;
+
+    // Styles
+    private GUIStyle headerStyle;
+    private GUIStyle subHeaderStyle;
+    private GUIStyle toolbarStyle;
+    private bool stylesInitialized = false;
+
+    [MenuItem("BlockMerge3D/BlockMerge3D Hub", false, 0)]
+    public static void Open()
+    {
+        var w = GetWindow<BlockMerge3DHubWindow>("BlockMerge3D Geliştirici Merkezi");
+        w.minSize = new Vector2(1000, 680);
+    }
+
+    private void OnEnable()
+    {
+        InitializeSubWindows();
+        previousTab = activeTab;
+        EnableActiveTab(activeTab);
+    }
+
+    private void OnDisable()
+    {
+        DisableActiveTab(activeTab);
+        DestroySubWindows();
+    }
+
+    private void InitializeSubWindows()
+    {
+        if (levelBuilder == null)
+        {
+            levelBuilder = CreateInstance<LevelBuilderWindow>();
+            levelBuilder.onRepaintRequested = Repaint;
+        }
+        if (pieceDesigner == null)
+        {
+            pieceDesigner = CreateInstance<PieceDesignerWindow>();
+            pieceDesigner.onRepaintRequested = Repaint;
+        }
+        if (pieceSplitter == null)
+        {
+            pieceSplitter = CreateInstance<PieceSplitterWindow>();
+            pieceSplitter.onRepaintRequested = Repaint;
+        }
+        if (canvasSetup == null)
+        {
+            canvasSetup = CreateInstance<CanvasSetupWindow>();
+            canvasSetup.onRepaintRequested = Repaint;
+        }
+        if (aestheticSetup == null)
+        {
+            aestheticSetup = CreateInstance<AestheticSetupTool>();
+            aestheticSetup.onRepaintRequested = Repaint;
+        }
+        if (legacyCubeShape == null)
+        {
+            legacyCubeShape = CreateInstance<CubeShapeEditorWindow>();
+            legacyCubeShape.onRepaintRequested = Repaint;
+        }
+    }
+
+    private void DestroySubWindows()
+    {
+        if (levelBuilder != null) DestroyImmediate(levelBuilder);
+        if (pieceDesigner != null) DestroyImmediate(pieceDesigner);
+        if (pieceSplitter != null) DestroyImmediate(pieceSplitter);
+        if (canvasSetup != null) DestroyImmediate(canvasSetup);
+        if (aestheticSetup != null) DestroyImmediate(aestheticSetup);
+        if (legacyCubeShape != null) DestroyImmediate(legacyCubeShape);
+    }
+
+    private void DisableActiveTab(Tab tab)
+    {
+        if (tab == Tab.PieceSplitter && pieceSplitter != null)
+        {
+            pieceSplitter.OnDisable();
+        }
+        else if (tab == Tab.LegacyCubeShapeEditor && legacyCubeShape != null)
+        {
+            legacyCubeShape.OnDisable();
+        }
+    }
+
+    private void EnableActiveTab(Tab tab)
+    {
+        if (tab == Tab.PieceSplitter && pieceSplitter != null)
+        {
+            pieceSplitter.OnEnable();
+        }
+        else if (tab == Tab.LegacyCubeShapeEditor && legacyCubeShape != null)
+        {
+            legacyCubeShape.OnEnable();
+        }
+    }
+
+    private void InitializeStyles()
+    {
+        if (stylesInitialized) return;
+
+        headerStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            fontSize = 16,
+            alignment = TextAnchor.MiddleCenter,
+            margin = new RectOffset(0, 0, 10, 5)
+        };
+        headerStyle.normal.textColor = new Color(0.35f, 0.78f, 1.00f);
+
+        subHeaderStyle = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
+        {
+            fontSize = 11,
+            margin = new RectOffset(0, 0, 0, 10)
+        };
+
+        toolbarStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            fixedHeight = 35
+        };
+
+        stylesInitialized = true;
+    }
+
+    private void OnGUI()
+    {
+        InitializeStyles();
+        InitializeSubWindows(); // Fallback assurance
+
+        // --- Top Header Panel ---
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.LabelField("BLOCKMERGE 3D  •  GELİŞTİRİCİ MERKEZİ", headerStyle);
+        EditorGUILayout.LabelField("Tüm tasarım, seviye düzenleme ve kurulum araçları tek bir yerde toplandı.", subHeaderStyle);
+        
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+        
+        GUI.backgroundColor = new Color(0.3f, 0.8f, 0.5f, 0.9f);
+        if (GUILayout.Button("📋 Seviye Sıralama Penceresini Aç", GUILayout.Width(240), GUILayout.Height(26)))
+        {
+            LevelOrderEditorWindow.ShowWindow();
+        }
+        GUI.backgroundColor = Color.white;
+
+        GUILayout.Space(10);
+
+        GUI.backgroundColor = new Color(0.9f, 0.45f, 0.45f, 0.9f);
+        if (GUILayout.Button("⚡ Katman Paneli Arayüzünü Kur", GUILayout.Width(220), GUILayout.Height(26)))
+        {
+            LayerPanelSetupTool.SetupLayerPanel();
+        }
+        GUI.backgroundColor = Color.white;
+
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.Space(5);
+        EditorGUILayout.EndVertical();
+
+        EditorGUILayout.Space(8);
+
+        // --- Tab Selection Toolbar ---
+        EditorGUI.BeginChangeCheck();
+        activeTab = (Tab)GUILayout.Toolbar((int)activeTab, tabNames, toolbarStyle);
+        if (EditorGUI.EndChangeCheck())
+        {
+            DisableActiveTab(previousTab);
+            EnableActiveTab(activeTab);
+            previousTab = activeTab;
+            GUIUtility.hotControl = 0;
+            GUIUtility.keyboardControl = 0;
+        }
+
+        EditorGUILayout.Space(10);
+
+        // --- Active Tab Draw Content ---
+        switch (activeTab)
+        {
+            case Tab.LevelBuilder:
+                if (levelBuilder != null) levelBuilder.OnGUI();
+                break;
+            case Tab.PieceDesigner:
+                if (pieceDesigner != null) pieceDesigner.OnGUI();
+                break;
+            case Tab.PieceSplitter:
+                if (pieceSplitter != null) pieceSplitter.OnGUI();
+                break;
+            case Tab.CanvasSetup:
+                if (canvasSetup != null) canvasSetup.OnGUI();
+                break;
+            case Tab.Aesthetics:
+                if (aestheticSetup != null) aestheticSetup.OnGUI();
+                break;
+            case Tab.LegacyCubeShapeEditor:
+                if (legacyCubeShape != null) legacyCubeShape.OnGUI();
+                break;
+        }
+    }
+}

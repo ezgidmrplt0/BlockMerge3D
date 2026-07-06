@@ -14,10 +14,10 @@ public class LevelOrderEditorWindow : EditorWindow
     private const string ASSET_PATH = "Assets/LevelOrder.asset";
     private const string PREF_LEVEL = "CurrentLevelIndex";
 
-    [MenuItem("BlockMerge3D/Level Order")]
+    [MenuItem("BlockMerge3D/Seviye Sırası")]
     public static void ShowWindow()
     {
-        var w = GetWindow<LevelOrderEditorWindow>("Level Order");
+        var w = GetWindow<LevelOrderEditorWindow>("Seviye Sıralayıcı");
         w.minSize = new Vector2(420, 520);
     }
 
