@@ -15,6 +15,7 @@ public class GridManager : MonoBehaviour
     private Dictionary<Vector3Int, Color>       cellColors   = new Dictionary<Vector3Int, Color>();
     private Dictionary<Vector3Int, int>         cellMatIndex = new Dictionary<Vector3Int, int>(); // -1 = unknown
     private Dictionary<Vector3Int, Renderer>    targetRenderers = new Dictionary<Vector3Int, Renderer>();
+    private Dictionary<Vector3Int, Renderer>    prefilledRenderers = new Dictionary<Vector3Int, Renderer>(); // Prefilled blokların renderer'ları
     private HashSet<Vector3Int> temporarilyHiddenGridCells = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> occludedGridCells           = new HashSet<Vector3Int>();
 
@@ -65,6 +66,7 @@ public class GridManager : MonoBehaviour
         ClearAllCellObjects();
 
         targetRenderers.Clear();
+        prefilledRenderers.Clear();
         float step = cellSize + spacing;
 
         if (mainShape != null)
@@ -91,7 +93,10 @@ public class GridManager : MonoBehaviour
                 if (isPrefilled)
                 {
                     occupiedCells.Add(cell);
-                    cellObjects[cell] = r.gameObject;
+                    // Prefilled objeler activeMainPiece'in child'ları olduğu için cellObjects'e eklenmemeli
+                    // cellObjects sadece oyuncu tarafından yerleştirilen parçalar için kullanılır
+                    // cellObjects[cell] = r.gameObject; // ← KALDIRILDI
+                    prefilledRenderers[cell] = r; // Katman görünürlük kontrolü için renderer'ı sakla
                     // "Prefilled_matIdx_x_y_z" → parse matIdx
                     var parts = name.Split('_');
                     if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedIdx))
@@ -100,7 +105,9 @@ public class GridManager : MonoBehaviour
                 else if (prefilled.Contains(cell)) // eski format fallback
                 {
                     occupiedCells.Add(cell);
-                    cellObjects[cell] = r.gameObject;
+                    // Eski format prefilled'lar da cellObjects'e eklenmemeli
+                    // cellObjects[cell] = r.gameObject; // ← KALDIRILDI
+                    prefilledRenderers[cell] = r; // Katman görünürlük kontrolü için renderer'ı sakla
                 }
                 else
                 {
@@ -233,6 +240,7 @@ public class GridManager : MonoBehaviour
             isPanelMode = true;
         }
 
+        // Hedef (ghost) renderer'ları kontrol et
         foreach (var kvp in targetRenderers)
         {
             Vector3Int cell = kvp.Key;
@@ -271,6 +279,20 @@ public class GridManager : MonoBehaviour
                     }
                     r.SetPropertyBlock(PropBlock);
                 }
+            }
+        }
+
+        // Prefilled blokları kontrol et (katman görünürlüğü)
+        foreach (var kvp in prefilledRenderers)
+        {
+            Vector3Int cell = kvp.Key;
+            Renderer r = kvp.Value;
+            if (r != null)
+            {
+                if (isPanelMode)
+                    r.enabled = (cell.y == ActiveLayerY);
+                else
+                    r.enabled = true; // 3D modunda hepsi görünür
             }
         }
 
@@ -353,6 +375,12 @@ public class GridManager : MonoBehaviour
                 center += go.transform.position;
                 count++;
             }
+            // Prefilled blokları da merkez hesabına dahil et
+            else if (prefilledRenderers.TryGetValue(cell, out var prefilledRend) && prefilledRend != null)
+            {
+                center += prefilledRend.transform.position;
+                count++;
+            }
         }
         if (count > 0) center /= count;
 
@@ -372,6 +400,7 @@ public class GridManager : MonoBehaviour
             occupiedCells.Remove(cell);
             cellColors.Remove(cell);
             targetCells.Remove(cell);
+            frozenCells.Remove(cell); // Buz hücreleri de kaldır
 
             if (targetRenderers.TryGetValue(cell, out var renderer) && renderer != null)
             {
@@ -385,6 +414,18 @@ public class GridManager : MonoBehaviour
                 go.transform.SetParent(layerContainer.transform, true);
                 blocksToAnimate.Add(go);
             }
+
+            // Prefilled blokları da kontrol et ve animasyona ekle
+            if (prefilledRenderers.TryGetValue(cell, out var prefilledRenderer) && prefilledRenderer != null)
+            {
+                prefilledRenderers.Remove(cell);
+                var prefilledGo = prefilledRenderer.gameObject;
+                if (prefilledGo != null)
+                {
+                    prefilledGo.transform.SetParent(layerContainer.transform, true);
+                    blocksToAnimate.Add(prefilledGo);
+                }
+            }
         }
 
         AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset);
@@ -396,6 +437,8 @@ public class GridManager : MonoBehaviour
         var newCellColors = new Dictionary<Vector3Int, Color>();
         var newCellMatIndex = new Dictionary<Vector3Int, int>();
         var newTargetRenderers = new Dictionary<Vector3Int, Renderer>();
+        var newPrefilledRenderers = new Dictionary<Vector3Int, Renderer>();
+        var newFrozenCells = new HashSet<Vector3Int>();
 
         foreach (var c in targetCells)
         {
@@ -413,12 +456,29 @@ public class GridManager : MonoBehaviour
             if (cellMatIndex.TryGetValue(c, out var mi)) newCellMatIndex[newC] = mi;
         }
 
+        // Prefilled renderer'ları da kaydır
+        foreach (var kvp in prefilledRenderers)
+        {
+            Vector3Int c = kvp.Key;
+            Vector3Int newC = c.y > clearedY ? new Vector3Int(c.x, c.y - 1, c.z) : c;
+            newPrefilledRenderers[newC] = kvp.Value;
+        }
+
+        // Frozen (buz) hücrelerini de kaydır
+        foreach (var c in frozenCells)
+        {
+            Vector3Int newC = c.y > clearedY ? new Vector3Int(c.x, c.y - 1, c.z) : c;
+            newFrozenCells.Add(newC);
+        }
+
         targetCells = newTargetCells;
         occupiedCells = newOccupiedCells;
         cellObjects = newCellObjects;
         cellColors = newCellColors;
         cellMatIndex = newCellMatIndex;
         targetRenderers = newTargetRenderers;
+        prefilledRenderers = newPrefilledRenderers;
+        frozenCells = newFrozenCells;
 
         if (gridMaxY > gridMinY) gridMaxY--;
 
@@ -433,6 +493,16 @@ public class GridManager : MonoBehaviour
         }
 
         foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Key.y >= clearedY)
+            {
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(0.45f);
+            }
+        }
+
+        // Prefilled blokları da görsel olarak aşağı kaydır
+        foreach (var kvp in prefilledRenderers)
         {
             if (kvp.Key.y >= clearedY)
             {
@@ -561,14 +631,31 @@ public class GridManager : MonoBehaviour
                 r.enabled = true;
             }
 
+            bool objectFound = false;
+
+            // Oyuncu tarafından yerleştirilen parçaları kontrol et
             if (cellObjects.TryGetValue(cell, out var go))
             {
                 cellObjects.Remove(cell);
                 AnimateAndDestroy(go, i * 0.03f, true, onOneDone);
+                objectFound = true;
             }
-            else
+            
+            // Prefilled blokları kontrol et
+            if (prefilledRenderers.TryGetValue(cell, out var prefilledRenderer) && prefilledRenderer != null)
             {
-                // Nesne yoksa yine de sayacı düşür
+                prefilledRenderers.Remove(cell);
+                var prefilledGo = prefilledRenderer.gameObject;
+                if (prefilledGo != null)
+                {
+                    AnimateAndDestroy(prefilledGo, i * 0.03f, true, objectFound ? null : onOneDone);
+                    objectFound = true;
+                }
+            }
+
+            if (!objectFound)
+            {
+                // Hiç nesne yoksa yine de sayacı düşür
                 onOneDone();
             }
         }
