@@ -200,7 +200,7 @@ public class PieceDesignerWindow : EditorWindow
             cellPx = EditorGUILayout.Slider(cellPx, MIN_CELL_PX, MAX_CELL_PX, GUILayout.Width(110));
             GUILayout.Space(8);
 
-            bool canSave = pieceCells.Count > 0 && pieceCells.All(s => s.Count > 0);
+            bool canSave = pieceCells.Count > 0;
             GUI.backgroundColor = canSave ? new Color(0.95f, 0.65f, 0.25f, 0.9f) : Color.white;
             GUI.enabled = canSave;
             if (GUILayout.Button("💾  Parçaları Kaydet", EditorStyles.toolbarButton, GUILayout.Width(150)))
@@ -761,12 +761,14 @@ public class PieceDesignerWindow : EditorWindow
         for (int i = 0; i < pieceCount; i++)
         {
             var cells = pieceCells[i].ToList();
-            if (cells.Count == 0) { EditorUtility.DisplayDialog("Hata", $"Parça {i + 1} boş!", "Tamam"); return; }
-
-            // Normalize: en küçük koordinatı origin'e taşı
-            int minX = cells.Min(c => c.x), minY = cells.Min(c => c.y), minZ = cells.Min(c => c.z);
-            var shift = new Vector3Int(minX, minY, minZ);
-            var normCells = cells.Select(c => c - shift).ToList();
+            List<Vector3Int> normCells = new List<Vector3Int>();
+            if (cells.Count > 0)
+            {
+                // Normalize: en küçük koordinatı origin'e taşı
+                int minX = cells.Min(c => c.x), minY = cells.Min(c => c.y), minZ = cells.Min(c => c.z);
+                var shift = new Vector3Int(minX, minY, minZ);
+                normCells = cells.Select(c => c - shift).ToList();
+            }
 
             string pPath = $"{levelDir}/{levelName}_Piece_{i + 1}.prefab";
             GameObject pRoot = new GameObject($"{levelName}_Piece_{i + 1}");

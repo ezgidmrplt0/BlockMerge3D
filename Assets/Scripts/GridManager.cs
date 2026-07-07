@@ -110,47 +110,101 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        gridMinX = gridMinY = gridMinZ = int.MaxValue;
-        gridMaxX = gridMaxY = gridMaxZ = int.MinValue;
-        foreach (var c in allShapeCells)
+        var shapeHolder = mainShape != null ? mainShape.GetComponent<CubeShapeDataHolder>() : null;
+        if (shapeHolder != null && shapeHolder.gridSize != Vector3Int.zero)
         {
-            if (c.x < gridMinX) gridMinX = c.x; if (c.x > gridMaxX) gridMaxX = c.x;
-            if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
-            if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
+            gridMinX = 0;
+            gridMaxX = shapeHolder.gridSize.x - 1;
+            gridMinY = 0;
+            gridMaxY = shapeHolder.gridSize.y - 1;
+            gridMinZ = 0;
+            gridMaxZ = shapeHolder.gridSize.z - 1;
         }
-
-        // Designate some target cells as frozen per layer
-        var layers = new Dictionary<int, List<Vector3Int>>();
-        foreach (var cell in targetCells)
+        else
         {
-            if (!layers.ContainsKey(cell.y))
-                layers[cell.y] = new List<Vector3Int>();
-            layers[cell.y].Add(cell);
-        }
-
-        foreach (var kvp in layers)
-        {
-            var layerCells = kvp.Value;
-            if (layerCells.Count >= 3)
+            gridMinX = gridMinY = gridMinZ = int.MaxValue;
+            gridMaxX = gridMaxY = gridMaxZ = int.MinValue;
+            foreach (var c in allShapeCells)
             {
-                int numToFreeze = Mathf.Clamp(Mathf.RoundToInt(layerCells.Count * 0.25f), 1, 3);
-                // Simple shuffle to pick random cells
-                for (int i = 0; i < layerCells.Count; i++)
-                {
-                    Vector3Int temp = layerCells[i];
-                    int randomIndex = Random.Range(i, layerCells.Count);
-                    layerCells[i] = layerCells[randomIndex];
-                    layerCells[randomIndex] = temp;
-                }
+                if (c.x < gridMinX) gridMinX = c.x; if (c.x > gridMaxX) gridMaxX = c.x;
+                if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
+                if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
+            }
+        }
 
-                for (int i = 0; i < numToFreeze; i++)
+        // Load frozen cells if defined on the prefab, otherwise fallback to random calculation
+        if (shapeHolder != null && shapeHolder.frozenCells != null && shapeHolder.frozenCells.Count > 0)
+        {
+            foreach (var cell in shapeHolder.frozenCells)
+            {
+                frozenCells.Add(cell);
+            }
+        }
+        else
+        {
+            // Designate some target cells as frozen per layer (the old random fallback)
+            var layers = new Dictionary<int, List<Vector3Int>>();
+            foreach (var cell in targetCells)
+            {
+                if (!layers.ContainsKey(cell.y))
+                    layers[cell.y] = new List<Vector3Int>();
+                layers[cell.y].Add(cell);
+            }
+
+            foreach (var kvp in layers)
+            {
+                var layerCells = kvp.Value;
+                if (layerCells.Count >= 3)
                 {
-                    frozenCells.Add(layerCells[i]);
+                    int numToFreeze = Mathf.Clamp(Mathf.RoundToInt(layerCells.Count * 0.25f), 1, 3);
+                    // Simple shuffle to pick random cells
+                    for (int i = 0; i < layerCells.Count; i++)
+                    {
+                        Vector3Int temp = layerCells[i];
+                        int randomIndex = Random.Range(i, layerCells.Count);
+                        layerCells[i] = layerCells[randomIndex];
+                        layerCells[randomIndex] = temp;
+                    }
+
+                    for (int i = 0; i < numToFreeze; i++)
+                    {
+                        frozenCells.Add(layerCells[i]);
+                    }
                 }
             }
         }
 
+        // Find the first layer from gridMinY to gridMaxY that contains target cells and is not complete
         ActiveLayerY = gridMinY;
+        for (int y = gridMinY; y <= gridMaxY; y++)
+        {
+            bool hasTargetCells = false;
+            foreach (var c in targetCells)
+            {
+                if (c.y == y)
+                {
+                    hasTargetCells = true;
+                    break;
+                }
+            }
+            if (hasTargetCells)
+            {
+                bool layerFull = true;
+                foreach (var c in targetCells)
+                {
+                    if (c.y == y && !occupiedCells.Contains(c))
+                    {
+                        layerFull = false;
+                        break;
+                    }
+                }
+                if (!layerFull)
+                {
+                    ActiveLayerY = y;
+                    break;
+                }
+            }
+        }
         lineClearEnabled = false; // Layer-by-layer mode
         RefreshLayerVisibility();
     }

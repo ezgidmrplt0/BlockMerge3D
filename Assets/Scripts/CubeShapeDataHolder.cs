@@ -17,6 +17,9 @@ public class CubeShapeDataHolder : MonoBehaviour
     public List<Color> prefilledColors = new List<Color>();
     public List<int> prefilledMaterialIndices = new List<int>();
 
+    [Header("Frozen Cells (Ice)")]
+    public List<Vector3Int> frozenCells = new List<Vector3Int>();
+
     public bool IsCellOccupied(Vector3Int gridPos)
     {
         return occupiedCells.Contains(gridPos);

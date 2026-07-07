@@ -10,7 +10,7 @@ using System.Linq;
 // ═══════════════════════════════════════════════════════════════════
 public class LevelBuilderWindow : EditorWindow
 {
-    private enum DrawMode { Shape, Prefilled, Erase }
+    private enum DrawMode { Shape, Prefilled, Ice, Erase, DisableCell }
 
     // ── Sabitler ─────────────────────────────────────────────────
     private const string LEVELS_PATH = "Assets/Levels";
@@ -18,9 +18,9 @@ public class LevelBuilderWindow : EditorWindow
     private const float  MIN_CELL_PX = 18f;
     private const float  MAX_CELL_PX = 60f;
 
-    private static readonly Color COL_BG         = new Color(0.10f, 0.10f, 0.13f);
-    private static readonly Color COL_GRID        = new Color(0.22f, 0.22f, 0.28f);
-    private static readonly Color COL_OCCUPIED    = new Color(0.40f, 0.44f, 0.52f);
+    private static readonly Color COL_BG         = new Color(0.08f, 0.08f, 0.11f);
+    private static readonly Color COL_GRID        = new Color(0.3f, 0.32f, 0.4f);
+    private static readonly Color COL_OCCUPIED    = new Color(0.25f, 0.6f, 0.95f);
     private static readonly Color COL_PREFILLED   = new Color(0.85f, 0.70f, 0.20f);
     private static readonly Color COL_HOVER_ADD   = new Color(0.25f, 0.85f, 0.55f, 0.75f);
     private static readonly Color COL_HOVER_ERASE = new Color(1.00f, 0.28f, 0.20f, 0.75f);
@@ -50,6 +50,8 @@ public class LevelBuilderWindow : EditorWindow
     private HashSet<Vector3Int> occupiedCells   = new HashSet<Vector3Int>();
     private List<Vector3Int>    prefilledCells  = new List<Vector3Int>();
     private List<int>           prefilledMatIdx = new List<int>();
+    private List<Vector3Int>    frozenCells     = new List<Vector3Int>();
+    private HashSet<Vector3Int> disabledCells   = new HashSet<Vector3Int>();
 
     // ── UI Durumu ─────────────────────────────────────────────────
     private int      activeLayer      = 0;
@@ -122,49 +124,12 @@ public class LevelBuilderWindow : EditorWindow
         }
 
         BuildStyles();
-        DrawToolbar();
         EditorGUILayout.BeginHorizontal();
         DrawLeftPanel();
         DrawCenterGrid();
         DrawRightPanel();
         EditorGUILayout.EndHorizontal();
         DrawStatusBar();
-    }
-
-    // ── Toolbar ───────────────────────────────────────────────────
-    private void DrawToolbar()
-    {
-        EditorGUILayout.BeginHorizontal(EditorStyles.toolbar, GUILayout.Height(30));
-
-        GUILayout.Label("Level:", EditorStyles.toolbarButton, GUILayout.Width(42));
-        levelName = EditorGUILayout.TextField(levelName, EditorStyles.toolbarTextField, GUILayout.Width(140));
-
-        GUILayout.Space(10);
-
-        GUILayout.Label("Katman:", EditorStyles.toolbarButton, GUILayout.Width(52));
-        GUI.enabled = activeLayer > 0;
-        if (GUILayout.Button("◀", EditorStyles.toolbarButton, GUILayout.Width(22))) { activeLayer--; Repaint(); }
-        GUI.enabled = true;
-
-        GUI.backgroundColor = new Color(0.3f, 0.7f, 1f, 0.85f);
-        GUILayout.Label($"  Y = {activeLayer}  ", EditorStyles.toolbarButton, GUILayout.Width(56));
-        GUI.backgroundColor = Color.white;
-
-        GUI.enabled = activeLayer < gridSize.y - 1;
-        if (GUILayout.Button("▶", EditorStyles.toolbarButton, GUILayout.Width(22))) { activeLayer++; Repaint(); }
-        GUI.enabled = true;
-
-        GUILayout.Space(10);
-        showGhostLayers = GUILayout.Toggle(showGhostLayers, "Diğer Katmanlar", EditorStyles.toolbarButton);
-        GUILayout.Space(5);
-        hideEmptyGrid = GUILayout.Toggle(hideEmptyGrid, "Boş Gridleri Gizle", EditorStyles.toolbarButton);
-
-        GUILayout.FlexibleSpace();
-
-        GUILayout.Label("Zoom:", EditorStyles.toolbarButton, GUILayout.Width(42));
-        cellPx = EditorGUILayout.Slider(cellPx, MIN_CELL_PX, MAX_CELL_PX, GUILayout.Width(110));
-
-        EditorGUILayout.EndHorizontal();
     }
 
     // ── Sol Panel ─────────────────────────────────────────────────
@@ -199,6 +164,7 @@ public class LevelBuilderWindow : EditorWindow
         // Level Ayarları
         GUILayout.Label("LEVEL AYARLARI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        levelName   = EditorGUILayout.TextField("Seviye Adı", levelName);
         levelTime   = EditorGUILayout.FloatField("Süre (sn)", levelTime);
         levelTarget = EditorGUILayout.IntField("Hedef Puan", levelTarget);
         EditorGUILayout.EndVertical();
@@ -216,31 +182,6 @@ public class LevelBuilderWindow : EditorWindow
         cellSize  = EditorGUILayout.FloatField("Cell Size", cellSize);
         spacing   = EditorGUILayout.Slider("Gap", spacing, 0f, 0.5f);
         cubePrefab = (GameObject)EditorGUILayout.ObjectField("Cube Prefab", cubePrefab, typeof(GameObject), false);
-        EditorGUILayout.EndVertical();
-
-        GUILayout.Space(10);
-
-        // Katman Listesi
-        GUILayout.Label("KATMANLAR", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        for (int y = 0; y < gridSize.y; y++)
-        {
-            bool isActive = (y == activeLayer);
-            int  count    = occupiedCells.Count(c => c.y == y);
-            GUI.backgroundColor = isActive ? new Color(0.3f, 0.7f, 1f, 0.8f) : Color.white;
-            if (GUILayout.Button($"Y={y}  ({count} küp)", isActive ? EditorStyles.boldLabel : EditorStyles.label))
-                { activeLayer = y; Repaint(); }
-            GUI.backgroundColor = Color.white;
-            Rect mini = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(22), GUILayout.ExpandWidth(true));
-            if (Event.current.type == EventType.Repaint) DrawMiniLayer(mini, y);
-            if (Event.current.type == EventType.MouseDown && mini.Contains(Event.current.mousePosition))
-            {
-                activeLayer = y;
-                Repaint();
-                Event.current.Use();
-            }
-            GUILayout.Space(2);
-        }
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
@@ -277,6 +218,18 @@ public class LevelBuilderWindow : EditorWindow
 
         EditorGUILayout.EndVertical();
 
+        GUILayout.Space(12);
+
+        // Kısayollar ve İpuçları
+        GUILayout.Label("💡 KISAYOLLAR & İPUÇLARI", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.LabelField("• Sol Tık:", "Küp/buz/renk yerleştirir", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("• Sağ Tık:", "Hücreyi temizler/siler", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("• Mouse Tekerleği:", "Katmanlar arası geçiş yapar", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("• Yön Tuşları (↑ / ↓):", "Katman değiştirir", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("• Sil / Backspace:", "Aktif katmanı temizler", EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+
         EditorGUILayout.EndScrollView();
         EditorGUILayout.EndVertical();
     }
@@ -287,30 +240,113 @@ public class LevelBuilderWindow : EditorWindow
         EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
 
         // Mod butonları
-        EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-        DrawModeBtn("✏  Şekil Çiz",   DrawMode.Shape);
-        DrawModeBtn("⬛  Prefilled",   DrawMode.Prefilled);
-        DrawModeBtn("✕  Sil",          DrawMode.Erase);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        GUILayout.Label("🖌️ ÇİZİM FIRÇASI SEÇİN", styleHeader);
+        EditorGUILayout.BeginHorizontal();
+        DrawModeBtn("✏️  Şekil Küpü Çiz",   DrawMode.Shape);
+        DrawModeBtn("🎨  Renkli Küp Koy",   DrawMode.Prefilled);
+        DrawModeBtn("❄️  Buz Yerleştir",   DrawMode.Ice);
+        DrawModeBtn("🚫  Grid Hücresi Sil", DrawMode.DisableCell);
+        DrawModeBtn("✕  Silgi (Sil)",       DrawMode.Erase);
+        EditorGUILayout.EndHorizontal();
 
         if (drawMode == DrawMode.Prefilled)
         {
-            GUILayout.Space(8);
-            GUILayout.Label("Renk:", EditorStyles.miniLabel);
+            GUILayout.Space(6);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Küp Rengi Seçin:", EditorStyles.boldLabel, GUILayout.Width(120));
             for (int i = 0; i < PREFILL_COLORS.Length; i++)
             {
                 GUI.backgroundColor = PREFILL_COLORS[i];
-                var s = new GUIStyle(GUI.skin.button) { fixedWidth = 22, fixedHeight = 22 };
+                var s = new GUIStyle(GUI.skin.button) { fixedWidth = 28, fixedHeight = 28 };
                 if (GUILayout.Button("", s)) activePrefilledColor = i;
                 if (i == activePrefilledColor)
                 {
                     Rect sel = GUILayoutUtility.GetLastRect();
-                    EditorGUI.DrawRect(new Rect(sel.x, sel.yMax - 3, sel.width, 3), Color.white);
+                    DrawOutline(sel, Color.white, 2);
                 }
                 GUI.backgroundColor = Color.white;
+                GUILayout.Space(4);
             }
+            EditorGUILayout.EndHorizontal();
         }
+        EditorGUILayout.EndVertical();
+
+        // Prominent Horizontal Layer Selector Row
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        GUILayout.Label("📍 DÜZENLEME KATMANI (YÜKSEKLİK)", styleHeader);
+        
+        EditorGUILayout.BeginHorizontal();
+        
+        GUI.enabled = activeLayer > 0;
+        if (GUILayout.Button("◀ BİR ALT KATMAN", GUILayout.Height(30), GUILayout.Width(130)))
+        {
+            activeLayer--;
+            Repaint();
+        }
+        GUI.enabled = true;
+        
+        GUILayout.Space(4);
+        
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            int shapeCount = occupiedCells.Count(c => c.y == y && !prefilledCells.Contains(c) && !frozenCells.Contains(c));
+            int prefilledCount = prefilledCells.Count(c => c.y == y);
+            int iceCount = frozenCells.Count(c => c.y == y);
+            
+            string label = $"KATMAN Y={y}\n";
+            List<string> icons = new List<string>();
+            if (shapeCount > 0) icons.Add($"{shapeCount}✏️");
+            if (prefilledCount > 0) icons.Add($"{prefilledCount}⬛");
+            if (iceCount > 0) icons.Add($"{iceCount}❄️");
+            
+            if (icons.Count > 0)
+            {
+                label += string.Join(" + ", icons);
+            }
+            else
+            {
+                label += "Boş";
+            }
+            
+            bool isActive = (y == activeLayer);
+            GUI.backgroundColor = isActive ? new Color(0.2f, 0.75f, 1f, 1f) : new Color(0.85f, 0.85f, 0.85f, 1f);
+            
+            var btnStyle = new GUIStyle(GUI.skin.button) {
+                fontSize = 10,
+                fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal,
+                fixedHeight = 36
+            };
+            
+            if (GUILayout.Button(label, btnStyle, GUILayout.ExpandWidth(true)))
+            {
+                activeLayer = y;
+                Repaint();
+            }
+            GUI.backgroundColor = Color.white;
+        }
+        
+        GUILayout.Space(4);
+        
+        GUI.enabled = activeLayer < gridSize.y - 1;
+        if (GUILayout.Button("BİR ÜST KATMAN ▶", GUILayout.Height(30), GUILayout.Width(130)))
+        {
+            activeLayer++;
+            Repaint();
+        }
+        GUI.enabled = true;
+        
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+
+        // Display Toggles and Zoom Panel directly above the Grid
+        EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+        showGhostLayers = GUILayout.Toggle(showGhostLayers, "💡 Diğer Katmanları Göster (Ghost)", GUILayout.Height(20));
+        GUILayout.Space(10);
+        hideEmptyGrid = GUILayout.Toggle(hideEmptyGrid, "👁️ Boş Hücreleri Gizle", GUILayout.Height(20));
         GUILayout.FlexibleSpace();
-        GUILayout.Label($"Grid {gridSize.x}×{gridSize.z}", EditorStyles.miniLabel);
+        GUILayout.Label("Büyüteç (Zoom):", EditorStyles.miniLabel);
+        cellPx = EditorGUILayout.Slider(cellPx, MIN_CELL_PX, MAX_CELL_PX, GUILayout.Width(130));
         EditorGUILayout.EndHorizontal();
 
         Rect area = GUILayoutUtility.GetRect(100, 100, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
@@ -322,8 +358,30 @@ public class LevelBuilderWindow : EditorWindow
 
     private void DrawModeBtn(string label, DrawMode mode)
     {
-        GUI.backgroundColor = drawMode == mode ? new Color(0.3f, 0.8f, 1f) : Color.white;
-        if (GUILayout.Button(label, styleModeBtn, GUILayout.Height(26))) drawMode = mode;
+        Color activeColor = mode switch
+        {
+            DrawMode.Shape       => new Color(0.3f, 0.75f, 1.0f),  // Sky Blue
+            DrawMode.Prefilled   => new Color(1.0f, 0.75f, 0.2f),  // Warm Gold
+            DrawMode.Ice         => new Color(0.5f, 0.88f, 1.0f),  // Ice Cyan
+            DrawMode.DisableCell => new Color(0.8f, 0.4f, 0.9f),   // Soft purple/magenta
+            DrawMode.Erase       => new Color(1.0f, 0.35f, 0.35f), // Coral Red
+            _                    => Color.white
+        };
+        
+        bool isActive = (drawMode == mode);
+        GUI.backgroundColor = isActive ? activeColor : new Color(0.85f, 0.85f, 0.85f);
+        
+        var btnStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal,
+            normal = { textColor = isActive ? Color.white : Color.black }
+        };
+        
+        if (GUILayout.Button(label, btnStyle, GUILayout.Height(32), GUILayout.ExpandWidth(true)))
+        {
+            drawMode = mode;
+        }
         GUI.backgroundColor = Color.white;
     }
 
@@ -335,26 +393,31 @@ public class LevelBuilderWindow : EditorWindow
         float ox = area.x + (area.width  - tw) * 0.5f;
         float oy = area.y + (area.height - th) * 0.5f;
 
-        if (hideEmptyGrid)
+        // Draw the background area
+        EditorGUI.DrawRect(area, COL_BG);
+
+        for (int x = 0; x < W; x++)
         {
-            // Sadece dolu olan hücreler için arka plan ve çerçeve çiz
-            foreach (var cell in occupiedCells)
+            for (int z = 0; z < D; z++)
             {
-                if (cell.y != activeLayer) continue;
-                Rect cellRect = new Rect(ox + cell.x * cellPx, oy + cell.z * cellPx, cellPx, cellPx);
-                EditorGUI.DrawRect(cellRect, COL_BG);
+                var cell = new Vector3Int(x, activeLayer, z);
+                Rect cellRect = new Rect(ox + x * cellPx, oy + z * cellPx, cellPx, cellPx);
+                
+                // If it is disabled, draw it with a very faint outline ONLY if in DisableCell mode, otherwise skip
+                if (disabledCells.Contains(cell))
+                {
+                    if (drawMode == DrawMode.DisableCell)
+                    {
+                        DrawOutline(cellRect, new Color(0.8f, 0.4f, 0.9f, 0.15f), 1);
+                    }
+                    continue;
+                }
+                
+                // If hideEmptyGrid is true and it's not occupied, do NOT draw it!
+                if (hideEmptyGrid && !occupiedCells.Contains(cell)) continue;
+
                 DrawOutline(cellRect, COL_GRID, 1);
             }
-        }
-        else
-        {
-            EditorGUI.DrawRect(area, COL_BG);
-
-            // Grid çizgileri
-            for (int x = 0; x <= W; x++)
-                EditorGUI.DrawRect(new Rect(ox + x * cellPx, oy, 1, th), COL_GRID);
-            for (int z = 0; z <= D; z++)
-                EditorGUI.DrawRect(new Rect(ox, oy + z * cellPx, tw, 1), COL_GRID);
         }
 
         // Ghost
@@ -374,7 +437,8 @@ public class LevelBuilderWindow : EditorWindow
         {
             if (cell.y != activeLayer) continue;
             bool isPf = prefilledCells.Contains(cell);
-            Color col = isPf ? COL_PREFILLED : COL_OCCUPIED;
+            bool isIce = frozenCells.Contains(cell);
+            Color col = isPf ? COL_PREFILLED : (isIce ? new Color(0.5f, 0.85f, 1.0f) : COL_OCCUPIED);
             if (isPf)
             {
                 int idx = prefilledCells.IndexOf(cell);
@@ -382,6 +446,16 @@ public class LevelBuilderWindow : EditorWindow
                     col = PREFILL_COLORS[prefilledMatIdx[idx] % PREFILL_COLORS.Length];
             }
             EditorGUI.DrawRect(new Rect(ox + cell.x * cellPx + 1.5f, oy + cell.z * cellPx + 1.5f, cellPx - 3, cellPx - 3), col);
+
+            if (isIce && cellPx >= 22)
+            {
+                var iceLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.45f), 10, 20)
+                };
+                GUI.Label(new Rect(ox + cell.x * cellPx, oy + cell.z * cellPx, cellPx, cellPx), "❄️", iceLabelStyle);
+            }
         }
 
         // Hover
@@ -392,8 +466,49 @@ public class LevelBuilderWindow : EditorWindow
             if (hx >= 0 && hx < W && hz >= 0 && hz < D)
             {
                 bool exists = occupiedCells.Contains(new Vector3Int(hx, activeLayer, hz));
-                Color hc = (drawMode == DrawMode.Erase && exists) ? COL_HOVER_ERASE : COL_HOVER_ADD;
-                EditorGUI.DrawRect(new Rect(ox + hx * cellPx + 1, oy + hz * cellPx + 1, cellPx - 2, cellPx - 2), hc);
+                Rect hoverRect = new Rect(ox + hx * cellPx + 1.5f, oy + hz * cellPx + 1.5f, cellPx - 3, cellPx - 3);
+                
+                if (drawMode == DrawMode.Erase)
+                {
+                    if (exists) EditorGUI.DrawRect(hoverRect, COL_HOVER_ERASE);
+                }
+                else if (drawMode == DrawMode.Shape)
+                {
+                    EditorGUI.DrawRect(hoverRect, new Color(COL_OCCUPIED.r, COL_OCCUPIED.g, COL_OCCUPIED.b, 0.7f));
+                }
+                else if (drawMode == DrawMode.Prefilled)
+                {
+                    Color pColor = PREFILL_COLORS[activePrefilledColor % PREFILL_COLORS.Length];
+                    EditorGUI.DrawRect(hoverRect, new Color(pColor.r, pColor.g, pColor.b, 0.7f));
+                }
+                else if (drawMode == DrawMode.Ice)
+                {
+                    EditorGUI.DrawRect(hoverRect, new Color(0.5f, 0.85f, 1.0f, 0.7f));
+                    if (cellPx >= 22)
+                    {
+                        var iceLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                        {
+                            alignment = TextAnchor.MiddleCenter,
+                            fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.45f), 10, 20),
+                            normal = { textColor = new Color(1, 1, 1, 0.6f) }
+                        };
+                        GUI.Label(hoverRect, "❄️", iceLabelStyle);
+                    }
+                }
+                else if (drawMode == DrawMode.DisableCell)
+                {
+                    EditorGUI.DrawRect(hoverRect, new Color(0.8f, 0.4f, 0.9f, 0.7f));
+                    if (cellPx >= 22)
+                    {
+                        var lblStyle = new GUIStyle(EditorStyles.miniLabel)
+                        {
+                            alignment = TextAnchor.MiddleCenter,
+                            fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.45f), 10, 20),
+                            normal = { textColor = Color.white }
+                        };
+                        GUI.Label(hoverRect, "🚫", lblStyle);
+                    }
+                }
             }
         }
 
@@ -402,6 +517,23 @@ public class LevelBuilderWindow : EditorWindow
         for (int x = 0; x < W; x++) GUI.Label(new Rect(ox + x * cellPx, oy - 14, cellPx, 14), x.ToString(), lbl);
         for (int z = 0; z < D; z++) GUI.Label(new Rect(ox - 18, oy + z * cellPx, 18, cellPx), z.ToString(), lbl);
         GUI.Label(new Rect(ox - 18, oy - 14, 18, 14), "Z\\X", lbl);
+
+        // Big Overlay Info
+        string toolName = drawMode switch
+        {
+            DrawMode.Shape       => "✏️ Şekil Küpü",
+            DrawMode.Prefilled   => "⬛ Renkli Küp",
+            DrawMode.Ice         => "❄️ Buz Bloğu",
+            DrawMode.DisableCell => "🚫 Grid Sil",
+            DrawMode.Erase       => "❌ Silgi",
+            _                    => ""
+        };
+        var headerStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            fontSize = 12,
+            normal = { textColor = new Color(0.35f, 0.78f, 1f) }
+        };
+        GUI.Label(new Rect(area.x + 8, area.y + 6, 400, 20), $"📍 Katman Y = {activeLayer}   •   Fırça: {toolName}", headerStyle);
     }
 
     // ── Grid Input ────────────────────────────────────────────────
@@ -482,18 +614,31 @@ public class LevelBuilderWindow : EditorWindow
         switch (drawMode)
         {
             case DrawMode.Shape:
+                disabledCells.Remove(c);
                 occupiedCells.Add(c);
-                // Eğer prefilled listesindeyse çıkar (normal şekle döndür)
                 RemoveFromPrefilled(c);
+                frozenCells.Remove(c);
+                break;
+            case DrawMode.Ice:
+                disabledCells.Remove(c);
+                occupiedCells.Add(c);
+                RemoveFromPrefilled(c);
+                if (!frozenCells.Contains(c)) frozenCells.Add(c);
                 break;
             case DrawMode.Erase:
                 EraseCell(c);
                 break;
             case DrawMode.Prefilled:
+                disabledCells.Remove(c);
                 occupiedCells.Add(c);
+                frozenCells.Remove(c);
                 int existing = prefilledCells.IndexOf(c);
                 if (existing >= 0) prefilledMatIdx[existing] = activePrefilledColor;
                 else { prefilledCells.Add(c); prefilledMatIdx.Add(activePrefilledColor); }
+                break;
+            case DrawMode.DisableCell:
+                EraseCell(c);
+                disabledCells.Add(c);
                 break;
         }
     }
@@ -502,6 +647,8 @@ public class LevelBuilderWindow : EditorWindow
     {
         occupiedCells.Remove(c);
         RemoveFromPrefilled(c);
+        frozenCells.Remove(c);
+        disabledCells.Remove(c);
     }
 
     private void RemoveFromPrefilled(Vector3Int c)
@@ -523,7 +670,8 @@ public class LevelBuilderWindow : EditorWindow
         {
             if (cell.y != y) continue;
             bool isPf = prefilledCells.Contains(cell);
-            Color col = isPf ? COL_PREFILLED : COL_OCCUPIED;
+            bool isIce = frozenCells.Contains(cell);
+            Color col = isPf ? COL_PREFILLED : (isIce ? new Color(0.5f, 0.85f, 1.0f) : COL_OCCUPIED);
             EditorGUI.DrawRect(new Rect(ox + cell.x * cpx + 0.5f, oy + cell.z * cpx + 0.5f, cpx - 1, cpx - 1), col);
         }
         if (y == activeLayer) DrawOutline(rect, new Color(0.35f, 0.78f, 1f, 0.8f), 2);
@@ -596,12 +744,11 @@ public class LevelBuilderWindow : EditorWindow
         EditorGUILayout.EndVertical();
     }
 
-    // ── Status Bar ────────────────────────────────────────────────
     private void DrawStatusBar()
     {
         EditorGUILayout.BeginHorizontal(EditorStyles.helpBox, GUILayout.Height(22));
         EditorGUILayout.LabelField(
-            $"Y={activeLayer}  •  {occupiedCells.Count} küp  •  {prefilledCells.Count} prefilled  •  Mod: {ModeLabel()}",
+            $"Y={activeLayer}  •  {occupiedCells.Count} küp  •  {prefilledCells.Count} prefilled  •  {frozenCells.Count} buz  •  Mod: {ModeLabel()}",
             EditorStyles.miniLabel);
         GUILayout.FlexibleSpace();
         EditorGUILayout.LabelField("BlockMerge3D  •  Seviye Tasarımcısı", EditorStyles.miniLabel);
@@ -612,6 +759,7 @@ public class LevelBuilderWindow : EditorWindow
     {
         DrawMode.Shape     => "Şekil Çiz",
         DrawMode.Prefilled => "Prefilled",
+        DrawMode.Ice       => "Buz",
         DrawMode.Erase     => "Sil",
         _                  => "?"
     };
@@ -620,7 +768,7 @@ public class LevelBuilderWindow : EditorWindow
     private void FillLayer(int y) { for (int x = 0; x < gridSize.x; x++) for (int z = 0; z < gridSize.z; z++) occupiedCells.Add(new Vector3Int(x, y, z)); Repaint(); }
     private void ClearLayer(int y) { var rem = occupiedCells.Where(c => c.y == y).ToList(); foreach (var c in rem) EraseCell(c); Repaint(); }
     private void FillAll()  { for (int y = 0; y < gridSize.y; y++) FillLayer(y); }
-    private void ClearAll() { occupiedCells.Clear(); prefilledCells.Clear(); prefilledMatIdx.Clear(); Repaint(); }
+    private void ClearAll() { occupiedCells.Clear(); prefilledCells.Clear(); prefilledMatIdx.Clear(); frozenCells.Clear(); disabledCells.Clear(); Repaint(); }
 
     private void ClearPrefilledInLayer(int y)
     {
@@ -674,6 +822,17 @@ public class LevelBuilderWindow : EditorWindow
             prefilledCells.Add(data.prefilledCells[i]);
             prefilledMatIdx.Add(data.prefilledMaterialIndices != null && i < data.prefilledMaterialIndices.Count ? data.prefilledMaterialIndices[i] : 0);
         }
+        
+        // Auto-detect disabled cells
+        disabledCells.Clear();
+        for (int x = 0; x < gridSize.x; x++)
+            for (int y = 0; y < gridSize.y; y++)
+                for (int z = 0; z < gridSize.z; z++)
+                {
+                    var cell = new Vector3Int(x, y, z);
+                    if (!occupiedCells.Contains(cell)) disabledCells.Add(cell);
+                }
+
         activeLayer = 0; Repaint();
     }
 
@@ -695,15 +854,29 @@ public class LevelBuilderWindow : EditorWindow
                     prefilledCells.Add(h.prefilledCells[i]);
                     prefilledMatIdx.Add(h.prefilledMaterialIndices != null && i < h.prefilledMaterialIndices.Count ? h.prefilledMaterialIndices[i] : 0);
                 }
+                if (h.frozenCells != null)
+                {
+                    foreach (var c in h.frozenCells) frozenCells.Add(c);
+                }
             }
         }
+
+        // Auto-detect disabled cells
+        disabledCells.Clear();
+        for (int x = 0; x < gridSize.x; x++)
+            for (int y = 0; y < gridSize.y; y++)
+                for (int z = 0; z < gridSize.z; z++)
+                {
+                    var cell = new Vector3Int(x, y, z);
+                    if (!occupiedCells.Contains(cell)) disabledCells.Add(cell);
+                }
+
         activeLayer = 0; Repaint();
     }
 
     // ── Export Level ──────────────────────────────────────────────
     private void ExportLevel(bool silent = false)
     {
-        if (occupiedCells.Count == 0) { EditorUtility.DisplayDialog("Hata", "Hiç küp yok!", "Tamam"); return; }
         if (string.IsNullOrWhiteSpace(levelName)) levelName = "NewLevel";
 
         string levelDir = $"{LEVELS_PATH}/{levelName}";
@@ -721,6 +894,7 @@ public class LevelBuilderWindow : EditorWindow
         fh.prefilledCells           = new List<Vector3Int>(prefilledCells);
         fh.prefilledColors          = prefilledMatIdx.Select(i => PREFILL_COLORS[i % PREFILL_COLORS.Length]).ToList();
         fh.prefilledMaterialIndices = new List<int>(prefilledMatIdx);
+        fh.frozenCells              = new List<Vector3Int>(frozenCells);
         foreach (var cell in occupiedCells)
         {
             GameObject cube = cubePrefab != null

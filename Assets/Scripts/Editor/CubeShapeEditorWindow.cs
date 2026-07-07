@@ -374,7 +374,7 @@ public class CubeShapeEditorWindow : EditorWindow
                 if (!allPiecesHaveCells)
                     EditorGUILayout.HelpBox("Boş parça var.", MessageType.Warning);
 
-                EditorGUI.BeginDisabledGroup(!allPiecesHaveCells);
+                EditorGUI.BeginDisabledGroup(false);
                 GUI.backgroundColor = new Color(0.4f, 1f, 0.5f, 0.9f);
                 string exportLabel = appendPieces && levelExists ? "PARÇA EKLE (APPEND)" : "SEVİYEYİ DIŞA AKTAR";
                 if (GUILayout.Button(exportLabel, GUILayout.Height(36))) ExportLevel();
@@ -1109,7 +1109,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
     private void SaveAsPrefab()
     {
-        if (currentShapeObject == null || dataHolder.occupiedCells.Count == 0) return;
+        if (currentShapeObject == null) return;
         string folder = shapeType == ShapeType.Piece ? PIECES_PATH : GENERATED_PATH;
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
         string path = EditorUtility.SaveFilePanelInProject(
@@ -1171,7 +1171,7 @@ public class CubeShapeEditorWindow : EditorWindow
 
     private void ExportLevel()
     {
-        if (dataHolder == null || dataHolder.occupiedCells.Count == 0) return;
+        if (dataHolder == null) return;
         if (string.IsNullOrEmpty(levelName)) levelName = shapeName + "_Level";
         string levelDir = $"{LEVELS_PATH}/{levelName}";
         if (!Directory.Exists(levelDir)) Directory.CreateDirectory(levelDir);

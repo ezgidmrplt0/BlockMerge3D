@@ -63,7 +63,21 @@ public class LayerPanelController : MonoBehaviour
         List<int> activeLayers = new List<int>();
         for (int y = minY; y <= maxY; y++)
         {
-            if (!grid.IsLayerCleared(y))
+            // Only count layers that have at least one shape/target cell or occupied cell
+            bool hasCells = false;
+            foreach (var cell in grid.TargetCells)
+            {
+                if (cell.y == y) { hasCells = true; break; }
+            }
+            if (!hasCells)
+            {
+                foreach (var cell in grid.occupiedCells)
+                {
+                    if (cell.y == y) { hasCells = true; break; }
+                }
+            }
+
+            if (hasCells && !grid.IsLayerCleared(y))
             {
                 activeLayers.Add(y);
             }
@@ -108,7 +122,7 @@ public class LayerPanelController : MonoBehaviour
             txtRt.sizeDelta = Vector2.zero;
 
             UnityEngine.UI.Text tmp = textObj.GetComponent<UnityEngine.UI.Text>();
-            tmp.text = (layerY - minY + 1).ToString();
+            tmp.text = (i + 1).ToString(); // Show sequential user-friendly indices (e.g. 1, 2, 3...)
             tmp.alignment = TextAnchor.MiddleCenter;
             tmp.color = buttonTextColor;
             tmp.font = buttonFont != null ? buttonFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -127,22 +141,26 @@ public class LayerPanelController : MonoBehaviour
     public void RefreshButtonColors()
     {
         if (grid == null) return;
-        int minY = grid.GridMinY;
 
         for (int i = 0; i < layerButtons.Count; i++)
         {
             if (layerButtons[i] == null) continue;
-            int layerY = minY + i;
-            Image img = layerButtons[i].GetComponent<Image>();
-            if (img == null) continue;
-
-            if (layerY == grid.ActiveLayerY)
+            
+            string name = layerButtons[i].name;
+            if (name.StartsWith("Btn_Layer_") && int.TryParse(name.Substring(10), out int layerY))
             {
-                img.color = buttonActiveColor;
-            }
-            else
-            {
-                img.color = buttonNormalColor;
+                Image img = layerButtons[i].GetComponent<Image>();
+                if (img != null)
+                {
+                    if (layerY == grid.ActiveLayerY)
+                    {
+                        img.color = buttonActiveColor;
+                    }
+                    else
+                    {
+                        img.color = buttonNormalColor;
+                    }
+                }
             }
         }
     }

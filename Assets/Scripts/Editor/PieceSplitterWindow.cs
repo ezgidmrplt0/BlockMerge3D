@@ -309,7 +309,7 @@ public class PieceSplitterWindow : EditorWindow
             else
                 EditorGUILayout.HelpBox("Hazır. Dışa aktarabilirsin.", MessageType.Info);
 
-            EditorGUI.BeginDisabledGroup(!allAssigned || !allPiecesHaveCells);
+            EditorGUI.BeginDisabledGroup(false);
             GUI.backgroundColor = new Color(0.4f, 1f, 0.5f, 0.9f);
             if (GUILayout.Button("SEVİYEYİ DIŞA AKTAR", GUILayout.Height(45))) ExportLevel();
             GUI.backgroundColor = Color.white;

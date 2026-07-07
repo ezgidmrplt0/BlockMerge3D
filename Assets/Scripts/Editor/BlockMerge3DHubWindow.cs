@@ -18,8 +18,8 @@ public class BlockMerge3DHubWindow : EditorWindow
 
     private readonly string[] tabNames = new string[]
     {
-        "🗂 Seviye Tasarımcısı",
-        "🧩 Parça Tasarımcısı",
+        "1. 🗂 Seviye Tasarımcısı",
+        "2. 🧩 Parça Tasarımcısı",
         "✂ Parça Bölücü",
         "📺 Arayüz Kurulumu",
         "🎨 Görsel & Kurulum",
@@ -170,7 +170,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         GUILayout.FlexibleSpace();
         
         GUI.backgroundColor = new Color(0.3f, 0.8f, 0.5f, 0.9f);
-        if (GUILayout.Button("📋 Seviye Sıralama Penceresini Aç", GUILayout.Width(240), GUILayout.Height(26)))
+        if (GUILayout.Button("3. 📋 Seviye Sıralama Penceresini Aç", GUILayout.Width(260), GUILayout.Height(26)))
         {
             LevelOrderEditorWindow.ShowWindow();
         }
