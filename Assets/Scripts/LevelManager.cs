@@ -526,17 +526,9 @@ public class LevelManager : MonoBehaviour
             }
             else if (iceResolved)
             {
-                if (lpc != null && CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode)
-                {
-                    lpc.ClosePanel(() =>
-                    {
-                        HandlePostPiecePlaced();
-                    });
-                }
-                else
-                {
-                    HandlePostPiecePlaced();
-                }
+                // Buz kırıldı ama katman henüz tamamlanmadı
+                // Panel modda kalıyoruz, sadece piece spawn'ı yapıyoruz
+                HandlePostPiecePlaced();
             }
             else
             {

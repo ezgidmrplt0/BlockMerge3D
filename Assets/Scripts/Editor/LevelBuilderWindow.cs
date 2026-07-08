@@ -17,11 +17,13 @@ public class LevelBuilderWindow : EditorWindow
     private const string SHAPES_PATH = "Assets/Shapes";
     private const float  MIN_CELL_PX = 18f;
     private const float  MAX_CELL_PX = 60f;
+    private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
 
     private static readonly Color COL_BG         = new Color(0.08f, 0.08f, 0.11f);
     private static readonly Color COL_GRID        = new Color(0.3f, 0.32f, 0.4f);
     private static readonly Color COL_OCCUPIED    = new Color(0.25f, 0.6f, 0.95f);
     private static readonly Color COL_PREFILLED   = new Color(0.85f, 0.70f, 0.20f);
+    private static readonly Color COL_ICE         = new Color(0.92f, 0.95f, 1.00f); // Beyaz-mavi buz rengi ❄️
     private static readonly Color COL_HOVER_ADD   = new Color(0.25f, 0.85f, 0.55f, 0.75f);
     private static readonly Color COL_HOVER_ERASE = new Color(1.00f, 0.28f, 0.20f, 0.75f);
     private static readonly Color COL_GHOST       = new Color(0.28f, 0.30f, 0.36f, 0.35f);
@@ -88,6 +90,16 @@ public class LevelBuilderWindow : EditorWindow
     //     var w = GetWindow<LevelBuilderWindow>("Level Builder");
     //     w.minSize = new Vector2(900, 560);
     // }
+
+    private void OnEnable()
+    {
+        // Global default cube prefab'ı yükle
+        string prefabPath = EditorPrefs.GetString(PREF_DEFAULT_CUBE, "");
+        if (!string.IsNullOrEmpty(prefabPath))
+        {
+            cubePrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        }
+    }
 
     public void OnGUI()
     {
@@ -181,7 +193,25 @@ public class LevelBuilderWindow : EditorWindow
             activeLayer = Mathf.Clamp(activeLayer, 0, gridSize.y - 1);
         cellSize  = EditorGUILayout.FloatField("Cell Size", cellSize);
         spacing   = EditorGUILayout.Slider("Gap", spacing, 0f, 0.5f);
-        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Cube Prefab", cubePrefab, typeof(GameObject), false);
+        
+        EditorGUI.BeginChangeCheck();
+        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Cube Prefab (Global)", cubePrefab, typeof(GameObject), false);
+        if (EditorGUI.EndChangeCheck() && cubePrefab != null)
+        {
+            // Global default olarak kaydet
+            string path = UnityEditor.AssetDatabase.GetAssetPath(cubePrefab);
+            EditorPrefs.SetString(PREF_DEFAULT_CUBE, path);
+        }
+        
+        if (cubePrefab != null)
+        {
+            EditorGUILayout.HelpBox("✓ Bu küp prefabı tüm yeni levellerde otomatik kullanılacak.", MessageType.Info);
+        }
+        else
+        {
+            EditorGUILayout.HelpBox("⚠ Küp prefabı seçilmedi! Lütfen bir küp prefabı atayın.", MessageType.Warning);
+        }
+        
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
@@ -438,7 +468,7 @@ public class LevelBuilderWindow : EditorWindow
             if (cell.y != activeLayer) continue;
             bool isPf = prefilledCells.Contains(cell);
             bool isIce = frozenCells.Contains(cell);
-            Color col = isPf ? COL_PREFILLED : (isIce ? new Color(0.5f, 0.85f, 1.0f) : COL_OCCUPIED);
+            Color col = isPf ? COL_PREFILLED : (isIce ? COL_ICE : COL_OCCUPIED);
             if (isPf)
             {
                 int idx = prefilledCells.IndexOf(cell);
@@ -447,12 +477,12 @@ public class LevelBuilderWindow : EditorWindow
             }
             EditorGUI.DrawRect(new Rect(ox + cell.x * cellPx + 1.5f, oy + cell.z * cellPx + 1.5f, cellPx - 3, cellPx - 3), col);
 
-            if (isIce && cellPx >= 22)
+            if (isIce && cellPx >= 18)
             {
                 var iceLabelStyle = new GUIStyle(EditorStyles.miniLabel)
                 {
                     alignment = TextAnchor.MiddleCenter,
-                    fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.45f), 10, 20)
+                    fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.50f), 9, 22)
                 };
                 GUI.Label(new Rect(ox + cell.x * cellPx, oy + cell.z * cellPx, cellPx, cellPx), "❄️", iceLabelStyle);
             }
@@ -671,7 +701,7 @@ public class LevelBuilderWindow : EditorWindow
             if (cell.y != y) continue;
             bool isPf = prefilledCells.Contains(cell);
             bool isIce = frozenCells.Contains(cell);
-            Color col = isPf ? COL_PREFILLED : (isIce ? new Color(0.5f, 0.85f, 1.0f) : COL_OCCUPIED);
+            Color col = isPf ? COL_PREFILLED : (isIce ? COL_ICE : COL_OCCUPIED);
             EditorGUI.DrawRect(new Rect(ox + cell.x * cpx + 0.5f, oy + cell.z * cpx + 0.5f, cpx - 1, cpx - 1), col);
         }
         if (y == activeLayer) DrawOutline(rect, new Color(0.35f, 0.78f, 1f, 0.8f), 2);

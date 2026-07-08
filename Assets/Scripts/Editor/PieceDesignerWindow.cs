@@ -20,6 +20,7 @@ public class PieceDesignerWindow : EditorWindow
     private const string LEVELS_PATH = "Assets/Levels";
     private const float  MIN_CELL_PX = 18f;
     private const float  MAX_CELL_PX = 66f;
+    private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
 
     private static readonly Color COL_BG           = new Color(0.10f, 0.10f, 0.13f);
     private static readonly Color COL_GRID          = new Color(0.20f, 0.20f, 0.26f);
@@ -98,6 +99,16 @@ public class PieceDesignerWindow : EditorWindow
     // ══ OnGUI ══════════════════════════════════════════════════
     public void OnGUI()
     {
+        // Global default cube prefab'ı yükle (henüz yoksa)
+        if (shapeCubePrefab == null)
+        {
+            string prefabPath = EditorPrefs.GetString(PREF_DEFAULT_CUBE, "");
+            if (!string.IsNullOrEmpty(prefabPath))
+            {
+                shapeCubePrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            }
+        }
+
         // Handle keyboard shortcuts for switching layers
         Event e = Event.current;
         if (levelLoaded && e.type == EventType.KeyDown)

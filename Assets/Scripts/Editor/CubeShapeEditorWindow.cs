@@ -86,6 +86,7 @@ public class CubeShapeEditorWindow : EditorWindow
     private const string PIECES_PATH       = "Assets/Pieces";
     private const string LEVELS_PATH       = "Assets/Levels";
     private const string EDITOR_OBJECT_NAME = "Shape_Editor_Object";
+    private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
 
     public System.Action onRepaintRequested;
 
@@ -116,6 +117,16 @@ public class CubeShapeEditorWindow : EditorWindow
         cubeMesh = Resources.GetBuiltinResource<Mesh>("Cube.fbx");
         BuildMaterials();
         FindExistingEditorObject();
+        
+        // Global default cube prefab'ı yükle
+        if (cubePrefab == null)
+        {
+            string prefabPath = EditorPrefs.GetString(PREF_DEFAULT_CUBE, "");
+            if (!string.IsNullOrEmpty(prefabPath))
+            {
+                cubePrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            }
+        }
     }
 
     public void OnDisable()

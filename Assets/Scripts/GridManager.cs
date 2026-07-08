@@ -1580,6 +1580,9 @@ public class GridManager : MonoBehaviour
 
     private IEnumerator AnimateExplodeAndThaw(HashSet<Vector3Int> cellsToExplode, HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
     {
+        // Callback'i hemen çağır, böylece yeni parça animasyon beklemeden gelir
+        onComplete?.Invoke();
+        
         List<GameObject> allCracks = new List<GameObject>();
 
         // 1. ANTICIPATION PHASE (Shake and flash)
@@ -1635,6 +1638,12 @@ public class GridManager : MonoBehaviour
 
                 CreateShatterEffect(go.transform.position, blockColor);
                 go.transform.DOScale(Vector3.zero, 0.2f).SetEase(Ease.InBack);
+            }
+
+            // Parça yok olurken hemen ghost grid'i göster
+            if (targetRenderers.TryGetValue(cell, out var targetRend) && targetRend != null)
+            {
+                targetRend.enabled = true;
             }
         }
 
@@ -1696,7 +1705,6 @@ public class GridManager : MonoBehaviour
         }
 
         RefreshLayerVisibility();
-        onComplete?.Invoke();
     }
 
     public void CreateIceShatterEffect(Vector3 centerPosition)

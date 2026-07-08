@@ -55,6 +55,7 @@ public class PieceSplitterWindow : EditorWindow
 
     private const string SHAPES_PATH = "Assets/Shapes";
     private const string LEVELS_PATH = "Assets/Levels";
+    private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
 
     public System.Action onRepaintRequested;
 
@@ -98,6 +99,16 @@ public class PieceSplitterWindow : EditorWindow
         {
             pieceMaterials[i] = new Material(Shader.Find("Unlit/Color"));
             pieceMaterials[i].color = PIECE_COLORS[i];
+        }
+
+        // Global default cube prefab'ı yükle
+        if (cubePrefab == null)
+        {
+            string prefabPath = EditorPrefs.GetString(PREF_DEFAULT_CUBE, "");
+            if (!string.IsNullOrEmpty(prefabPath))
+            {
+                cubePrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            }
         }
     }
 
