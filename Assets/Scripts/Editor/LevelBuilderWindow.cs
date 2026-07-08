@@ -933,7 +933,18 @@ public class LevelBuilderWindow : EditorWindow
             cube.transform.SetParent(fullRoot.transform);
             cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
             cube.transform.localScale    = Vector3.one * cellSize;
-            cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+            
+            // Prefilled bloklar için özel isimlendirme
+            if (prefilledCells.Contains(cell))
+            {
+                int pfIndex = prefilledCells.IndexOf(cell);
+                int matIdx = (pfIndex >= 0 && pfIndex < prefilledMatIdx.Count) ? prefilledMatIdx[pfIndex] : 0;
+                cube.name = $"Prefilled_{matIdx}_{cell.x}_{cell.y}_{cell.z}";
+            }
+            else
+            {
+                cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+            }
         }
         GameObject savedFull = PrefabUtility.SaveAsPrefabAsset(fullRoot, fullPath);
         DestroyImmediate(fullRoot);

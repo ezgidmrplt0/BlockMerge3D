@@ -661,14 +661,28 @@ public class LevelManager : MonoBehaviour
             
             if (cubeName.StartsWith("Prefilled_"))
             {
-                // "Prefilled_matIdx_x_y_z" — matIdx'i doğrudan isimden oku
+                // "Prefilled_matIdx_x_y_z" formatından koordinatları oku
                 var parts = cubeName.Split('_');
-                int matIdx = -1;
-                if (parts.Length >= 2) int.TryParse(parts[1], out matIdx);
                 
+                // GridManager'a kaydet
+                var holder = shape.GetComponent<CubeShapeDataHolder>();
+                float step = holder != null ? holder.cellSize + holder.spacing : 1f;
+                Vector3 lp = shape.transform.InverseTransformPoint(r.transform.position);
+                var cell = new Vector3Int(
+                    Mathf.RoundToInt(lp.x / step),
+                    Mathf.RoundToInt(lp.y / step),
+                    Mathf.RoundToInt(lp.z / step));
+                
+                // prefilledColors'dan doğru rengi al
                 Material prefilledMat = null;
-                if (pieceMaterials != null && matIdx >= 0 && matIdx < pieceMaterials.Length)
-                    prefilledMat = pieceMaterials[matIdx];
+                int pfIndex = holder?.prefilledCells != null ? holder.prefilledCells.IndexOf(cell) : -1;
+                
+                if (pfIndex >= 0 && holder.prefilledColors != null && pfIndex < holder.prefilledColors.Count)
+                {
+                    Color targetColor = holder.prefilledColors[pfIndex];
+                    // pieceMaterials'dan en yakın rengi bul
+                    prefilledMat = FindClosestMaterial(targetColor);
+                }
                 
                 if (prefilledMat == null)
                     prefilledMat = pieceMaterials != null && pieceMaterials.Length > 0 ? pieceMaterials[0] : null;
@@ -680,19 +694,14 @@ public class LevelManager : MonoBehaviour
                     r.sharedMaterials = mats;
                 }
                 
-                // GridManager'a kaydet
-                var holder2 = shape.GetComponent<CubeShapeDataHolder>();
-                float step2 = holder2 != null ? holder2.cellSize + holder2.spacing : 1f;
-                Vector3 lp = shape.transform.InverseTransformPoint(r.transform.position);
-                var cell2 = new Vector3Int(
-                    Mathf.RoundToInt(lp.x / step2),
-                    Mathf.RoundToInt(lp.y / step2),
-                    Mathf.RoundToInt(lp.z / step2));
-                
-                GridManager.Instance.occupiedCells.Add(cell2);
+                GridManager.Instance.occupiedCells.Add(cell);
                 if (prefilledMat != null)
-                    GridManager.Instance.SetCellColor(cell2, GridManager.GetMaterialColor(prefilledMat));
-                GridManager.Instance.SetCellMatIndex(cell2, matIdx);
+                {
+                    GridManager.Instance.SetCellColor(cell, GridManager.GetMaterialColor(prefilledMat));
+                    // matIdx'i de güncelle
+                    int matIdx = FindMaterialIndex(prefilledMat);
+                    GridManager.Instance.SetCellMatIndex(cell, matIdx);
+                }
             }
             else if (cubeName.StartsWith("Cube_"))
             {
@@ -710,11 +719,18 @@ public class LevelManager : MonoBehaviour
 
                 if (pfListIdx >= 0) // Eski format: Cube_ isimli ama prefilledCells'te var
                 {
-                    int matIdx = (holderF?.prefilledMaterialIndices != null && pfListIdx < holderF.prefilledMaterialIndices.Count)
-                        ? holderF.prefilledMaterialIndices[pfListIdx] : 0;
-
-                    Material prefilledMat = (pieceMaterials != null && matIdx >= 0 && matIdx < pieceMaterials.Length)
-                        ? pieceMaterials[matIdx] : (pieceMaterials?.Length > 0 ? pieceMaterials[0] : null);
+                    // prefilledColors'dan doğru rengi al
+                    Material prefilledMat = null;
+                    
+                    if (holderF?.prefilledColors != null && pfListIdx < holderF.prefilledColors.Count)
+                    {
+                        Color targetColor = holderF.prefilledColors[pfListIdx];
+                        // pieceMaterials'dan en yakın rengi bul
+                        prefilledMat = FindClosestMaterial(targetColor);
+                    }
+                    
+                    if (prefilledMat == null)
+                        prefilledMat = pieceMaterials?.Length > 0 ? pieceMaterials[0] : null;
 
                     if (prefilledMat != null)
                     {
@@ -725,8 +741,11 @@ public class LevelManager : MonoBehaviour
 
                     GridManager.Instance.occupiedCells.Add(cellF);
                     if (prefilledMat != null)
+                    {
                         GridManager.Instance.SetCellColor(cellF, GridManager.GetMaterialColor(prefilledMat));
-                    GridManager.Instance.SetCellMatIndex(cellF, matIdx);
+                        int matIdx = FindMaterialIndex(prefilledMat);
+                        GridManager.Instance.SetCellMatIndex(cellF, matIdx);
+                    }
                 }
                 else // Normal hedef (Ghost)
                 {
@@ -766,5 +785,48 @@ public class LevelManager : MonoBehaviour
         }
 
         return false;
+    }
+
+    private Material FindClosestMaterial(Color targetColor)
+    {
+        if (pieceMaterials == null || pieceMaterials.Length == 0) return null;
+        
+        Material closest = null;
+        float minDistance = float.MaxValue;
+        
+        foreach (var mat in pieceMaterials)
+        {
+            if (mat == null) continue;
+            Color matColor = GridManager.GetMaterialColor(mat);
+            float distance = ColorDistance(targetColor, matColor);
+            
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                closest = mat;
+            }
+        }
+        
+        return closest;
+    }
+    
+    private int FindMaterialIndex(Material mat)
+    {
+        if (pieceMaterials == null || mat == null) return -1;
+        
+        for (int i = 0; i < pieceMaterials.Length; i++)
+        {
+            if (pieceMaterials[i] == mat) return i;
+        }
+        
+        return -1;
+    }
+    
+    private float ColorDistance(Color a, Color b)
+    {
+        float dr = a.r - b.r;
+        float dg = a.g - b.g;
+        float db = a.b - b.b;
+        return dr * dr + dg * dg + db * db;
     }
 }
