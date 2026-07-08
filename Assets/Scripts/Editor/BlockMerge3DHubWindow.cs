@@ -8,6 +8,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         LevelBuilder,
         PieceDesigner,
         PieceSplitter,
+        AILevelDesigner,
         CanvasSetup,
         Aesthetics,
         LegacyCubeShapeEditor
@@ -21,6 +22,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         "1. 🗂 Seviye Tasarımcısı",
         "2. 🧩 Parça Tasarımcısı",
         "✂ Parça Bölücü",
+        "🤖 AI Seviye Tasarımcısı",
         "📺 Arayüz Kurulumu",
         "🎨 Görsel & Kurulum",
         "⚙ Eski Yapıcı"
@@ -30,6 +32,7 @@ public class BlockMerge3DHubWindow : EditorWindow
     private LevelBuilderWindow levelBuilder;
     private PieceDesignerWindow pieceDesigner;
     private PieceSplitterWindow pieceSplitter;
+    private AILevelDesignerWindow aiLevelDesigner;
     private CanvasSetupWindow canvasSetup;
     private AestheticSetupTool aestheticSetup;
     private CubeShapeEditorWindow legacyCubeShape;
@@ -77,6 +80,11 @@ public class BlockMerge3DHubWindow : EditorWindow
             pieceSplitter = CreateInstance<PieceSplitterWindow>();
             pieceSplitter.onRepaintRequested = Repaint;
         }
+        if (aiLevelDesigner == null)
+        {
+            aiLevelDesigner = CreateInstance<AILevelDesignerWindow>();
+            aiLevelDesigner.onRepaintRequested = Repaint;
+        }
         if (canvasSetup == null)
         {
             canvasSetup = CreateInstance<CanvasSetupWindow>();
@@ -99,6 +107,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         if (levelBuilder != null) DestroyImmediate(levelBuilder);
         if (pieceDesigner != null) DestroyImmediate(pieceDesigner);
         if (pieceSplitter != null) DestroyImmediate(pieceSplitter);
+        if (aiLevelDesigner != null) DestroyImmediate(aiLevelDesigner);
         if (canvasSetup != null) DestroyImmediate(canvasSetup);
         if (aestheticSetup != null) DestroyImmediate(aestheticSetup);
         if (legacyCubeShape != null) DestroyImmediate(legacyCubeShape);
@@ -217,6 +226,9 @@ public class BlockMerge3DHubWindow : EditorWindow
                 break;
             case Tab.PieceSplitter:
                 if (pieceSplitter != null) pieceSplitter.OnGUI();
+                break;
+            case Tab.AILevelDesigner:
+                if (aiLevelDesigner != null) aiLevelDesigner.OnGUI();
                 break;
             case Tab.CanvasSetup:
                 if (canvasSetup != null) canvasSetup.OnGUI();
