@@ -170,6 +170,31 @@ public class LevelManager : MonoBehaviour
         if (availableIndices.Count == 0)
             availableIndices = placeableIndices;
 
+        // EĞER oyuncunun elinde zaten büyük (>= 4 küplük) bir parça varsa,
+        // ve elimizde daha küçük (< 4 küplük) alternatif placeable parçalar varsa,
+        // yeni büyük parçaları eleyerek elin tıkanmasını engelle!
+        int activeLargePiecesCount = 0;
+        foreach (var p in activePieces)
+        {
+            if (p == null) continue;
+            var holder = p.GetComponent<CubeShapeDataHolder>();
+            if (holder != null && holder.occupiedCells.Count >= 4)
+                activeLargePiecesCount++;
+        }
+
+        if (activeLargePiecesCount >= 1 && availableIndices.Count > 0)
+        {
+            List<int> smallerIndices = availableIndices.Where(idx => {
+                var h = allPiecePrefabs[idx].GetComponent<CubeShapeDataHolder>();
+                return h != null && h.occupiedCells.Count < 4;
+            }).ToList();
+
+            if (smallerIndices.Count > 0)
+            {
+                availableIndices = smallerIndices;
+            }
+        }
+
         int indexToSpawn = -1;
 
         if (availableIndices.Count > 0)
@@ -177,23 +202,62 @@ public class LevelManager : MonoBehaviour
             // Sahadaki boşluklara tam oturan/uygun parçalardan rastgele birini seç!
             indexToSpawn = availableIndices[Random.Range(0, availableIndices.Count)];
             activeIsSmart.Add(true);
+
+            // Aktif katmandaki renk uyumuna göre akıllı materyal/renk seçimi yap!
+            Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+
+            // Parçayı spawn et
+            SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
         }
         else
         {
-            // Eğer hiçbir parça sığmıyorsa (sıkışmayı önlemek için) en küçük parçayı spawn et
-            indexToSpawn = FindSmallestPieceIndex();
-            activeIsSmart.Add(true);
+            // Eğer hiçbir parça sığmıyorsa (sıkışmayı önlemek için) fallback SingleCube parçasını spawn et!
+            GameObject fallbackPrefab = Resources.Load<GameObject>("SingleCube");
+            if (fallbackPrefab != null)
+            {
+                SpawnFallbackSinglePiece(targetCard, fallbackPrefab);
+            }
+            else
+            {
+                // Fallback prefab bulunamazsa en küçük parçayı spawn et (eski davranış)
+                indexToSpawn = FindSmallestPieceIndex();
+                activeIsSmart.Add(true);
+                Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+                SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
+            }
         }
-
-        // Aktif katmandaki renk uyumuna göre akıllı materyal/renk seçimi yap!
-        Material matchingMaterial = GetDominantMaterialOnActiveLayer();
-
-        // Parçayı spawn et
-        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
 
         // Game Over kontrolü burada yapılmaz.
         // Bu metot level başında kartlar tek tek doldurulurken de çağrıldığı için
         // erken kontrol yanlış Retry ekranı açabilir.
+    }
+
+    private void SpawnFallbackSinglePiece(PieceCardUI targetCard, GameObject fallbackPrefab)
+    {
+        GameObject piece = Instantiate(fallbackPrefab, new Vector3(0, -100, 0), Quaternion.identity);
+        piece.name = "Piece_Fallback_Single";
+        DisableShadows(piece);
+
+        Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+        if (matchingMaterial == null && pieceMaterials != null && pieceMaterials.Length > 0)
+        {
+            var valid = pieceMaterials.Where(m => m != null).ToList();
+            if (valid.Count > 0) matchingMaterial = valid[Random.Range(0, valid.Count)];
+        }
+        ApplyMaterialToPiece(piece, matchingMaterial);
+
+        var drag = piece.AddComponent<DraggablePiece>();
+        drag.InitialRotation = Quaternion.identity;
+
+        if (targetCard != null)
+        {
+            targetCard.AssignPiece(piece);
+            pieceToCard[piece] = targetCard;
+        }
+
+        activePieces.Add(piece);
+        activePieceDataIndices.Add(-1); // -1 signifies it's the fallback single piece
+        activeIsSmart.Add(true);
     }
 
     private Quaternion GetRandom90DegreeRotation()
@@ -571,14 +635,39 @@ public class LevelManager : MonoBehaviour
             return;
         }
 
-        // Spawn sisteminin kullandığı uygunluk kontrolünün AYNISINI kullan.
-        // Böylece üretilebilen/döndürülerek yerleştirilebilen bir parça varken
-        // yanlışlıkla Game Over verilmez.
+        Debug.Log($"[CheckGameOver] Checking. ActiveLayerY: {gridManager.ActiveLayerY}");
+        
+        List<Vector3Int> targetInLayer = new List<Vector3Int>();
+        foreach (var t in gridManager.TargetCells)
+        {
+            if (t.y == gridManager.ActiveLayerY) targetInLayer.Add(t);
+        }
+        Debug.Log($"[CheckGameOver] targetCells in ActiveLayerY: {string.Join(", ", targetInLayer)}");
+
+        List<Vector3Int> occupiedInLayer = new List<Vector3Int>();
+        foreach (var o in gridManager.occupiedCells)
+        {
+            if (o.y == gridManager.ActiveLayerY) occupiedInLayer.Add(o);
+        }
+        Debug.Log($"[CheckGameOver] occupiedCells in ActiveLayerY: {string.Join(", ", occupiedInLayer)}");
+
+        List<Vector3Int> frozenInLayer = new List<Vector3Int>();
+        foreach (var f in gridManager.frozenCells)
+        {
+            if (f.y == gridManager.ActiveLayerY) frozenInLayer.Add(f);
+        }
+        Debug.Log($"[CheckGameOver] frozenCells in ActiveLayerY: {string.Join(", ", frozenInLayer)}");
+
         foreach (var pieceGO in activePieces)
         {
             if (pieceGO == null) continue;
 
-            if (IsShapePlaceable(pieceGO))
+            bool placeable = IsShapePlaceable(pieceGO);
+            var h = pieceGO.GetComponent<CubeShapeDataHolder>();
+            int cellsCount = h != null ? h.occupiedCells.Count : 0;
+            Debug.Log($"[CheckGameOver] Piece: {pieceGO.name}, Placeable: {placeable}, localCellsCount: {cellsCount}");
+
+            if (placeable)
             {
                 Debug.Log($"[CheckGameOver] Geçerli hamle var: {pieceGO.name}");
                 return;

@@ -235,10 +235,11 @@ public class CameraOrbit : MonoBehaviour
             ApplyRotation();
         }
 
-        if (DraggablePiece.IsDragging || IsLocked) 
+        bool isTransitioning = DOTween.IsTweening(transform);
+        if (DraggablePiece.IsDragging || isTransitioning || (IsLocked && !IsInPanelMode)) 
         {
             swipeCancelled = true;
-            if (IsLocked) trackingSwipe = false;
+            trackingSwipe = false;
         }
 
         HandleMouseSwipe();

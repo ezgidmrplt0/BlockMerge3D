@@ -92,8 +92,8 @@ public class GridManager : MonoBehaviour
 
                     if (prefilled.Contains(cell))
                         occupiedCells.Add(cell);
-                    else
-                        targetCells.Add(cell);
+                    
+                    targetCells.Add(cell);
                 }
             }
 
@@ -116,11 +116,13 @@ public class GridManager : MonoBehaviour
 
                 // Holder verisi yoksa eski Renderer tabanlı sistemi fallback olarak kullan.
                 if (!loadedLogicalCellsFromHolder)
+                {
                     allShapeCells.Add(cell);
+                    targetCells.Add(cell);
+                }
 
                 if (isPrefilled || prefilled.Contains(cell))
                 {
-                    targetCells.Remove(cell);
                     occupiedCells.Add(cell);
                     prefilledRenderers[cell] = r;
 
@@ -134,9 +136,6 @@ public class GridManager : MonoBehaviour
                 }
                 else
                 {
-                    if (!loadedLogicalCellsFromHolder)
-                        targetCells.Add(cell);
-
                     targetRenderers[cell] = r;
                 }
             }
@@ -1530,55 +1529,76 @@ public class GridManager : MonoBehaviour
         HashSet<Vector3Int> cellsToExplode = new HashSet<Vector3Int>();
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
 
-        Vector3Int[] neighbors = {
+        Vector3Int[] horizontalNeighbors = {
             Vector3Int.left, Vector3Int.right,
-            Vector3Int.up, Vector3Int.down,
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        // Check each frozen cell on the board
-        foreach (var frozenCell in frozenCells)
+        HashSet<Vector3Int> visited = new HashSet<Vector3Int>();
+
+        // We check same-color horizontal groups starting from each newly placed cell in the active layer Y
+        foreach (var startCell in newlyPlacedCells)
         {
-            // Find newly placed cells that are in the same layer (same Y coordinate) as this frozen cell
-            List<Vector3Int> newlyPlacedInLayer = new List<Vector3Int>();
-            foreach (var cell in newlyPlacedCells)
+            if (startCell.y != ActiveLayerY) continue;
+            if (visited.Contains(startCell)) continue;
+
+            // Find the color of the startCell
+            if (!cellColors.TryGetValue(startCell, out Color startColor))
             {
-                if (cell.y == frozenCell.y)
+                startColor = Color.white; // Default fallback
+            }
+
+            // BFS to find connected same-color occupied cells in the active layer Y
+            List<Vector3Int> group = new List<Vector3Int>();
+            Queue<Vector3Int> queue = new Queue<Vector3Int>();
+            
+            queue.Enqueue(startCell);
+            visited.Add(startCell);
+            group.Add(startCell);
+
+            while (queue.Count > 0)
+            {
+                Vector3Int curr = queue.Dequeue();
+                foreach (var offset in horizontalNeighbors)
                 {
-                    newlyPlacedInLayer.Add(cell);
+                    Vector3Int neighbor = curr + offset;
+                    if (neighbor.y == ActiveLayerY && occupiedCells.Contains(neighbor) && !visited.Contains(neighbor))
+                    {
+                        if (cellColors.TryGetValue(neighbor, out Color neighborColor))
+                        {
+                            if (ColorsApproxEqual(neighborColor, startColor))
+                            {
+                                visited.Add(neighbor);
+                                group.Add(neighbor);
+                                queue.Enqueue(neighbor);
+                            }
+                        }
+                    }
                 }
             }
 
-            // Condition: The placed piece must have at least 2 blocks in this layer
-            if (newlyPlacedInLayer.Count < 2)
+            // Condition: The same-color horizontal group size must be at least 2
+            if (group.Count < 2)
             {
                 continue;
             }
 
-            // Check if at least one of these newly placed blocks in the same layer is adjacent to the frozen cell
-            bool isAdjacent = false;
-            foreach (var cell in newlyPlacedInLayer)
+            // Check if any block in this group is adjacent horizontally to a frozen cell in the same layer
+            foreach (var cell in group)
             {
-                foreach (var offset in neighbors)
+                foreach (var offset in horizontalNeighbors)
                 {
-                    if (cell + offset == frozenCell)
+                    Vector3Int neighbor = cell + offset;
+                    if (neighbor.y == ActiveLayerY && frozenCells.Contains(neighbor))
                     {
-                        isAdjacent = true;
-                        break;
-                    }
-                }
-                if (isAdjacent) break;
-            }
-
-            // If both conditions are met, thaw the ice and explode only the placed blocks in this layer
-            if (isAdjacent)
-            {
-                cellsToThaw.Add(frozenCell);
-                foreach (var cell in newlyPlacedInLayer)
-                {
-                    if (occupiedCells.Contains(cell))
-                    {
-                        cellsToExplode.Add(cell);
+                        cellsToThaw.Add(neighbor);
+                        foreach (var gCell in group)
+                        {
+                            if (occupiedCells.Contains(gCell))
+                            {
+                                cellsToExplode.Add(gCell);
+                            }
+                        }
                     }
                 }
             }
@@ -1606,6 +1626,11 @@ public class GridManager : MonoBehaviour
             {
                 gosToDestroy[cell] = go;
             }
+            else if (prefilledRenderers.TryGetValue(cell, out var prefilledRend) && prefilledRend != null)
+            {
+                gosToDestroy[cell] = prefilledRend.gameObject;
+            }
+
             if (cellColors.TryGetValue(cell, out var col))
             {
                 capturedColors[cell] = col;
@@ -1623,6 +1648,7 @@ public class GridManager : MonoBehaviour
             cellColors.Remove(cell);
             cellMatIndex.Remove(cell);
             cellObjects.Remove(cell);
+            prefilledRenderers.Remove(cell);
         }
 
         foreach (var cell in cellsToThaw)
