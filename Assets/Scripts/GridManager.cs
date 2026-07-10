@@ -1580,19 +1580,51 @@ public class GridManager : MonoBehaviour
 
     private IEnumerator AnimateExplodeAndThaw(HashSet<Vector3Int> cellsToExplode, HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
     {
+        // 1. Capture GameObjects and Colors before logically clearing them
+        Dictionary<Vector3Int, GameObject> gosToDestroy = new Dictionary<Vector3Int, GameObject>();
+        Dictionary<Vector3Int, Color> capturedColors = new Dictionary<Vector3Int, Color>();
+        
+        foreach (var cell in cellsToExplode)
+        {
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                gosToDestroy[cell] = go;
+            }
+            if (cellColors.TryGetValue(cell, out var col))
+            {
+                capturedColors[cell] = col;
+            }
+            else
+            {
+                capturedColors[cell] = Color.white;
+            }
+        }
+
+        // 2. LOGICAL CLEAR IMMEDIATELY: Fixes premature Game Over
+        foreach (var cell in cellsToExplode)
+        {
+            occupiedCells.Remove(cell);
+            cellColors.Remove(cell);
+            cellMatIndex.Remove(cell);
+            cellObjects.Remove(cell);
+        }
+
+        foreach (var cell in cellsToThaw)
+        {
+            frozenCells.Remove(cell);
+        }
+
         // Callback'i hemen çağır, böylece yeni parça animasyon beklemeden gelir
         onComplete?.Invoke();
         
         List<GameObject> allCracks = new List<GameObject>();
 
         // 1. ANTICIPATION PHASE (Shake and flash)
-        foreach (var cell in cellsToExplode)
+        foreach (var kvp in gosToDestroy)
         {
-            if (cellObjects.TryGetValue(cell, out var go) && go != null)
-            {
-                go.transform.DOShakePosition(0.25f, 0.08f, 20);
-                go.transform.DOPunchScale(Vector3.one * 0.1f, 0.25f);
-            }
+            var go = kvp.Value;
+            go.transform.DOShakePosition(0.25f, 0.08f, 20);
+            go.transform.DOPunchScale(Vector3.one * 0.1f, 0.25f);
         }
 
         foreach (var cell in cellsToThaw)
@@ -1629,16 +1661,15 @@ public class GridManager : MonoBehaviour
 
         // 2. SHATTER AND DETONATE PHASE
         // Trigger shatter effects for exploding occupied blocks
-        foreach (var cell in cellsToExplode)
+        foreach (var kvp in gosToDestroy)
         {
-            if (cellObjects.TryGetValue(cell, out var go) && go != null)
-            {
-                Color blockColor = Color.white;
-                if (cellColors.TryGetValue(cell, out var col)) blockColor = col;
+            var cell = kvp.Key;
+            var go = kvp.Value;
 
-                CreateShatterEffect(go.transform.position, blockColor);
-                go.transform.DOScale(Vector3.zero, 0.2f).SetEase(Ease.InBack);
-            }
+            Color blockColor = capturedColors.ContainsKey(cell) ? capturedColors[cell] : Color.white;
+
+            CreateShatterEffect(go.transform.position, blockColor);
+            go.transform.DOScale(Vector3.zero, 0.2f).SetEase(Ease.InBack);
 
             // Parça yok olurken hemen ghost grid'i göster
             if (targetRenderers.TryGetValue(cell, out var targetRend) && targetRend != null)
@@ -1686,22 +1717,12 @@ public class GridManager : MonoBehaviour
         // Wait for the shards to fully disperse and shrink (0.65s)
         yield return new WaitForSeconds(0.65f);
 
-        foreach (var cell in cellsToExplode)
+        foreach (var kvp in gosToDestroy)
         {
-            occupiedCells.Remove(cell);
-            cellColors.Remove(cell);
-            cellMatIndex.Remove(cell);
-
-            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            if (kvp.Value != null)
             {
-                Destroy(go);
-                cellObjects.Remove(cell);
+                Destroy(kvp.Value);
             }
-        }
-
-        foreach (var cell in cellsToThaw)
-        {
-            frozenCells.Remove(cell);
         }
 
         RefreshLayerVisibility();

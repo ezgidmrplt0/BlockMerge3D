@@ -161,12 +161,21 @@ public class LevelManager : MonoBehaviour
             }
         }
 
+        // Zaten aktif olan parça indekslerini çıkar (çeşitlilik için)
+        List<int> availableIndices = placeableIndices
+            .Where(idx => !activePieceDataIndices.Contains(idx))
+            .ToList();
+
+        // Eğer hepsi aktifse, tüm placeable'ları kullan
+        if (availableIndices.Count == 0)
+            availableIndices = placeableIndices;
+
         int indexToSpawn = -1;
 
-        if (placeableIndices.Count > 0)
+        if (availableIndices.Count > 0)
         {
             // Sahadaki boşluklara tam oturan/uygun parçalardan rastgele birini seç!
-            indexToSpawn = placeableIndices[Random.Range(0, placeableIndices.Count)];
+            indexToSpawn = availableIndices[Random.Range(0, availableIndices.Count)];
             activeIsSmart.Add(true);
         }
         else

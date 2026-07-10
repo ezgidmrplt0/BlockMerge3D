@@ -1,0 +1,543 @@
+using UnityEngine;
+using UnityEditor;
+using System.Collections.Generic;
+using System.Linq;
+
+// ═══════════════════════════════════════════════════════════════════
+//  LEVEL SOLVER  —  Seviye Çözülebilirlik ve Zorluk Analizi
+//  BlockMerge3D  •  Backtracking ile geometrik + renk çözülebilirlik
+// ═══════════════════════════════════════════════════════════════════
+
+public class LevelSolver
+{
+    // ── Zorluk Skorlama Ağırlıkları ───────────────────────────────
+    public float weightMoveCount = 0.3f;
+    public float weightFrozenRatio = 0.2f;
+    public float weightPieceCount = 0.25f;
+    public float weightGridVolume = 0.25f;
+
+    // ── Arama Limitleri ───────────────────────────────────────────
+    public int maxSearchTimeMs = 5000;      // 5 saniye
+    public int maxStatesExplored = 100000;  // 100k durum
+
+    private System.Diagnostics.Stopwatch stopwatch;
+    private int statesExplored;
+    private bool searchTimedOut;
+
+    // ── Seviye Verisi ─────────────────────────────────────────────
+    private Vector3Int gridSize;
+    private HashSet<Vector3Int> targetCells;
+    private HashSet<Vector3Int> prefilledCells;
+    private Dictionary<Vector3Int, int> cellMatIndex;
+    private HashSet<Vector3Int> frozenCells;
+    private List<PieceData> pieces;
+
+    // ── Çözüm Durumu ──────────────────────────────────────────────
+    private HashSet<Vector3Int> currentOccupied;
+    private Dictionary<Vector3Int, int> currentMatIndex;
+    private List<PlacementStep> currentSolution;
+    private SolverResult bestResult;
+
+    public SolverResult Solve(LevelData levelData)
+    {
+        if (levelData == null || levelData.mainShapePrefab == null)
+            return new SolverResult { isSolvable = false, failureReason = "LevelData veya mainShapePrefab null" };
+
+        return SolveFromPrefabs(levelData.mainShapePrefab, levelData.complementaryPieces);
+    }
+
+    public SolverResult SolveFromPrefabs(GameObject mainShape, List<GameObject> piecePrefabs)
+    {
+        // ── 1. Veriyi Hazırla ─────────────────────────────────────
+        var holder = mainShape.GetComponent<CubeShapeDataHolder>();
+        if (holder == null)
+            return new SolverResult { isSolvable = false, failureReason = "mainShape üzerinde CubeShapeDataHolder yok" };
+
+        InitializeFromHolder(holder);
+
+        if (piecePrefabs == null || piecePrefabs.Count == 0)
+            return new SolverResult { isSolvable = false, failureReason = "Hiç parça yok" };
+
+        // Parçaları yükle
+        pieces = new List<PieceData>();
+        for (int i = 0; i < piecePrefabs.Count; i++)
+        {
+            var ph = piecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+            if (ph != null && ph.occupiedCells.Count > 0)
+            {
+                pieces.Add(new PieceData
+                {
+                    index = i,
+                    cells = new List<Vector3Int>(ph.occupiedCells),
+                    used = false
+                });
+            }
+        }
+
+        if (pieces.Count == 0)
+            return new SolverResult { isSolvable = false, failureReason = "Geçerli parça yok" };
+
+        // ── 2. Hızlı Ön Kontroller ────────────────────────────────
+        
+        // Toplam hücre sayısı kontrolü
+        int totalPieceCells = pieces.Sum(p => p.cells.Count);
+        int emptyTargetCells = targetCells.Count(c => !prefilledCells.Contains(c));
+
+        if (totalPieceCells < emptyTargetCells)
+        {
+            return new SolverResult
+            {
+                isSolvable = false,
+                failureReason = $"Yetersiz hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells}"
+            };
+        }
+
+        if (totalPieceCells > emptyTargetCells)
+        {
+            return new SolverResult
+            {
+                isSolvable = false,
+                failureReason = $"Fazla hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells}"
+            };
+        }
+
+        // ── 3. Backtracking Arama Başlat ─────────────────────────
+        stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        statesExplored = 0;
+        searchTimedOut = false;
+
+        currentOccupied = new HashSet<Vector3Int>(prefilledCells);
+        currentMatIndex = new Dictionary<Vector3Int, int>(cellMatIndex);
+        currentSolution = new List<PlacementStep>();
+        bestResult = new SolverResult { isSolvable = false };
+
+        bool solved = BacktrackingSolve(0);
+
+        stopwatch.Stop();
+
+        if (solved)
+        {
+            bestResult.isSolvable = true;
+            bestResult.minMoveCount = currentSolution.Count;
+            bestResult.solutionSteps = new List<PlacementStep>(currentSolution);
+            bestResult.difficultyScore = CalculateDifficulty(bestResult.minMoveCount);
+            bestResult.difficultyLabel = GetDifficultyLabel(bestResult.difficultyScore);
+            bestResult.failureReason = "";
+        }
+        else if (searchTimedOut)
+        {
+            bestResult.failureReason = $"Arama limiti aşıldı ({maxSearchTimeMs}ms veya {maxStatesExplored} durum) - kesin çözülemez değil";
+        }
+        else
+        {
+            bestResult.failureReason = bestResult.failureReason ?? "Çözüm bulunamadı (renk/geometri kısıtları)";
+        }
+
+        return bestResult;
+    }
+
+    private void InitializeFromHolder(CubeShapeDataHolder holder)
+    {
+        gridSize = holder.gridSize;
+        targetCells = new HashSet<Vector3Int>(holder.occupiedCells);
+        prefilledCells = new HashSet<Vector3Int>(holder.prefilledCells ?? new List<Vector3Int>());
+        frozenCells = new HashSet<Vector3Int>(holder.frozenCells ?? new List<Vector3Int>());
+
+        // Material indekslerini hazırla
+        cellMatIndex = new Dictionary<Vector3Int, int>();
+        if (holder.prefilledCells != null && holder.prefilledMaterialIndices != null)
+        {
+            for (int i = 0; i < holder.prefilledCells.Count && i < holder.prefilledMaterialIndices.Count; i++)
+            {
+                cellMatIndex[holder.prefilledCells[i]] = holder.prefilledMaterialIndices[i];
+            }
+        }
+    }
+
+    private bool BacktrackingSolve(int pieceIdx)
+    {
+        // Limit kontrolleri
+        statesExplored++;
+        if (stopwatch.ElapsedMilliseconds > maxSearchTimeMs || statesExplored > maxStatesExplored)
+        {
+            searchTimedOut = true;
+            return false;
+        }
+
+        // Tüm hedef hücreler dolu mu?
+        if (targetCells.All(c => currentOccupied.Contains(c)))
+        {
+            if (AllLayersValid())
+                return true;
+        }
+
+        // Tüm parçalar kullanıldı ama hala boşluk var
+        if (pieceIdx >= pieces.Count)
+            return false;
+
+        // ERKEN BUDAMA: Herhangi bir katmanda çözülemez renk çakışması varsa dur
+        if (HasIrrecoverableColorConflict())
+        {
+            return false;
+        }
+
+        // Kullanılmamış bir parça seç
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            if (pieces[i].used) continue;
+
+            pieces[i].used = true;
+
+            // Tüm rotasyonları dene (0, 90, 180, 270 derece Y ekseni, sonra X ekseni)
+            foreach (var rotation in GetAllRotations())
+            {
+                var rotatedCells = RotateCells(pieces[i].cells, rotation);
+
+                // Grid içindeki tüm olası pozisyonları dene
+                foreach (var offset in GetPossibleOffsets(rotatedCells))
+                {
+                    if (TryPlacePiece(pieces[i].index, rotatedCells, offset, rotation, out int materialIdx))
+                    {
+                        // Özyinelemeli arama
+                        if (BacktrackingSolve(pieceIdx + 1))
+                            return true;
+
+                        // Geri al
+                        UndoPlacement(rotatedCells, offset);
+                    }
+                }
+            }
+
+            pieces[i].used = false;
+        }
+
+        return false;
+    }
+
+    private bool TryPlacePiece(int pieceIndex, List<Vector3Int> cells, Vector3Int offset, Quaternion rotation, out int materialIdx)
+    {
+        materialIdx = -1;
+        List<Vector3Int> worldCells = new List<Vector3Int>();
+
+        // 1. Geometrik validasyon
+        foreach (var cell in cells)
+        {
+            Vector3Int worldCell = cell + offset;
+
+            // Grid sınırları
+            if (worldCell.x < 0 || worldCell.x >= gridSize.x ||
+                worldCell.y < 0 || worldCell.y >= gridSize.y ||
+                worldCell.z < 0 || worldCell.z >= gridSize.z)
+                return false;
+
+            // Zaten dolu
+            if (currentOccupied.Contains(worldCell))
+                return false;
+
+            // Hedef hücre değil
+            if (!targetCells.Contains(worldCell))
+                return false;
+
+            worldCells.Add(worldCell);
+        }
+
+        // 2. Renk çözülebilirliği kontrolü - optimize edilmiş
+        var layersAffected = worldCells.Select(c => c.y).Distinct().ToList();
+        materialIdx = pieceIndex % 8;
+
+        foreach (int y in layersAffected)
+        {
+            var newCellsInLayer = worldCells.Where(c => c.y == y).ToList();
+            var occupiedInLayer = currentOccupied.Where(c => c.y == y).ToList();
+            var matsInLayer = occupiedInLayer
+                .Where(c => currentMatIndex.ContainsKey(c))
+                .Select(c => currentMatIndex[c])
+                .Distinct()
+                .ToList();
+
+            // ERKEN BUDAMA: Katmanda zaten karışık renkler varsa red
+            if (matsInLayer.Count > 1)
+            {
+                return false;
+            }
+
+            // Katmanda mevcut renk varsa, yeni parça aynı renkte olmalı
+            if (matsInLayer.Count == 1)
+            {
+                materialIdx = matsInLayer[0];
+            }
+
+            // Katman boyutu kontrolü
+            int totalInLayer = targetCells.Count(c => c.y == y);
+            int currentOccupiedInLayer = occupiedInLayer.Count;
+            int afterPlacement = currentOccupiedInLayer + newCellsInLayer.Count;
+
+            // Katman dolacaksa, tüm hücreler aynı renkte olmalı
+            if (afterPlacement == totalInLayer)
+            {
+                if (matsInLayer.Count > 1)
+                {
+                    return false;
+                }
+            }
+            
+            // ERKEN BUDAMA 2: Katman yarı doluyken bile renk çakışması kontrolü
+            // Eğer bu parça farklı renkte ise ve katman zaten %30+ doluysa, riskli
+            if (matsInLayer.Count == 1 && matsInLayer[0] != materialIdx)
+            {
+                // Bu parça mevcut renge uymuyorsa red et
+                return false;
+            }
+            
+            // ERKEN BUDAMA 3: Katman %50+ doluyken, kalan hücre sayısı ile 
+            // yerleştirilebilecek parça sayısını kontrol et
+            float fillRatio = (float)currentOccupiedInLayer / totalInLayer;
+            if (fillRatio > 0.5f)
+            {
+                int remainingCells = totalInLayer - afterPlacement;
+                // Eğer kalan hücre sayısı çok az ve karışık renk riski varsa budama yap
+                if (remainingCells > 0 && remainingCells < 3 && matsInLayer.Count == 0)
+                {
+                    // İlk rengi belirlerken dikkatli ol - küçük boşluklarda sorun çıkabilir
+                }
+            }
+        }
+
+        // 3. Yerleştir
+        var step = new PlacementStep
+        {
+            pieceIndex = pieceIndex,
+            offset = offset,
+            rotation = rotation,
+            cells = new List<Vector3Int>(worldCells),
+            materialIndex = materialIdx
+        };
+
+        currentSolution.Add(step);
+
+        foreach (var worldCell in worldCells)
+        {
+            currentOccupied.Add(worldCell);
+            currentMatIndex[worldCell] = materialIdx;
+        }
+
+        return true;
+    }
+
+    private void UndoPlacement(List<Vector3Int> cells, Vector3Int offset)
+    {
+        if (currentSolution.Count == 0) return;
+
+        var lastStep = currentSolution[currentSolution.Count - 1];
+        currentSolution.RemoveAt(currentSolution.Count - 1);
+
+        foreach (var cell in lastStep.cells)
+        {
+            currentOccupied.Remove(cell);
+            currentMatIndex.Remove(cell);
+        }
+    }
+
+    private bool AllLayersValid()
+    {
+        int minY = targetCells.Min(c => c.y);
+        int maxY = targetCells.Max(c => c.y);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            if (!IsLayerCompleteAndValid(y))
+            {
+                bestResult.failureReason = $"Katman Y={y} geçersiz (farklı renkler veya eksik hücreler)";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool IsLayerCompleteAndValid(int y)
+    {
+        var cellsInLayer = targetCells.Where(c => c.y == y).ToList();
+        if (cellsInLayer.Count == 0) return true;
+
+        // Tüm hücreler dolu mu?
+        foreach (var cell in cellsInLayer)
+        {
+            if (!currentOccupied.Contains(cell))
+                return false;
+        }
+
+        // Hepsi aynı materyalde mi?
+        var materials = cellsInLayer
+            .Where(c => currentMatIndex.ContainsKey(c))
+            .Select(c => currentMatIndex[c])
+            .Distinct()
+            .ToList();
+
+        return materials.Count == 1 && materials[0] >= 0;
+    }
+
+    private List<Quaternion> GetAllRotations()
+    {
+        // Y ekseni rotasyonları (0, 90, 180, 270)
+        var rotations = new List<Quaternion>
+        {
+            Quaternion.Euler(0, 0, 0),
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0),
+        };
+
+        // X ekseni rotasyonları da ekle (daha kapsamlı)
+        rotations.Add(Quaternion.Euler(90, 0, 0));
+        rotations.Add(Quaternion.Euler(90, 90, 0));
+        rotations.Add(Quaternion.Euler(90, 180, 0));
+        rotations.Add(Quaternion.Euler(90, 270, 0));
+
+        return rotations;
+    }
+
+    private List<Vector3Int> RotateCells(List<Vector3Int> cells, Quaternion rotation)
+    {
+        var rotated = new List<Vector3Int>();
+        foreach (var cell in cells)
+        {
+            Vector3 v = rotation * new Vector3(cell.x, cell.y, cell.z);
+            rotated.Add(new Vector3Int(
+                Mathf.RoundToInt(v.x),
+                Mathf.RoundToInt(v.y),
+                Mathf.RoundToInt(v.z)
+            ));
+        }
+
+        // Normalize et (min koordinat 0'a çek)
+        int minX = rotated.Min(c => c.x);
+        int minY = rotated.Min(c => c.y);
+        int minZ = rotated.Min(c => c.z);
+
+        return rotated.Select(c => new Vector3Int(c.x - minX, c.y - minY, c.z - minZ)).ToList();
+    }
+
+    private IEnumerable<Vector3Int> GetPossibleOffsets(List<Vector3Int> cells)
+    {
+        // Parçanın maksimum boyutunu hesapla
+        int maxX = cells.Max(c => c.x);
+        int maxY = cells.Max(c => c.y);
+        int maxZ = cells.Max(c => c.z);
+
+        // Grid içinde parçanın sığabileceği tüm offset'leri üret
+        for (int x = 0; x < gridSize.x; x++)
+        {
+            for (int y = 0; y < gridSize.y; y++)
+            {
+                for (int z = 0; z < gridSize.z; z++)
+                {
+                    // Bu offset ile parça grid içinde kalıyor mu?
+                    bool fits = true;
+                    foreach (var cell in cells)
+                    {
+                        Vector3Int worldCell = new Vector3Int(x + cell.x, y + cell.y, z + cell.z);
+                        if (worldCell.x < 0 || worldCell.x >= gridSize.x ||
+                            worldCell.y < 0 || worldCell.y >= gridSize.y ||
+                            worldCell.z < 0 || worldCell.z >= gridSize.z)
+                        {
+                            fits = false;
+                            break;
+                        }
+                    }
+                    if (fits)
+                        yield return new Vector3Int(x, y, z);
+                }
+            }
+        }
+    }
+
+    private float CalculateDifficulty(int moveCount)
+    {
+        int totalCells = targetCells.Count;
+        int frozenCount = frozenCells.Count;
+        float frozenRatio = totalCells > 0 ? (float)frozenCount / totalCells : 0f;
+        int pieceCount = pieces.Count;
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+
+        // Normalize edilmiş değerler
+        float normMoves = Mathf.Clamp01(moveCount / 20f);           // 20 hamle = 1.0
+        float normFrozen = Mathf.Clamp01(frozenRatio / 0.5f);      // %50 buz = 1.0
+        float normPieces = Mathf.Clamp01(pieceCount / 15f);        // 15 parça = 1.0
+        float normVolume = Mathf.Clamp01(gridVolume / 200f);       // 200 hücre = 1.0
+
+        float score = weightMoveCount * normMoves +
+                     weightFrozenRatio * normFrozen +
+                     weightPieceCount * normPieces +
+                     weightGridVolume * normVolume;
+
+        return Mathf.Clamp01(score);
+    }
+
+    private string GetDifficultyLabel(float score)
+    {
+        if (score < 0.33f) return "kolay";
+        if (score < 0.66f) return "orta";
+        return "zor";
+    }
+
+    private bool HasIrrecoverableColorConflict()
+    {
+        // Her katmanı kontrol et: karışık renkler varsa çözülemez
+        int minY = targetCells.Any() ? targetCells.Min(c => c.y) : 0;
+        int maxY = targetCells.Any() ? targetCells.Max(c => c.y) : 0;
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            var cellsInLayer = targetCells.Where(c => c.y == y).ToList();
+            if (cellsInLayer.Count == 0) continue;
+
+            var occupiedInLayer = cellsInLayer.Where(c => currentOccupied.Contains(c)).ToList();
+            var matsInLayer = occupiedInLayer
+                .Where(c => currentMatIndex.ContainsKey(c))
+                .Select(c => currentMatIndex[c])
+                .Distinct()
+                .ToList();
+
+            // Birden fazla farklı renk varsa çözülemez
+            if (matsInLayer.Count > 1)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  DATA STRUCTURES
+// ═══════════════════════════════════════════════════════════════════
+
+[System.Serializable]
+public class SolverResult
+{
+    public bool isSolvable;
+    public int minMoveCount;
+    public List<PlacementStep> solutionSteps;
+    public float difficultyScore;
+    public string difficultyLabel;
+    public string failureReason;
+}
+
+[System.Serializable]
+public class PlacementStep
+{
+    public int pieceIndex;
+    public Vector3Int offset;
+    public Quaternion rotation;
+    public List<Vector3Int> cells;
+    public int materialIndex;
+}
+
+public class PieceData
+{
+    public int index;
+    public List<Vector3Int> cells;
+    public bool used;
+}

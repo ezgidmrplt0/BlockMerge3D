@@ -38,6 +38,7 @@ public class AILevelDesignerWindow : EditorWindow
     };
 
     // ── AI Üretim Ayarları ─────────────────────────────────────────
+    private LevelTemplate selectedTemplate; // Şablon bazlı üretim
     private string levelName         = "AI_Level_1";
     private float levelTime          = 75f;
     private int levelTarget          = 150;
@@ -47,12 +48,12 @@ public class AILevelDesignerWindow : EditorWindow
 
     private GeneratorType genType    = GeneratorType.Pyramid;
     private SymmetryMode symmetry    = SymmetryMode.XZ_Axis;
-    private float fillDensity        = 0.75f;
-    private float icePercentage      = 0.15f;
-    private float prefillPercentage  = 0.10f;
+    private float fillDensity        = 1.0f;   // Tam dolu (default)
+    private float icePercentage      = 0.10f;  // Donmuş blok oranı
+    private float prefillPercentage  = 0.0f;   // Prefilled (renk çatışması riski var)
     
     // Parçalara Ayırma Ayarları
-    private int minPieceSize         = 3;
+    private int minPieceSize         = 1;
     private int maxPieceSize         = 5;
 
     // Prompt tabanlı üretim
@@ -64,6 +65,10 @@ public class AILevelDesignerWindow : EditorWindow
     private List<int> prefilledMatIdx           = new List<int>();
     private List<Vector3Int> frozenCells        = new List<Vector3Int>();
     private List<List<Vector3Int>> pieceSplitList = new List<List<Vector3Int>>();
+
+    // ── Solver Sonucu ─────────────────────────────────────────────
+    private SolverResult lastSolverResult;
+    private bool solverRan = false;
 
     // ── UI Durumu ─────────────────────────────────────────────────
     private int activeLayer          = 0;
@@ -135,30 +140,49 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(300), GUILayout.ExpandHeight(true));
         leftScroll = EditorGUILayout.BeginScrollView(leftScroll);
 
+        // ŞABLON SEÇİCİ (ÖNCELİKLİ)
+        GUILayout.Label("📐 ŞABLON BAZLI ÜRETİM", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.HelpBox("AI sıfırdan grid oluşturmaz. Hazır şablonlar üzerinden çalışır.", MessageType.Info);
+        
+        LevelTemplate prevTemplate = selectedTemplate;
+        selectedTemplate = (LevelTemplate)EditorGUILayout.ObjectField("Level Şablonu", selectedTemplate, typeof(LevelTemplate), false);
+        
+        if (selectedTemplate != prevTemplate && selectedTemplate != null)
+        {
+            LoadTemplateParameters();
+        }
+        
+        if (selectedTemplate != null)
+        {
+            EditorGUILayout.LabelField($"📝 {selectedTemplate.templateName}", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(selectedTemplate.description, EditorStyles.wordWrappedMiniLabel);
+        }
+        else
+        {
+            EditorGUILayout.HelpBox("⚠️ Şablon seçilmedi. Assets/Templates/ klasöründen bir şablon seçin.", MessageType.Warning);
+        }
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
         GUILayout.Label("GENEL AYARLAR", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         levelName   = EditorGUILayout.TextField("Seviye Adı Öneki", levelName);
         levelTime   = EditorGUILayout.FloatField("Süre Sınırı (sn)", levelTime);
         levelTarget = EditorGUILayout.IntField("Hedef Skor", levelTarget);
-        gridSize    = EditorGUILayout.Vector3IntField("Grid Boyutu", gridSize);
-        gridSize    = new Vector3Int(Mathf.Clamp(gridSize.x, 2, 8), Mathf.Clamp(gridSize.y, 2, 8), Mathf.Clamp(gridSize.z, 2, 8));
+        
+        GUI.enabled = false; // Şablondan geldiği için değiştirilemez
+        gridSize    = EditorGUILayout.Vector3IntField("Grid Boyutu (Şablon)", gridSize);
+        GUI.enabled = true;
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
 
-        GUILayout.Label("YAPAY ZEKA GENERATOR PARAMETRELERİ", styleHeader);
+        GUILayout.Label("YAPAY ZEKA PARAMETRE AYARLARI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        genType = (GeneratorType)EditorGUILayout.EnumPopup("Şekil Tipi", genType);
-        symmetry = (SymmetryMode)EditorGUILayout.EnumPopup("Simetri Modu", symmetry);
+        EditorGUILayout.LabelField("AI sadece bu parametreleri ayarlar:", EditorStyles.miniBoldLabel);
         
-        if (genType == GeneratorType.PromptBased)
-        {
-            EditorGUILayout.LabelField("Yapay Zeka İsteminiz (Prompt):", EditorStyles.miniBoldLabel);
-            aiPrompt = EditorGUILayout.TextArea(aiPrompt, GUILayout.Height(40));
-            EditorGUILayout.HelpBox("Anahtar Kelimeler: pyramid, castle, spiral, sphere, cross, star, ice, gold, corner, hollow", MessageType.None);
-        }
-
-        fillDensity = EditorGUILayout.Slider("Doluluk Yoğunluğu", fillDensity, 0.2f, 1.0f);
         prefillPercentage = EditorGUILayout.Slider("Hazır Küp Oranı", prefillPercentage, 0f, 0.4f);
         icePercentage = EditorGUILayout.Slider("Buz Küpü Oranı", icePercentage, 0f, 0.4f);
         EditorGUILayout.EndVertical();
@@ -167,9 +191,9 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Label("PARÇA BÖLME ALGORİTMASI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        minPieceSize = EditorGUILayout.IntSlider("Min Parça Küpü", minPieceSize, 2, 6);
-        maxPieceSize = EditorGUILayout.IntSlider("Max Parça Küpü", maxPieceSize, minPieceSize, 12);
-        EditorGUILayout.HelpBox("AI, şekli otomatik olarak birbirine bağlı (contiguous) bu boyutlarda parçalara bölecektir.", MessageType.Info);
+        minPieceSize = EditorGUILayout.IntSlider("Min Parça Küpü", minPieceSize, 1, 10);
+        maxPieceSize = EditorGUILayout.IntSlider("Max Parça Küpü", maxPieceSize, minPieceSize, 18);
+        EditorGUILayout.HelpBox("AI, şekli otomatik olarak birbirine bağlı (contiguous) bu boyutlarda parçalara bölecektir. Tetris mantığı için max 4-5 önerilir.", MessageType.Info);
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(12);
@@ -389,6 +413,35 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.LabelField($"Otomatik Parça Sayısı: {pieceSplitList.Count}", EditorStyles.miniLabel);
         EditorGUILayout.EndVertical();
 
+        GUILayout.Space(10);
+
+        // Solver Sonuçları
+        if (solverRan && lastSolverResult != null)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            GUILayout.Label("🔍 ÇÖZÜLEBİLİRLİK ANALİZİ", styleHeader);
+            
+            if (lastSolverResult.isSolvable)
+            {
+                GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
+                EditorGUILayout.HelpBox($"✅ Çözülebilir ({lastSolverResult.minMoveCount} hamle)\nZorluk: {lastSolverResult.difficultyLabel.ToUpper()} ({lastSolverResult.difficultyScore:F2})", MessageType.Info);
+                GUI.backgroundColor = Color.white;
+            }
+            else
+            {
+                GUI.backgroundColor = new Color(0.95f, 0.3f, 0.3f, 1f);
+                EditorGUILayout.HelpBox($"❌ Çözülemez\n{lastSolverResult.failureReason}", MessageType.Error);
+                GUI.backgroundColor = Color.white;
+                
+                GUILayout.Space(5);
+                if (GUILayout.Button("🔁 Parametreleri Ayarlayıp Yeniden Üret", GUILayout.Height(35)))
+                {
+                    AutoAdjustAndRegenerate();
+                }
+            }
+            EditorGUILayout.EndVertical();
+        }
+
         GUILayout.Space(12);
 
         GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Doygun Yeşil
@@ -484,60 +537,54 @@ public class AILevelDesignerWindow : EditorWindow
 
     private void GenerateLevelProcedurally()
     {
+        // Şablon kontrolü
+        if (selectedTemplate == null)
+        {
+            EditorUtility.DisplayDialog("Hata", "Lütfen önce bir Level Şablonu seçin (Assets/Templates/)", "Tamam");
+            return;
+        }
+
         occupiedCells.Clear();
         prefilledCells.Clear();
         prefilledMatIdx.Clear();
         frozenCells.Clear();
         pieceSplitList.Clear();
 
-        // 1. Ana Şekli Üret
+        // 1. Şablondan Grid'i Yükle
         int W = gridSize.x;
         int H = gridSize.y;
         int D = gridSize.z;
 
-        if (genType == GeneratorType.PromptBased)
+        // Şablon boşsa (occupiedCells listesi boşsa) = tam dolu küp
+        if (selectedTemplate.occupiedCells == null || selectedTemplate.occupiedCells.Count == 0)
         {
-            GeneratePromptBasedShape(W, H, D);
-        }
-        else
-        {
+            // Tam dolu küp oluştur
             for (int x = 0; x < W; x++)
             {
                 for (int y = 0; y < H; y++)
                 {
                     for (int z = 0; z < D; z++)
                     {
-                        var cell = new Vector3Int(x, y, z);
-                        if (EvaluateShapeFormula(cell, W, H, D))
-                        {
-                            occupiedCells.Add(cell);
-                        }
+                        occupiedCells.Add(new Vector3Int(x, y, z));
                     }
                 }
             }
+            Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' - Tam dolu {W}x{H}x{D} küp: {occupiedCells.Count} blok");
         }
-
-        // Simetri Uygula
-        ApplySymmetry(W, H, D);
-
-        // Rastgele Doluluk Yoğunluğu Elemesi
-        List<Vector3Int> cellList = occupiedCells.ToList();
-        foreach (var c in cellList)
+        else
         {
-            if (Random.value > fillDensity)
-            {
-                occupiedCells.Remove(c);
-            }
+            // Şablondan hücreleri kopyala
+            occupiedCells = new HashSet<Vector3Int>(selectedTemplate.occupiedCells);
+            Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' yüklendi: {occupiedCells.Count} blok");
         }
 
         // Boş şekil koruması
         if (occupiedCells.Count == 0)
         {
-            // Ortada en azından bir blok bırak
             occupiedCells.Add(new Vector3Int(W / 2, 0, D / 2));
         }
 
-        // 2. Renkli Küpleri (Prefilled) ve Buzları Dağıt
+        // 2. AI Parametreleri: Renkli Küpler (Prefilled) ve Buzları Dağıt
         List<Vector3Int> finalOccupied = occupiedCells.ToList();
         int targetPrefillCount = Mathf.RoundToInt(finalOccupied.Count * prefillPercentage);
         int targetIceCount = Mathf.RoundToInt(finalOccupied.Count * icePercentage);
@@ -574,8 +621,8 @@ public class AILevelDesignerWindow : EditorWindow
             prefilledDone++;
         }
 
-        // 3. Parçalara Otomatik Ayır (BFS Auto-Splitter)
-        SplitShapeIntoPieces();
+        // 3. Akıllı Parça Üretimi: Birden fazla strateji dene, en iyisini seç
+        SmartPieceSplitting();
 
         activeLayer = 0;
         Repaint();
@@ -720,6 +767,323 @@ public class AILevelDesignerWindow : EditorWindow
         }
     }
 
+    // ═════════════════════════════════════════════════════════════
+    // AKILLI PARÇA ÜRETİMİ - Birden fazla strateji dene, en iyisini seç
+    // ═════════════════════════════════════════════════════════════
+    private void SmartPieceSplitting()
+    {
+        Debug.Log("🧠 Akıllı Parça Üretimi başlatılıyor - birden fazla strateji deneniyor...");
+        
+        List<(List<List<Vector3Int>> pieces, SolverResult result, string strategyName)> strategies = 
+            new List<(List<List<Vector3Int>>, SolverResult, string)>();
+
+        // Grid boyutuna göre strateji sayısını ayarla
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+        int maxStrategies = gridVolume < 50 ? 3 :    // Küçük grid: 3 strateji
+                            gridVolume < 100 ? 4 :   // Orta grid: 4 strateji
+                            5;                        // Büyük grid: 5 strateji
+        
+        int maxSolvableNeeded = gridVolume < 50 ? 1 : 2; // Küçük grid için 1 çözülebilir yeter
+        
+        for (int attempt = 0; attempt < maxStrategies; attempt++)
+        {
+            // Her denemede farklı parametrelerle parçala
+            int variantMinSize = minPieceSize;
+            int variantMaxSize = maxPieceSize;
+            string strategyName = "Standart";
+
+            switch (attempt)
+            {
+                case 0: // Standart Tetris Odaklı
+                    variantMinSize = minPieceSize;
+                    variantMaxSize = maxPieceSize;
+                    strategyName = "Standart";
+                    break;
+                case 1: // Sıkı Tetris (Sadece 4)
+                    variantMinSize = 4;
+                    variantMaxSize = 4;
+                    strategyName = "Sıkı Tetris (4 Blok)";
+                    break;
+                case 2: // Daha Büyük, Toplu Parçalar
+                    variantMinSize = minPieceSize + 1;
+                    variantMaxSize = maxPieceSize + 2;
+                    strategyName = "Biraz Daha Büyük (Kolay)";
+                    break;
+                case 3: // Orta Boyutlar
+                    variantMinSize = Mathf.Max(3, minPieceSize);
+                    variantMaxSize = Mathf.Min(8, maxPieceSize + 1);
+                    strategyName = "Orta Boyutlar";
+                    break;
+                case 4: // Karma Boyutlar
+                    variantMinSize = Mathf.Max(2, minPieceSize - 1);
+                    variantMaxSize = maxPieceSize;
+                    strategyName = "Karma Boyutlar";
+                    break;
+            }
+
+            // Bu stratejiyle parçala
+            var piecesForThisStrategy = SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
+            
+            if (piecesForThisStrategy.Count == 0) 
+            {
+                Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): Parça üretilemedi, atlandı");
+                continue;
+            }
+
+            // Adaptif timeout: Grid boyutuna göre ayarla (gridVolume üstte tanımlı)
+            int adaptiveTimeout = gridVolume < 50 ? 1000 :   // Küçük grid: 1 saniye
+                                  gridVolume < 100 ? 2000 :  // Orta grid: 2 saniye
+                                  3000;                       // Büyük grid: 3 saniye
+            
+            pieceSplitList = piecesForThisStrategy;
+            var solverResult = TestCurrentPiecesWithSolver(adaptiveTimeout);
+            
+            // Timeout veya arama limiti aşıldıysa atla
+            if (solverResult.failureReason != null && 
+                (solverResult.failureReason.Contains("Arama limiti") || solverResult.failureReason.Contains("Timeout")))
+            {
+                Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): " +
+                         $"Parça={piecesForThisStrategy.Count}, TIMEOUT - atlandı");
+                continue;
+            }
+            
+            strategies.Add((new List<List<Vector3Int>>(piecesForThisStrategy), solverResult, strategyName));
+            
+            Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): " +
+                     $"Parça={piecesForThisStrategy.Count}, " +
+                     $"Çözülebilir={solverResult.isSolvable}, " +
+                     $"Hamle={solverResult.minMoveCount}, " +
+                     $"Zorluk={solverResult.difficultyLabel}");
+
+            // Erken durma: Yeterli çözülebilir strateji bulundu mu?
+            int solvableCount = strategies.Count(s => s.result.isSolvable);
+            if (solvableCount >= maxSolvableNeeded)
+            {
+                Debug.Log($"✅ {solvableCount} çözülebilir strateji bulundu, arama durduruluyor (performans için)");
+                break;
+            }
+        }
+
+        // En iyi stratejiyi seç
+        var bestStrategy = SelectBestStrategy(strategies);
+        
+        if (bestStrategy.pieces != null)
+        {
+            pieceSplitList = bestStrategy.pieces;
+            lastSolverResult = bestStrategy.result;
+            solverRan = true;
+            
+            Debug.Log($"✅ EN İYİ STRATEJİ SEÇİLDİ: {bestStrategy.strategyName} - " +
+                     $"Parça={pieceSplitList.Count}, " +
+                     $"Çözülebilir={bestStrategy.result.isSolvable}, " +
+                     $"Hamle={bestStrategy.result.minMoveCount}, " +
+                     $"Zorluk={bestStrategy.result.difficultyLabel} ({bestStrategy.result.difficultyScore:F2})");
+        }
+        else
+        {
+            // Hiçbiri çalışmadıysa standart yöntemi kullan
+            Debug.LogWarning("⚠️ Hiçbir strateji başarılı olmadı, standart yöntem kullanılıyor");
+            SplitShapeIntoPieces();
+            RunSolverAnalysis();
+        }
+    }
+
+    private List<List<Vector3Int>> SplitShapeWithStrategy(int minSize, int maxSize, int randomSeed)
+    {
+        // Random seed'i değiştir ki her denemede farklı sonuç alsın
+        Random.InitState(randomSeed + System.DateTime.Now.Millisecond);
+        
+        List<List<Vector3Int>> pieces = new List<List<Vector3Int>>();
+        
+        HashSet<Vector3Int> assignable = new HashSet<Vector3Int>(occupiedCells);
+        foreach (var pf in prefilledCells)
+        {
+            assignable.Remove(pf);
+        }
+
+        HashSet<Vector3Int> unassigned = new HashSet<Vector3Int>(assignable);
+
+        // BFS ile grupla
+        while (unassigned.Count > 0)
+        {
+            Vector3Int seed = unassigned.First();
+            List<Vector3Int> piece = new List<Vector3Int>();
+            Queue<Vector3Int> queue = new Queue<Vector3Int>();
+            
+            queue.Enqueue(seed);
+            unassigned.Remove(seed);
+
+            int targetSize = Random.Range(minSize, maxSize + 1);
+
+            while (queue.Count > 0 && piece.Count < targetSize)
+            {
+                Vector3Int current = queue.Dequeue();
+                piece.Add(current);
+
+                // Parçalar yatay olmalı - sadece X-Z düzleminde büyüsün
+                List<Vector3Int> horizontalNeighbors = new List<Vector3Int>
+                {
+                    current + Vector3Int.right,
+                    current + Vector3Int.left,
+                    new Vector3Int(current.x, current.y, current.z + 1),
+                    new Vector3Int(current.x, current.y, current.z - 1)
+                };
+
+                foreach (var n in horizontalNeighbors)
+                {
+                    if (unassigned.Contains(n) && !queue.Contains(n))
+                    {
+                        if (piece.Count + queue.Count < targetSize)
+                        {
+                            queue.Enqueue(n);
+                            unassigned.Remove(n);
+                        }
+                    }
+                }
+            }
+
+            if (piece.Count > 0)
+            {
+                pieces.Add(piece);
+            }
+        }
+
+        // Küçük parçaları birleştir
+        for (int i = pieces.Count - 1; i >= 0; i--)
+        {
+            if (pieces[i].Count < minSize && pieces.Count > 1)
+            {
+                var smallPiece = pieces[i];
+                int bestTargetPiece = -1;
+                float minDist = float.MaxValue;
+
+                for (int j = 0; j < pieces.Count; j++)
+                {
+                    if (i == j) continue;
+
+                    foreach (var sc in smallPiece)
+                    {
+                        foreach (var tc in pieces[j])
+                        {
+                            float d = Vector3.Distance(sc, tc);
+                            if (d < minDist)
+                            {
+                                minDist = d;
+                                bestTargetPiece = j;
+                            }
+                        }
+                    }
+                }
+
+                if (bestTargetPiece >= 0)
+                {
+                    pieces[bestTargetPiece].AddRange(smallPiece);
+                    pieces.RemoveAt(i);
+                }
+            }
+        }
+
+        return pieces;
+    }
+
+    private SolverResult TestCurrentPiecesWithSolver(int timeoutMs = 5000)
+    {
+        GameObject tempMainShape = CreateTempMainShape();
+        if (tempMainShape == null)
+        {
+            return new SolverResult 
+            { 
+                isSolvable = false, 
+                failureReason = "Main shape oluşturulamadı" 
+            };
+        }
+
+        List<GameObject> tempPieces = CreateTempPieces();
+        if (tempPieces.Count == 0)
+        {
+            DestroyImmediate(tempMainShape);
+            return new SolverResult 
+            { 
+                isSolvable = false, 
+                failureReason = "Parçalar oluşturulamadı" 
+            };
+        }
+
+        // Adaptif state limiti: Grid boyutuna göre
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+        int stateLimit = gridVolume < 50 ? 50000 :   // Küçük: 50k
+                         gridVolume < 100 ? 75000 :  // Orta: 75k
+                         100000;                      // Büyük: 100k
+
+        var solver = new LevelSolver();
+        solver.maxSearchTimeMs = timeoutMs;
+        solver.maxStatesExplored = stateLimit;
+        var result = solver.SolveFromPrefabs(tempMainShape, tempPieces);
+
+        // Temizlik
+        DestroyImmediate(tempMainShape);
+        foreach (var piece in tempPieces)
+        {
+            if (piece != null) DestroyImmediate(piece);
+        }
+
+        return result;
+    }
+
+    private (List<List<Vector3Int>> pieces, SolverResult result, string strategyName) 
+        SelectBestStrategy(List<(List<List<Vector3Int>> pieces, SolverResult result, string strategyName)> strategies)
+    {
+        // En iyi stratejiyi seçme kriterleri:
+        // 1. Önce çözülebilir olanları filtrele
+        // 2. İdeal parça sayısına yakın olanı seç (3-6 parça ideal)
+        // 3. İstenen zorluk seviyesine yakın olanı seç
+
+        var solvable = strategies.Where(s => s.result.isSolvable).ToList();
+        
+        if (solvable.Count == 0)
+        {
+            Debug.LogWarning("⚠️ Çözülebilir strateji bulunamadı!");
+            return (null, null, "");
+        }
+
+        // İdeal parça sayısı: 3-6 arası
+        int idealPieceCount = 4;
+        
+        // En iyi stratejiyi seç (çok faktörlü skor sistemi)
+        var best = solvable
+            .Select(s => new
+            {
+                strategy = s,
+                // Skor hesaplama:
+                // - Parça sayısı skoru (ideal 4, tolerans ±2)
+                pieceScore = 100f - Mathf.Abs(s.pieces.Count - idealPieceCount) * 10f,
+                // - Zorluk skoru (orta zorluk tercih edilir, 40-60 arası ideal)
+                difficultyScore = 100f - Mathf.Abs(s.result.difficultyScore - 50f),
+                // - Hamle sayısı skoru (3-10 hamle arası ideal)
+                moveScore = (s.result.minMoveCount >= 3 && s.result.minMoveCount <= 10) ? 100f : 50f,
+                // Toplam skor
+                totalScore = 0f
+            })
+            .Select(x => new
+            {
+                x.strategy,
+                x.pieceScore,
+                x.difficultyScore,
+                x.moveScore,
+                totalScore = x.pieceScore + x.difficultyScore + x.moveScore
+            })
+            .OrderByDescending(x => x.totalScore)
+            .First();
+
+        Debug.Log($"📊 Skor Detayları - {best.strategy.strategyName}: " +
+                 $"Parça Skoru={best.pieceScore:F1}, " +
+                 $"Zorluk Skoru={best.difficultyScore:F1}, " +
+                 $"Hamle Skoru={best.moveScore:F1}, " +
+                 $"TOPLAM={best.totalScore:F1}");
+
+        return best.strategy;
+    }
+
     private void SplitShapeIntoPieces()
     {
         pieceSplitList.Clear();
@@ -749,18 +1113,18 @@ public class AILevelDesignerWindow : EditorWindow
                 Vector3Int current = queue.Dequeue();
                 piece.Add(current);
 
-                // 6 yönlü 3D komşular
-                Vector3Int[] neighbors = new Vector3Int[]
+                // Parçalar tamamen yatay olmalı - sadece X-Z düzleminde büyüsün
+                // Önce aynı Y seviyesindeki komşuları ekle
+                List<Vector3Int> horizontalNeighbors = new List<Vector3Int>
                 {
                     current + Vector3Int.right,
                     current + Vector3Int.left,
-                    current + Vector3Int.up,
-                    current + Vector3Int.down,
                     new Vector3Int(current.x, current.y, current.z + 1),
                     new Vector3Int(current.x, current.y, current.z - 1)
                 };
 
-                foreach (var n in neighbors)
+                // Sadece yatay komşuları ekle
+                foreach (var n in horizontalNeighbors)
                 {
                     if (unassigned.Contains(n) && !queue.Contains(n))
                     {
@@ -936,6 +1300,117 @@ public class AILevelDesignerWindow : EditorWindow
         return ld;
     }
 
+    // ══ SOLVER ENTEGRASYONU ══════════════════════════════════════════════════
+
+    private void RunSolverAnalysis()
+    {
+        solverRan = false;
+        lastSolverResult = null;
+
+        // Adaptif timeout
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+        int timeout = gridVolume < 50 ? 2000 :   // Küçük: 2 saniye
+                      gridVolume < 100 ? 3000 :  // Orta: 3 saniye
+                      5000;                       // Büyük: 5 saniye
+        
+        lastSolverResult = TestCurrentPiecesWithSolver(timeout);
+        solverRan = true;
+
+        // Sonucu logla
+        if (lastSolverResult.isSolvable)
+        {
+            Debug.Log($"✅ Seviye çözülebilir: {lastSolverResult.minMoveCount} hamle, Zorluk: {lastSolverResult.difficultyLabel} ({lastSolverResult.difficultyScore:F2})");
+        }
+        else
+        {
+            Debug.LogWarning($"❌ Seviye çözülemez: {lastSolverResult.failureReason}");
+        }
+    }
+
+    private GameObject CreateTempMainShape()
+    {
+        GameObject root = new GameObject("TempMainShape");
+        var holder = root.AddComponent<CubeShapeDataHolder>();
+        holder.gridSize = gridSize;
+        holder.cellSize = cellSize;
+        holder.spacing = spacing;
+        holder.occupiedCells = new List<Vector3Int>(occupiedCells);
+        holder.prefilledCells = new List<Vector3Int>(prefilledCells);
+        holder.prefilledMaterialIndices = new List<int>(prefilledMatIdx);
+        holder.frozenCells = new List<Vector3Int>(frozenCells);
+        return root;
+    }
+
+    private List<GameObject> CreateTempPieces()
+    {
+        List<GameObject> pieces = new List<GameObject>();
+        for (int i = 0; i < pieceSplitList.Count; i++)
+        {
+            if (pieceSplitList[i].Count == 0) continue;
+
+            // Normalize et
+            var cells = pieceSplitList[i];
+            int minX = cells.Min(c => c.x);
+            int minY = cells.Min(c => c.y);
+            int minZ = cells.Min(c => c.z);
+            var shift = new Vector3Int(minX, minY, minZ);
+            var normCells = cells.Select(c => c - shift).ToList();
+
+            GameObject piece = new GameObject($"TempPiece_{i}");
+            var holder = piece.AddComponent<CubeShapeDataHolder>();
+            holder.gridSize = gridSize;
+            holder.cellSize = cellSize;
+            holder.spacing = spacing;
+            holder.occupiedCells = new List<Vector3Int>(normCells);
+            
+            pieces.Add(piece);
+        }
+        return pieces;
+    }
+
+    private void AutoAdjustAndRegenerate()
+    {
+        // Çözülemez seviyeyi düzeltmeye çalış
+        if (lastSolverResult != null && !string.IsNullOrEmpty(lastSolverResult.failureReason))
+        {
+            string reason = lastSolverResult.failureReason.ToLower();
+
+            // Yetersiz/fazla hücre problemi
+            if (reason.Contains("yetersiz") || reason.Contains("fazla"))
+            {
+                // Parça boyutlarını ayarla
+                minPieceSize = Mathf.Max(2, minPieceSize - 1);
+                maxPieceSize = Mathf.Min(8, maxPieceSize + 1);
+                Debug.Log("Parça boyutları ayarlandı");
+            }
+            // Renk çakışması problemi
+            else if (reason.Contains("renk") || reason.Contains("katman"))
+            {
+                // Prefilled ve frozen oranlarını azalt
+                prefillPercentage = Mathf.Max(0f, prefillPercentage - 0.05f);
+                icePercentage = Mathf.Max(0f, icePercentage - 0.05f);
+                Debug.Log("Engel oranları azaltıldı");
+            }
+            // Zaman aşımı
+            else if (reason.Contains("limit"))
+            {
+                // Grid boyutunu küçült veya parça sayısını azalt
+                gridSize = new Vector3Int(
+                    Mathf.Max(3, gridSize.x - 1),
+                    Mathf.Max(3, gridSize.y - 1),
+                    Mathf.Max(3, gridSize.z - 1)
+                );
+                fillDensity = Mathf.Max(0.5f, fillDensity - 0.1f);
+                Debug.Log("Grid boyutu ve doluluk azaltıldı");
+            }
+        }
+
+        // Yeniden üret
+        GenerateLevelProcedurally();
+        EditorUtility.DisplayDialog("Yeniden Üretim", 
+            "Parametreler ayarlandı ve seviye yeniden oluşturuldu. Sonuçları kontrol edin.", "Tamam");
+    }
+
     private void BuildStyles()
     {
         if (stylesBuilt) return;
@@ -964,6 +1439,39 @@ public class AILevelDesignerWindow : EditorWindow
         };
 
         stylesBuilt = true;
+    }
+
+    private void LoadTemplateParameters()
+    {
+        if (selectedTemplate == null) return;
+
+        // Şablondan sadece grid yapısı ve zorluk parametrelerini yükle
+        gridSize = selectedTemplate.gridSize;
+        icePercentage = selectedTemplate.recommendedIceRatio;
+        prefillPercentage = selectedTemplate.recommendedPrefilledRatio;
+        levelTime = selectedTemplate.recommendedTimeLimit;
+        levelTarget = selectedTemplate.recommendedTargetScore;
+
+        int volume = selectedTemplate.occupiedCells != null && selectedTemplate.occupiedCells.Count > 0 
+            ? selectedTemplate.occupiedCells.Count 
+            : gridSize.x * gridSize.y * gridSize.z;
+
+        // Hacim küçükse tam bir Tetris hissi için 3-5 blok; hacim büyüdükçe çok fazla parça (örn 20 parça) 
+        // oluşmasını engellemek için boyutu orantılı olarak artırıyoruz.
+        if (volume <= 30)
+        {
+            minPieceSize = 3;
+            maxPieceSize = 5;
+        }
+        else
+        {
+            int targetPieceCount = 6; // Büyük seviyelerde ortalama 6-8 parça hedeflenir
+            maxPieceSize = Mathf.Clamp(volume / targetPieceCount + 1, 5, 12);
+            minPieceSize = Mathf.Max(3, maxPieceSize - 3);
+        }
+
+        Debug.Log($"📐 Şablon yüklendi: {selectedTemplate.templateName} ({gridSize.x}x{gridSize.y}x{gridSize.z}) - Dinamik Boyut: Min {minPieceSize}, Max {maxPieceSize}");
+        Repaint();
     }
 
     private Texture2D MakeTex(int width, int height, Color col)
@@ -1007,136 +1515,145 @@ public class AILevelDesignerWindow : EditorWindow
         // Eğitim verisi veri kümesi wrapperı
         AIDatasetWrapper datasetWrapper = new AIDatasetWrapper();
 
-        // 3. 10 adet farklı parametrelerle seviye oluştur
+        // 3. Kullanıcı tasarımı: İlk 10 Level (Kademeli Öğretim)
         for (int i = 1; i <= 10; i++)
         {
             // İlerleme çubuğu
-            EditorUtility.DisplayProgressBar("Yapay Zeka Eğitim Seti", $"Level {i}/10 üretiliyor...", i / 10f);
+            EditorUtility.DisplayProgressBar("İlk 10 Level Üretimi", $"Level {i}/10 üretiliyor...", i / 10f);
 
-            levelName = $"AI_Level_{i}";
+            levelName = $"Level_{i}";
             
-            // Parametreleri zorluk derecesine göre ata
+            // Tasarım spesifikasyonlarını uygula
             switch (i)
             {
-                case 1:
-                    gridSize = new Vector3Int(3, 3, 3);
-                    genType = GeneratorType.Pyramid;
-                    symmetry = SymmetryMode.XZ_Axis;
+                case 1: // İlk Adım — Temel sürükle-bırak
+                    gridSize = new Vector3Int(3, 1, 3);         // Tek katman 3×3 = 9 küp
+                    genType = GeneratorType.Pyramid;            // Şekil önemsiz (tek katman)
+                    symmetry = SymmetryMode.None;
+                    fillDensity = 1.0f;                         // Tam dolu
+                    prefillPercentage = 0.0f;                   // Prefilled yok
+                    icePercentage = 0.0f;                       // Frozen yok
+                    minPieceSize = 3;
+                    maxPieceSize = 3;                           // 3 parça hedefi
+                    levelTime = 0f;                             // Süre yok
+                    levelTarget = 50;
+                    break;
+
+                case 2: // İki Katman — Katman geçişi
+                    gridSize = new Vector3Int(3, 2, 3);         // Alt: 3×3 (9 küp), Üst: 1 küp = 10 toplam
+                    genType = GeneratorType.Pyramid;            // Piramit: yukarı daralan yapı
+                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.0f;
                     icePercentage = 0.0f;
-                    minPieceSize = 3;
-                    maxPieceSize = 3;
-                    levelTime = 60f;
-                    levelTarget = 50;
-                    break;
-                case 2:
-                    gridSize = new Vector3Int(3, 3, 3);
-                    genType = GeneratorType.CrossStar;
-                    symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.8f;
-                    prefillPercentage = 0.1f;
-                    icePercentage = 0.0f;
-                    minPieceSize = 3;
-                    maxPieceSize = 4;
-                    levelTime = 70f;
+                    minPieceSize = 2;                           // Daha küçük parçalar
+                    maxPieceSize = 4;                           // 4-5 parça hedefi
+                    levelTime = 0f;
                     levelTarget = 80;
                     break;
-                case 3:
-                    gridSize = new Vector3Int(4, 4, 4);
-                    genType = GeneratorType.Castle;
-                    symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.75f;
-                    prefillPercentage = 0.1f;
-                    icePercentage = 0.05f;
+
+                case 3: // Renk Farkındalığı — Renk kısıtı
+                    gridSize = new Vector3Int(3, 1, 3);         // Tek katman
+                    genType = GeneratorType.Pyramid;
+                    symmetry = SymmetryMode.None;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.22f;                  // 2/9 ≈ 22%
+                    icePercentage = 0.0f;
+                    minPieceSize = 2;
+                    maxPieceSize = 3;                           // ~4 parça hedefi
+                    levelTime = 0f;
+                    levelTarget = 100;
+                    break;
+
+                case 4: // Buz Girişi — Frozen hücre
+                    gridSize = new Vector3Int(3, 2, 3);         // 2 katman
+                    genType = GeneratorType.Pyramid;
+                    symmetry = SymmetryMode.None;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.0f;
+                    icePercentage = 0.33f;                      // %33 frozen
                     minPieceSize = 3;
-                    maxPieceSize = 4;
-                    levelTime = 80f;
+                    maxPieceSize = 3;                           // ~6 parça hedefi
+                    levelTime = 0f;
                     levelTarget = 120;
                     break;
-                case 4:
-                    gridSize = new Vector3Int(4, 4, 4);
-                    genType = GeneratorType.HelixSpiral;
-                    symmetry = SymmetryMode.None;
-                    fillDensity = 0.85f;
-                    prefillPercentage = 0.1f;
-                    icePercentage = 0.1f;
-                    minPieceSize = 3;
-                    maxPieceSize = 4;
-                    levelTime = 90f;
-                    levelTarget = 140;
-                    break;
-                case 5:
-                    gridSize = new Vector3Int(5, 5, 5);
-                    genType = GeneratorType.SphereDome;
+
+                case 5: // Küçük Piramit — 3D şekil
+                    gridSize = new Vector3Int(5, 3, 5);         // 3 katman
+                    genType = GeneratorType.Pyramid;            // Piramit şekli
                     symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.7f;
-                    prefillPercentage = 0.12f;
-                    icePercentage = 0.12f;
+                    fillDensity = 1.0f;                         // Tam piramit
+                    prefillPercentage = 0.0f;
+                    icePercentage = 0.0f;
                     minPieceSize = 4;
-                    maxPieceSize = 5;
-                    levelTime = 100f;
+                    maxPieceSize = 6;                           // ~8 parça hedefi
+                    levelTime = 0f;
+                    levelTarget = 150;
+                    break;
+
+                case 6: // Karışık Renk Katmanı — Çoklu renk
+                    gridSize = new Vector3Int(4, 2, 4);         // 2 katman
+                    genType = GeneratorType.Pyramid;
+                    symmetry = SymmetryMode.None;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.125f;                 // 4/32 ≈ 12.5%
+                    icePercentage = 0.0f;
+                    minPieceSize = 3;
+                    maxPieceSize = 4;                           // ~10 parça hedefi
+                    levelTime = 0f;
                     levelTarget = 180;
                     break;
-                case 6:
-                    gridSize = new Vector3Int(5, 5, 5);
+
+                case 7: // Buz + Çok Renk — Kombine mekanikler
+                    gridSize = new Vector3Int(4, 3, 4);         // 3 katman
                     genType = GeneratorType.Pyramid;
-                    symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.8f;
-                    prefillPercentage = 0.1f;
-                    icePercentage = 0.15f;
+                    symmetry = SymmetryMode.None;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.1f;                   // ~6 hücre
+                    icePercentage = 0.25f;                      // %25 frozen
                     minPieceSize = 4;
-                    maxPieceSize = 5;
-                    levelTime = 110f;
-                    levelTarget = 200;
-                    break;
-                case 7:
-                    gridSize = new Vector3Int(5, 5, 5);
-                    genType = GeneratorType.Castle;
-                    symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.75f;
-                    prefillPercentage = 0.15f;
-                    icePercentage = 0.15f;
-                    minPieceSize = 4;
-                    maxPieceSize = 6;
-                    levelTime = 120f;
+                    maxPieceSize = 6;                           // ~12 parça hedefi
+                    levelTime = 0f;
                     levelTarget = 220;
                     break;
-                case 8:
-                    gridSize = new Vector3Int(6, 6, 6);
-                    genType = GeneratorType.CrossStar;
+
+                case 8: // Kale Yapısı — Karmaşık şekil
+                    gridSize = new Vector3Int(6, 3, 6);         // 3 katman
+                    genType = GeneratorType.Castle;             // Kale şekli
                     symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.7f;
-                    prefillPercentage = 0.15f;
-                    icePercentage = 0.2f;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.08f;                  // Köşelerde
+                    icePercentage = 0.20f;                      // %20 frozen
                     minPieceSize = 4;
-                    maxPieceSize = 6;
-                    levelTime = 140f;
+                    maxPieceSize = 7;                           // ~14 parça hedefi
+                    levelTime = 0f;
                     levelTarget = 260;
                     break;
-                case 9:
-                    gridSize = new Vector3Int(6, 6, 6);
-                    genType = GeneratorType.HelixSpiral;
+
+                case 9: // Spiral Zorluk — Yüksek katman
+                    gridSize = new Vector3Int(5, 5, 5);         // 5 katman
+                    genType = GeneratorType.HelixSpiral;        // Spiral şekli
                     symmetry = SymmetryMode.None;
-                    fillDensity = 0.8f;
-                    prefillPercentage = 0.2f;
-                    icePercentage = 0.2f;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.15f;                  // %15
+                    icePercentage = 0.20f;                      // %20 frozen
                     minPieceSize = 5;
-                    maxPieceSize = 6;
-                    levelTime = 160f;
+                    maxPieceSize = 8;                           // ~18 parça hedefi
+                    levelTime = 180f;                           // İlk süre limiti
                     levelTarget = 300;
                     break;
-                case 10:
+
+                case 10: // Usta Seviyesi — Tüm mekanikler
                 default:
-                    gridSize = new Vector3Int(6, 6, 6);
-                    genType = GeneratorType.SphereDome;
+                    gridSize = new Vector3Int(6, 4, 6);         // 4 katman
+                    genType = GeneratorType.SphereDome;         // Küre şekli
                     symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 0.75f;
-                    prefillPercentage = 0.25f;
-                    icePercentage = 0.25f;
-                    minPieceSize = 5;
-                    maxPieceSize = 7;
-                    levelTime = 180f;
+                    fillDensity = 1.0f;
+                    prefillPercentage = 0.20f;                  // %20
+                    icePercentage = 0.25f;                      // %25 frozen
+                    minPieceSize = 6;
+                    maxPieceSize = 10;                          // ~22 parça hedefi
+                    levelTime = 240f;                           // Uzun süre limiti
                     levelTarget = 350;
                     break;
             }
@@ -1162,6 +1679,17 @@ public class AILevelDesignerWindow : EditorWindow
             entry.prefilledMaterialIndices = new List<int>(prefilledMatIdx);
             entry.frozenCells = frozenCells.Select(c => new SerializableCell(c)).ToList();
             entry.pieces = new List<AIPieceEntry>();
+            
+            // Solver sonuçlarını ekle
+            entry.pieceCount = pieceSplitList.Count;
+            entry.frozenRatio = occupiedCells.Count > 0 ? (float)frozenCells.Count / occupiedCells.Count : 0f;
+            if (solverRan && lastSolverResult != null)
+            {
+                entry.isSolvable = lastSolverResult.isSolvable;
+                entry.minMoveCount = lastSolverResult.minMoveCount;
+                entry.difficultyScore = lastSolverResult.difficultyScore;
+                entry.difficultyLabel = lastSolverResult.difficultyLabel;
+            }
 
             for (int pIdx = 0; pIdx < pieceSplitList.Count; pIdx++)
             {
@@ -1215,13 +1743,16 @@ public class AILevelDesignerWindow : EditorWindow
 
         AssetDatabase.Refresh();
 
-        EditorUtility.DisplayDialog("Yapay Zeka Toplu Üretim Başarılı!",
-            $"🤖 Yapay Zeka Eğitim Modu Başarıyla Çalıştırıldı:\n\n" +
-            $"✅  10 Adet Yeni Seviye Üretildi (Assets/Levels/)\n" +
-            $"✅  Sıralayıcı Güncellendi (LevelOrder.asset)\n" +
-            $"✅  Oyun İlerlemesi 1. Seviyeye Sıfırlandı\n" +
-            $"✅  Eğitim Verisi JSON Dosyası Yazıldı:\n\t{jsonPath}\n\n" +
-            $"Artık oyunu hemen test edebilir ve yapay zekaya bu dataseti öğretebilirsiniz!", "Harika!");
+        EditorUtility.DisplayDialog("🎮 İlk 10 Level Başarıyla Oluşturuldu!",
+            $"✅ Kademeli Öğretim Sistemi Devrede:\n\n" +
+            $"📦 10 Level Oluşturuldu (Assets/Levels/)\n" +
+            $"📋 Level Sırası Güncellendi (LevelOrder.asset)\n" +
+            $"🎯 Oyun Level 1'den Başlıyor\n" +
+            $"📊 Eğitim Dataseti Kaydedildi:\n\t{jsonPath}\n\n" +
+            $"Level 1-4:  Temel mekanikler (sürükle, katman, renk, buz)\n" +
+            $"Level 5-8:  Karmaşık şekiller (piramit, kale, spiral)\n" +
+            $"Level 9-10: Usta seviyesi (çoklu mekanik + süre limiti)\n\n" +
+            $"Oyunu test edebilir veya bu dataseti AI modeline öğretebilirsiniz!", "Harika! 🚀");
     }
 }
 
@@ -1253,6 +1784,14 @@ public class AIDatasetEntry
     public List<int> prefilledMaterialIndices;
     public List<SerializableCell> frozenCells;
     public List<AIPieceEntry> pieces;
+    
+    // Solver sonuçları
+    public int pieceCount;
+    public float frozenRatio;
+    public bool isSolvable;
+    public int minMoveCount;
+    public float difficultyScore;
+    public string difficultyLabel;
 }
 
 [System.Serializable]

@@ -1,2 +1,0 @@
-# BlockMerge3D
-
