@@ -220,8 +220,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
             Vector3 center = previewCam.transform.position + previewCam.transform.forward * depth;
 
-            float elev = CameraOrbit.Instance != null ? CameraOrbit.Instance.startElevation : 28f;
-            float azim = CameraOrbit.Instance != null ? CameraOrbit.Instance.startAzimuth  : 25f;
+            float elev = 90f; // Katman görünümü gibi tam tepeden
+            float azim = 0f;  // Dümdüz, yatay rotasyon yok
             Quaternion baseIso   = Quaternion.Euler(elev, azim, 0f);
             Quaternion targetRot = previewCam.transform.rotation * Quaternion.Inverse(baseIso);
 
@@ -253,8 +253,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
         float scale2 = (worldH * 0.65f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
 
-        float elev2 = CameraOrbit.Instance != null ? CameraOrbit.Instance.startElevation : 28f;
-        float azim2 = CameraOrbit.Instance != null ? CameraOrbit.Instance.startAzimuth  : 25f;
+        float elev2 = 90f; // Katman görünümü gibi tam tepeden
+        float azim2 = 0f;  // Dümdüz, yatay rotasyon yok
         Quaternion baseIso2   = Quaternion.Euler(elev2, azim2, 0f);
         Quaternion targetRot2 = Camera.main.transform.rotation * Quaternion.Inverse(baseIso2);
 

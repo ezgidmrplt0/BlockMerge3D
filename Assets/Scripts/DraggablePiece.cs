@@ -335,12 +335,16 @@ public class DraggablePiece : MonoBehaviour
                     var mats = LevelManager.Instance.PieceMaterials;
                     for (int m = 0; m < mats.Length; m++)
                     {
-                        if (mats[m] == usedMat || (mats[m] != null && mats[m].name == usedMat.name.Replace(" (Instance)", "")))
+                        if (mats[m] == usedMat || (mats[m] != null && usedMat.name.Replace(" (Instance)", "") == mats[m].name))
                         {
                             matIdx = m;
                             break;
                         }
                     }
+                    if (matIdx == -1)
+                        Debug.LogWarning($"[DraggablePiece] Material MATCH FAILED! usedMat='{usedMat?.name}' not found.");
+                    else
+                        Debug.Log($"[DraggablePiece] Material MATCH SUCCESS! usedMat='{usedMat?.name}' matched with mats[{matIdx}]='{mats[matIdx].name}'");
                 }
                 grid.AddCell(currentCells[i] + offset, child.gameObject, col2, matIdx);
             }

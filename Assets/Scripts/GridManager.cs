@@ -314,6 +314,7 @@ public class GridManager : MonoBehaviour
     {
         int cellsInLayer    = 0;
         int occupiedInLayer = 0;
+        List<Vector3Int> layerCells = new List<Vector3Int>();
 
         foreach (var c in allShapeCells)
         {
@@ -323,11 +324,35 @@ public class GridManager : MonoBehaviour
                 if (occupiedCells.Contains(c))
                 {
                     occupiedInLayer++;
+                    layerCells.Add(c);
                 }
             }
         }
 
-        return (cellsInLayer > 0 && occupiedInLayer == cellsInLayer);
+        if (cellsInLayer == 0 || occupiedInLayer < cellsInLayer) return false;
+
+        if (layerCells.Count > 0)
+        {
+            bool hasFirstMatIdx = cellMatIndex.TryGetValue(layerCells[0], out int firstMatIdx);
+            bool hasFirstColor = cellColors.TryGetValue(layerCells[0], out Color firstColor);
+
+            for (int i = 1; i < layerCells.Count; i++)
+            {
+                bool hasMatIdx = cellMatIndex.TryGetValue(layerCells[i], out int matIdx);
+                bool hasColor = cellColors.TryGetValue(layerCells[i], out Color color);
+
+                if (hasFirstMatIdx && hasMatIdx && (firstMatIdx != -1 || matIdx != -1))
+                {
+                    if (firstMatIdx != matIdx) return false;
+                }
+                else if (hasFirstColor && hasColor)
+                {
+                    if (!ColorsApproxEqual(firstColor, color)) return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private bool TryFindFirstIncompleteLayer(out int layerY)
@@ -335,7 +360,8 @@ public class GridManager : MonoBehaviour
         for (int y = gridMinY; y <= gridMaxY; y++)
         {
             bool hasCells = false;
-            bool layerComplete = true;
+            bool layerFull = true;
+            List<Vector3Int> layerCells = new List<Vector3Int>();
 
             foreach (var cell in allShapeCells)
             {
@@ -344,12 +370,45 @@ public class GridManager : MonoBehaviour
                 hasCells = true;
                 if (!occupiedCells.Contains(cell))
                 {
-                    layerComplete = false;
+                    layerFull = false;
                     break;
+                }
+                layerCells.Add(cell);
+            }
+
+            if (!hasCells) continue;
+
+            if (!layerFull)
+            {
+                layerY = y;
+                return true;
+            }
+
+            // Katman tamamen dolu. Şimdi tüm hücrelerin aynı renk/materyal olup olmadığına bakalım.
+            bool isMonochrome = true;
+            if (layerCells.Count > 0)
+            {
+                bool hasFirstMatIdx = cellMatIndex.TryGetValue(layerCells[0], out int firstMatIdx);
+                bool hasFirstColor = cellColors.TryGetValue(layerCells[0], out Color firstColor);
+
+                for (int i = 1; i < layerCells.Count; i++)
+                {
+                    bool hasMatIdx = cellMatIndex.TryGetValue(layerCells[i], out int matIdx);
+                    bool hasColor = cellColors.TryGetValue(layerCells[i], out Color color);
+
+                    if (hasFirstMatIdx && hasMatIdx && (firstMatIdx != -1 || matIdx != -1))
+                    {
+                        if (firstMatIdx != matIdx) { isMonochrome = false; break; }
+                    }
+                    else if (hasFirstColor && hasColor)
+                    {
+                        if (!ColorsApproxEqual(firstColor, color)) { isMonochrome = false; break; }
+                    }
                 }
             }
 
-            if (hasCells && !layerComplete)
+            // Eğer katman dolu ama tek renk değilse, eksik/tamamlanmamış sayılır!
+            if (!isMonochrome)
             {
                 layerY = y;
                 return true;
@@ -705,13 +764,75 @@ public class GridManager : MonoBehaviour
 
     private bool IsLineMonochrome(List<Vector3Int> line)
     {
-        if (!cellColors.TryGetValue(line[0], out Color first)) return false;
+        bool hasFirstMatIdx = cellMatIndex.TryGetValue(line[0], out int firstMatIdx);
+        bool hasFirstColor = cellColors.TryGetValue(line[0], out Color firstColor);
+
+        if (!hasFirstMatIdx && !hasFirstColor) return false;
+
         for (int i = 1; i < line.Count; i++)
         {
-            if (!cellColors.TryGetValue(line[i], out Color c)) return false;
-            if (!ColorsApproxEqual(c, first)) return false;
+            bool hasMatIdx = cellMatIndex.TryGetValue(line[i], out int matIdx);
+            bool hasColor = cellColors.TryGetValue(line[i], out Color color);
+
+            if (!hasMatIdx && !hasColor) return false;
+
+            if (hasFirstMatIdx && hasMatIdx && (firstMatIdx != -1 || matIdx != -1))
+            {
+                if (firstMatIdx != matIdx)
+                {
+                    Debug.Log($"[IsLineMonochrome] Rejecting: firstMatIdx={firstMatIdx} != matIdx={matIdx} (Colors were: {firstColor} vs {color})");
+                    return false;
+                }
+            }
+            else if (hasFirstColor && hasColor)
+            {
+                if (!ColorsApproxEqual(color, firstColor))
+                {
+                    Debug.Log($"[IsLineMonochrome] Rejecting on color fallback: {firstColor} != {color} (MatIdx: {firstMatIdx} vs {matIdx})");
+                    return false;
+                }
+                else
+                {
+                    Debug.LogWarning($"[IsLineMonochrome] Warning! Merging on color fallback because matIdx is -1! Color: {firstColor}");
+                }
+            }
+            else
+            {
+                return false;
+            }
         }
+        
+        Debug.Log($"[IsLineMonochrome] APPROVED MERGE! Length={line.Count}. firstMatIdx={firstMatIdx}, firstColor={firstColor}");
         return true;
+    }
+
+    public bool AreCellsSameColor(Vector3Int cellA, Vector3Int cellB)
+    {
+        bool hasMatA = cellMatIndex.TryGetValue(cellA, out int matA);
+        bool hasMatB = cellMatIndex.TryGetValue(cellB, out int matB);
+        bool hasColA = cellColors.TryGetValue(cellA, out Color colA);
+        bool hasColB = cellColors.TryGetValue(cellB, out Color colB);
+
+        if (hasMatA && hasMatB && (matA != -1 || matB != -1))
+        {
+            if (matA != matB)
+            {
+                Debug.Log($"[AreCellsSameColor] REJECTED: matA={matA} != matB={matB}");
+                return false;
+            }
+            Debug.Log($"[AreCellsSameColor] ACCEPTED: matA={matA} == matB={matB}");
+            return true;
+        }
+        
+        if (hasColA && hasColB)
+        {
+            bool eq = ColorsApproxEqual(colA, colB);
+            if (eq) Debug.LogWarning($"[AreCellsSameColor] ACCEPTED ON COLOR FALLBACK: colA={colA} == colB={colB}");
+            else Debug.Log($"[AreCellsSameColor] REJECTED ON COLOR FALLBACK: colA={colA} != colB={colB}");
+            return eq;
+        }
+
+        return false;
     }
 
     public static bool ColorsApproxEqual(Color a, Color b)
@@ -1553,12 +1674,6 @@ public class GridManager : MonoBehaviour
             if (startCell.y != ActiveLayerY) continue;
             if (visited.Contains(startCell)) continue;
 
-            // Find the color of the startCell
-            if (!cellColors.TryGetValue(startCell, out Color startColor))
-            {
-                startColor = Color.white; // Default fallback
-            }
-
             // BFS to find connected same-color occupied cells in the active layer Y
             List<Vector3Int> group = new List<Vector3Int>();
             Queue<Vector3Int> queue = new Queue<Vector3Int>();
@@ -1575,14 +1690,11 @@ public class GridManager : MonoBehaviour
                     Vector3Int neighbor = curr + offset;
                     if (neighbor.y == ActiveLayerY && occupiedCells.Contains(neighbor) && !visited.Contains(neighbor))
                     {
-                        if (cellColors.TryGetValue(neighbor, out Color neighborColor))
+                        if (AreCellsSameColor(startCell, neighbor))
                         {
-                            if (ColorsApproxEqual(neighborColor, startColor))
-                            {
-                                visited.Add(neighbor);
-                                group.Add(neighbor);
-                                queue.Enqueue(neighbor);
-                            }
+                            visited.Add(neighbor);
+                            group.Add(neighbor);
+                            queue.Enqueue(neighbor);
                         }
                     }
                 }
@@ -1666,120 +1778,93 @@ public class GridManager : MonoBehaviour
         {
             frozenCells.Remove(cell);
         }
-        // Callback animasyon tamamlanana kadar bekletilir.
-        List<GameObject> allCracks = new List<GameObject>();
-
-        // 1. ANTICIPATION PHASE (Shake and flash)
-        foreach (var kvp in gosToDestroy)
+        
+        int pendingEffects = gosToDestroy.Count + cellsToThaw.Count;
+        if (pendingEffects == 0)
         {
-            var go = kvp.Value;
-            go.transform.DOShakePosition(0.25f, 0.08f, 20);
-            go.transform.DOPunchScale(Vector3.one * 0.1f, 0.25f);
+            onComplete?.Invoke();
+            yield break;
         }
 
-        foreach (var cell in cellsToThaw)
+        System.Action onOneEffectDone = () =>
         {
-            if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)
+            pendingEffects--;
+            if (pendingEffects <= 0)
             {
-                rend.transform.DOShakePosition(0.25f, 0.08f, 20);
-                
-                MaterialPropertyBlock prop = new MaterialPropertyBlock();
-                rend.GetPropertyBlock(prop);
-                prop.SetColor("_EmissionColor", Color.white * 3.0f); // Bright white glow!
-                rend.SetPropertyBlock(prop);
-
-                // Spawn procedural crack lines parented to the shaking ice block
-                Vector3 cellWorldPos = OffsetToRoot(cell);
-                allCracks.AddRange(SpawnProceduralCracks(cellWorldPos, rend.transform));
+                onComplete?.Invoke();
             }
-        }
+        };
 
-        yield return new WaitForSeconds(0.25f);
-
-        // Clean up crack lines as the ice breaks
-        foreach (var crack in allCracks)
-        {
-            if (crack != null) Destroy(crack);
-        }
-        allCracks.Clear();
-
-        // Camera shake on shatter impact
-        if (CameraOrbit.Instance != null)
-        {
-            CameraOrbit.Instance.Shake(0.32f, 0.2f);
-        }
-
-        // 2. SHATTER AND DETONATE PHASE
-        // Trigger shatter effects for exploding occupied blocks
+        // 3. Play Ice Break Effect for Exploded Blocks
         foreach (var kvp in gosToDestroy)
         {
             var cell = kvp.Key;
             var go = kvp.Value;
-
             Color blockColor = capturedColors.ContainsKey(cell) ? capturedColors[cell] : Color.white;
-
-            CreateShatterEffect(go.transform.position, blockColor);
-            go.transform.DOScale(Vector3.zero, 0.2f).SetEase(Ease.InBack);
 
             // Parça yok olurken hemen ghost grid'i göster
             if (targetRenderers.TryGetValue(cell, out var targetRend) && targetRend != null)
             {
                 targetRend.enabled = true;
             }
+
+            if (IceBreakEffect.Instance != null)
+            {
+                IceBreakEffect.Play(go, blockColor, onOneEffectDone);
+            }
+            else
+            {
+                go.transform.DOScale(Vector3.zero, 0.2f).OnComplete(() => {
+                    Destroy(go);
+                    onOneEffectDone();
+                });
+            }
         }
 
-        // Trigger shatter effects for thawing ice blocks
+        // 4. Play Ice Break Effect for Thawed Ice Blocks
         foreach (var cell in cellsToThaw)
         {
-            Vector3 cellWorldPos = OffsetToRoot(cell);
-            CreateIceShatterEffect(cellWorldPos);
-
             if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)
             {
                 Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
-                Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
-                if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
-                {
-                    defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
-                }
+                
+                System.Action onThisIceDone = () => {
+                    Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
+                    if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                    {
+                        defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
+                    }
 
-                Color startEmission = Color.white * 3.0f;
-                Color endEmission = Color.clear;
-
-                float lerpVal = 0f;
-                DOTween.To(() => lerpVal, x => {
-                    lerpVal = x;
+                    // Restore default color state
                     if (rend != null)
                     {
                         MaterialPropertyBlock prop = new MaterialPropertyBlock();
                         rend.GetPropertyBlock(prop);
-                        Color lerpedCol = Color.Lerp(iceColor, defaultColor, lerpVal);
-                        Color lerpedEmission = Color.Lerp(startEmission, endEmission, lerpVal);
-                        prop.SetColor("_BaseColor", lerpedCol);
-                        prop.SetColor("_Color", lerpedCol);
-                        prop.SetColor("_EmissionColor", lerpedEmission);
+                        prop.SetColor("_BaseColor", defaultColor);
+                        prop.SetColor("_Color", defaultColor);
+                        prop.SetColor("_EmissionColor", Color.clear);
                         rend.SetPropertyBlock(prop);
                     }
-                }, 1f, 0.5f).SetEase(Ease.OutQuad);
+                    
+                    onOneEffectDone();
+                };
+
+                if (IceBreakEffect.Instance != null)
+                {
+                    IceBreakEffect.Play(rend.gameObject, iceColor, onThisIceDone, hideTarget: false);
+                }
+                else
+                {
+                    onThisIceDone();
+                }
             }
-        }
-
-        // Wait for the shards to fully disperse and shrink (0.65s)
-        yield return new WaitForSeconds(0.65f);
-
-        foreach (var kvp in gosToDestroy)
-        {
-            if (kvp.Value != null)
+            else
             {
-                Destroy(kvp.Value);
+                onOneEffectDone();
             }
         }
 
-        RefreshLayerVisibility();
-
-        // Tüm mantıksal ve görsel buz kırılma işlemleri tamamlandıktan sonra
-        // yerleştirme zincirine yalnızca bir kez devam et.
-        onComplete?.Invoke();
+        yield break;
     }
 
     public void CreateIceShatterEffect(Vector3 centerPosition)
