@@ -197,7 +197,13 @@ public class LayerPanelController : MonoBehaviour
 
     public void ClosePanel(System.Action onComplete = null)
     {
-        if (!cam.IsInPanelMode || isTransitioning) return;
+        if (!cam.IsInPanelMode)
+        {
+            isTransitioning = false;
+            onComplete?.Invoke();
+            return;
+        }
+
         isTransitioning = true;
 
         if (backButton != null) backButton.gameObject.SetActive(false);

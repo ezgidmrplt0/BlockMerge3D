@@ -45,6 +45,17 @@ public class GameManager : MonoBehaviour
     private void LoadCurrentLevel()
     {
         if (levelOrder == null || levelOrder.levels.Count == 0) return;
+        
+        int startIndex = currentLevelIndex;
+        while (currentLevelIndex < 0 || currentLevelIndex >= levelOrder.levels.Count || levelOrder.levels[currentLevelIndex] == null)
+        {
+            currentLevelIndex = (currentLevelIndex + 1) % levelOrder.levels.Count;
+            if (currentLevelIndex == startIndex)
+            {
+                break;
+            }
+        }
+
         currentLevelIndex = Mathf.Clamp(currentLevelIndex, 0, levelOrder.levels.Count - 1);
         var level = levelOrder.levels[currentLevelIndex];
         if (level == null) return;

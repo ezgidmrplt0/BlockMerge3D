@@ -224,6 +224,10 @@ public class LevelSolver
         {
             Vector3Int worldCell = cell + offset;
 
+            // Parçaların sadece tek bir katmanda olması zorunluluğu (katman-katman oynanış için)
+            if (worldCell.y != offset.y + cells[0].y)
+                return false;
+
             // Grid sınırları
             if (worldCell.x < 0 || worldCell.x >= gridSize.x ||
                 worldCell.y < 0 || worldCell.y >= gridSize.y ||
@@ -380,21 +384,13 @@ public class LevelSolver
     private List<Quaternion> GetAllRotations()
     {
         // Y ekseni rotasyonları (0, 90, 180, 270)
-        var rotations = new List<Quaternion>
+        return new List<Quaternion>
         {
             Quaternion.Euler(0, 0, 0),
             Quaternion.Euler(0, 90, 0),
             Quaternion.Euler(0, 180, 0),
             Quaternion.Euler(0, 270, 0),
         };
-
-        // X ekseni rotasyonları da ekle (daha kapsamlı)
-        rotations.Add(Quaternion.Euler(90, 0, 0));
-        rotations.Add(Quaternion.Euler(90, 90, 0));
-        rotations.Add(Quaternion.Euler(90, 180, 0));
-        rotations.Add(Quaternion.Euler(90, 270, 0));
-
-        return rotations;
     }
 
     private List<Vector3Int> RotateCells(List<Vector3Int> cells, Quaternion rotation)

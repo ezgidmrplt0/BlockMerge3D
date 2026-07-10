@@ -37,6 +37,7 @@ public class LevelManager : MonoBehaviour
     private List<float>      allPieceHeights = new List<float>();
     private List<float>      allPieceDepths  = new List<float>();
     private List<int>        activePieceDataIndices = new List<int>();
+    private List<int>        spawnedPieceIndices = new List<int>();
 
     private void Awake()
     {
@@ -151,113 +152,31 @@ public class LevelManager : MonoBehaviour
         // Kart sistemi varsa ama boş kart yoksa çık
         if (pieceCards != null && pieceCards.Count > 0 && targetCard == null) return;
 
-        // Sahadaki yerleştirilmiş parçalara ve boşluklara yerleşebilecek (uygun) parçaları bul
-        List<int> placeableIndices = new List<int>();
+        // Henüz spawn edilmemiş parça indekslerini bul
+        List<int> availableIndices = new List<int>();
         for (int i = 0; i < allPiecePrefabs.Count; i++)
         {
-            if (IsShapePlaceable(allPiecePrefabs[i]))
+            if (!spawnedPieceIndices.Contains(i))
             {
-                placeableIndices.Add(i);
+                availableIndices.Add(i);
             }
         }
 
-        // Zaten aktif olan parça indekslerini çıkar (çeşitlilik için)
-        List<int> availableIndices = placeableIndices
-            .Where(idx => !activePieceDataIndices.Contains(idx))
-            .ToList();
+        // Eğer spawn edilmemiş parça kalmadıysa (bütün parçalar dağıtıldıysa), boş bırak
+        if (availableIndices.Count == 0) return;
 
-        // Eğer hepsi aktifse, tüm placeable'ları kullan
-        if (availableIndices.Count == 0)
-            availableIndices = placeableIndices;
+        // Kalanlardan rastgele bir parça seç
+        int indexToSpawn = availableIndices[Random.Range(0, availableIndices.Count)];
+        
+        // Bu indeksi spawn edilmiş olarak işaretle
+        spawnedPieceIndices.Add(indexToSpawn);
+        activeIsSmart.Add(false); // Kolaylaştırma yardımı kapalı
 
-        // EĞER oyuncunun elinde zaten büyük (>= 4 küplük) bir parça varsa,
-        // ve elimizde daha küçük (< 4 küplük) alternatif placeable parçalar varsa,
-        // yeni büyük parçaları eleyerek elin tıkanmasını engelle!
-        int activeLargePiecesCount = 0;
-        foreach (var p in activePieces)
-        {
-            if (p == null) continue;
-            var holder = p.GetComponent<CubeShapeDataHolder>();
-            if (holder != null && holder.occupiedCells.Count >= 4)
-                activeLargePiecesCount++;
-        }
-
-        if (activeLargePiecesCount >= 1 && availableIndices.Count > 0)
-        {
-            List<int> smallerIndices = availableIndices.Where(idx => {
-                var h = allPiecePrefabs[idx].GetComponent<CubeShapeDataHolder>();
-                return h != null && h.occupiedCells.Count < 4;
-            }).ToList();
-
-            if (smallerIndices.Count > 0)
-            {
-                availableIndices = smallerIndices;
-            }
-        }
-
-        int indexToSpawn = -1;
-
-        if (availableIndices.Count > 0)
-        {
-            // Sahadaki boşluklara tam oturan/uygun parçalardan rastgele birini seç!
-            indexToSpawn = availableIndices[Random.Range(0, availableIndices.Count)];
-            activeIsSmart.Add(true);
-
-            // Aktif katmandaki renk uyumuna göre akıllı materyal/renk seçimi yap!
-            Material matchingMaterial = GetDominantMaterialOnActiveLayer();
-
-            // Parçayı spawn et
-            SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
-        }
-        else
-        {
-            // Eğer hiçbir parça sığmıyorsa (sıkışmayı önlemek için) fallback SingleCube parçasını spawn et!
-            GameObject fallbackPrefab = Resources.Load<GameObject>("SingleCube");
-            if (fallbackPrefab != null)
-            {
-                SpawnFallbackSinglePiece(targetCard, fallbackPrefab);
-            }
-            else
-            {
-                // Fallback prefab bulunamazsa en küçük parçayı spawn et (eski davranış)
-                indexToSpawn = FindSmallestPieceIndex();
-                activeIsSmart.Add(true);
-                Material matchingMaterial = GetDominantMaterialOnActiveLayer();
-                SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
-            }
-        }
-
-        // Game Over kontrolü burada yapılmaz.
-        // Bu metot level başında kartlar tek tek doldurulurken de çağrıldığı için
-        // erken kontrol yanlış Retry ekranı açabilir.
-    }
-
-    private void SpawnFallbackSinglePiece(PieceCardUI targetCard, GameObject fallbackPrefab)
-    {
-        GameObject piece = Instantiate(fallbackPrefab, new Vector3(0, -100, 0), Quaternion.identity);
-        piece.name = "Piece_Fallback_Single";
-        DisableShadows(piece);
-
+        // Aktif katmandaki baskın renge göre renk ata
         Material matchingMaterial = GetDominantMaterialOnActiveLayer();
-        if (matchingMaterial == null && pieceMaterials != null && pieceMaterials.Length > 0)
-        {
-            var valid = pieceMaterials.Where(m => m != null).ToList();
-            if (valid.Count > 0) matchingMaterial = valid[Random.Range(0, valid.Count)];
-        }
-        ApplyMaterialToPiece(piece, matchingMaterial);
 
-        var drag = piece.AddComponent<DraggablePiece>();
-        drag.InitialRotation = Quaternion.identity;
-
-        if (targetCard != null)
-        {
-            targetCard.AssignPiece(piece);
-            pieceToCard[piece] = targetCard;
-        }
-
-        activePieces.Add(piece);
-        activePieceDataIndices.Add(-1); // -1 signifies it's the fallback single piece
-        activeIsSmart.Add(true);
+        // Parçayı spawn et
+        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
     }
 
     private Quaternion GetRandom90DegreeRotation()
@@ -757,6 +676,7 @@ public class LevelManager : MonoBehaviour
         foreach (var c in pieceCards) c?.ClearPiece();
         pieceToCard.Clear();
         activeIsSmart.Clear();
+        spawnedPieceIndices.Clear();
     }
 
     private void FitCameraToScene()

@@ -55,14 +55,17 @@ public class AILevelDesignerWindow : EditorWindow
     // Parçalara Ayırma Ayarları
     private int minPieceSize         = 1;
     private int maxPieceSize         = 5;
+    private enum PieceGenMode { Gelisiguzel_BFS, Puzzle_Geometrik }
+    private PieceGenMode pieceGenMode = PieceGenMode.Puzzle_Geometrik;
 
     // Prompt tabanlı üretim
     private string aiPrompt          = "star with ice at base and golden corners";
 
     // ── Seviye Zorluk / Hızlı Ayar Ölçeği ─────────────────────────
     private int targetLevelIndex = 1;
+    private enum AILevelDifficulty { Kolay, Orta, Zor, Uzman }
+    private AILevelDifficulty selectedDifficulty = AILevelDifficulty.Kolay;
     private string levelDifficultyModeSuggestion = "Kolay";
-    private bool autoApplyDifficulty = true;
 
     // ── Grid Verisi ────────────────────────────────────────────────
     private HashSet<Vector3Int> occupiedCells   = new HashSet<Vector3Int>();
@@ -74,6 +77,7 @@ public class AILevelDesignerWindow : EditorWindow
     // ── Solver Sonucu ─────────────────────────────────────────────
     private SolverResult lastSolverResult;
     private bool solverRan = false;
+    private int highlightedPieceIndex = -1;
 
     // ── UI Durumu ─────────────────────────────────────────────────
     private int activeLayer          = 0;
@@ -171,44 +175,40 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Space(10);
 
-        // 🏆 SEVİYE BAZLI DİNAMİK AYARLAR VE ÖLÇEK (HINTS & SCALE)
-        GUILayout.Label("🏆 SEVİYE BAZLI HIZLI AYARLAR", styleHeader);
+        // 🏆 ZORLUK VE SEVİYE AYARLARI
+        GUILayout.Label("🏆 ZORLUK VE SEVİYE AYARLARI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         
-        // 1. Hızlı Zorluk Bölgesi Seçimi
-        EditorGUILayout.LabelField("Hızlı Bölge Seçimi:", EditorStyles.miniBoldLabel);
+        // 1. Zorluk Seviyesi Seçimi
+        EditorGUILayout.LabelField("Zorluk Seviyesi Seçimi (Değerleri Formlara Aktarır):", EditorStyles.miniBoldLabel);
         EditorGUILayout.BeginHorizontal();
         
         // Kolay
-        GUI.backgroundColor = targetLevelIndex <= 10 ? Color.green : new Color(0.7f, 1f, 0.7f, 0.4f);
-        if (GUILayout.Button("KOLAY (1-10)", EditorStyles.miniButtonLeft, GUILayout.Height(22)))
+        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Kolay ? Color.green : new Color(0.7f, 1f, 0.7f, 0.4f);
+        if (GUILayout.Button("KOLAY", EditorStyles.miniButtonLeft, GUILayout.Height(22)))
         {
-            targetLevelIndex = 1;
-            ApplyDifficultyScale(targetLevelIndex);
+            ApplyDifficultyScaleForMode(AILevelDifficulty.Kolay);
         }
         
         // Orta
-        GUI.backgroundColor = (targetLevelIndex > 10 && targetLevelIndex <= 30) ? new Color(1.0f, 0.6f, 0.0f) : new Color(1f, 0.8f, 0.5f, 0.4f);
-        if (GUILayout.Button("ORTA (11-30)", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Orta ? new Color(1.0f, 0.6f, 0.0f) : new Color(1f, 0.8f, 0.5f, 0.4f);
+        if (GUILayout.Button("ORTA", EditorStyles.miniButtonMid, GUILayout.Height(22)))
         {
-            targetLevelIndex = 15;
-            ApplyDifficultyScale(targetLevelIndex);
+            ApplyDifficultyScaleForMode(AILevelDifficulty.Orta);
         }
         
         // Zor
-        GUI.backgroundColor = (targetLevelIndex > 30 && targetLevelIndex <= 60) ? new Color(0.9f, 0.2f, 0.2f) : new Color(1f, 0.6f, 0.6f, 0.4f);
-        if (GUILayout.Button("ZOR (31-60)", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Zor ? new Color(0.9f, 0.2f, 0.2f) : new Color(1f, 0.6f, 0.6f, 0.4f);
+        if (GUILayout.Button("ZOR", EditorStyles.miniButtonMid, GUILayout.Height(22)))
         {
-            targetLevelIndex = 45;
-            ApplyDifficultyScale(targetLevelIndex);
+            ApplyDifficultyScaleForMode(AILevelDifficulty.Zor);
         }
         
         // Uzman
-        GUI.backgroundColor = targetLevelIndex > 60 ? new Color(0.7f, 0.1f, 0.8f) : new Color(0.85f, 0.6f, 0.9f, 0.4f);
-        if (GUILayout.Button("UZMAN (61+)", EditorStyles.miniButtonRight, GUILayout.Height(22)))
+        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Uzman ? new Color(0.7f, 0.1f, 0.8f) : new Color(0.85f, 0.6f, 0.9f, 0.4f);
+        if (GUILayout.Button("UZMAN", EditorStyles.miniButtonRight, GUILayout.Height(22)))
         {
-            targetLevelIndex = 80;
-            ApplyDifficultyScale(targetLevelIndex);
+            ApplyDifficultyScaleForMode(AILevelDifficulty.Uzman);
         }
         
         GUI.backgroundColor = Color.white;
@@ -217,7 +217,7 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.Space(5);
 
         // 2. Seviye Seçimi (Etiket Üstte)
-        EditorGUILayout.LabelField("🎯 Hedef Seviye Seçimi (Level):", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("🎯 Kaydedilecek Seviye Numarası (Level Index):", EditorStyles.boldLabel);
         
         EditorGUILayout.BeginHorizontal();
         
@@ -225,57 +225,44 @@ public class AILevelDesignerWindow : EditorWindow
         if (GUILayout.Button("◀◀", GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 10);
-            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+            levelName = $"AI_Level_{targetLevelIndex}";
         }
         
         // -1 Seviye
         if (GUILayout.Button("◀", GUILayout.Width(25), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 1);
-            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+            levelName = $"AI_Level_{targetLevelIndex}";
         }
 
         int prevLevelIdx = targetLevelIndex;
-        // Slider artık tüm genişliği kaplayabilir, çünkü etiket yukarı taşındı
         targetLevelIndex = EditorGUILayout.IntSlider(targetLevelIndex, 1, 100);
         if (targetLevelIndex != prevLevelIdx)
         {
-            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+            levelName = $"AI_Level_{targetLevelIndex}";
         }
 
         // +1 Seviye
         if (GUILayout.Button("▶", GUILayout.Width(25), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 1);
-            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+            levelName = $"AI_Level_{targetLevelIndex}";
         }
         
         // +10 Seviye
         if (GUILayout.Button("▶▶", GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 10);
-            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+            levelName = $"AI_Level_{targetLevelIndex}";
         }
         EditorGUILayout.EndHorizontal();
 
-        EditorGUILayout.Space(2);
-
-        // 3. Otomatik Uygulama Seçeneği
-        autoApplyDifficulty = EditorGUILayout.Toggle("Değerleri Otomatik Uygula", autoApplyDifficulty);
-
         EditorGUILayout.Space(4);
 
-        // 4. Öneri Özeti ve Rozet
-        Color badgeColor = Color.green;
-        string badgeText = "KOLAY";
-        if (levelDifficultyModeSuggestion == "Orta") { badgeColor = new Color(1.0f, 0.6f, 0.0f); badgeText = "ORTA"; }
-        else if (levelDifficultyModeSuggestion == "Zor") { badgeColor = new Color(0.9f, 0.2f, 0.2f); badgeText = "ZOR"; }
-        else if (levelDifficultyModeSuggestion == "Uzman") { badgeColor = new Color(0.7f, 0.1f, 0.8f); badgeText = "UZMAN"; }
-
-        // Öneri Değerleri Önizlemesi
+        // 3. Öneri Değerleri Önizlemesi
+        string badgeText = selectedDifficulty.ToString().ToUpper();
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        EditorGUILayout.LabelField($"📈 LEVEL {targetLevelIndex} HESAPLANAN VERİLER", EditorStyles.miniBoldLabel);
-        EditorGUILayout.LabelField($"• Zorluk Modu: {badgeText}", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"📈 {badgeText} ZORLUK ÖNERİLEN DEĞERLERİ", EditorStyles.miniBoldLabel);
         EditorGUILayout.LabelField($"• Süre Limiti: {levelTime} sn", EditorStyles.miniLabel);
         EditorGUILayout.LabelField($"• Hedef Skor: {levelTarget} Puan", EditorStyles.miniLabel);
         EditorGUILayout.LabelField($"• Hazır Küp: %{prefillPercentage * 100f:F0}", EditorStyles.miniLabel);
@@ -283,32 +270,21 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.LabelField($"• Parça Boyutu: {minPieceSize} - {maxPieceSize} Küp", EditorStyles.miniLabel);
         EditorGUILayout.EndVertical();
 
-        if (!autoApplyDifficulty)
-        {
-            GUI.backgroundColor = badgeColor;
-            if (GUILayout.Button($"Önerilen Parametreleri Formlara Aktar", GUILayout.Height(28)))
-            {
-                ApplyDifficultyScale(targetLevelIndex);
-            }
-            GUI.backgroundColor = Color.white;
-        }
-
         string hintText = "";
-        if (targetLevelIndex <= 10)
+        switch (selectedDifficulty)
         {
-            hintText = "💡 Level 1-10: Kolay başlangıç. Buz blokları yok, küçük parçalar (1-3 küp) kullanılır. Süre sınırı bol tutulmuştur.";
-        }
-        else if (targetLevelIndex <= 30)
-        {
-            hintText = "💡 Level 11-30: Orta zorluk. Buz ve prefilled (renkli) bloklar eklenir. Parça boyutu 1-4 küp önerilir.";
-        }
-        else if (targetLevelIndex <= 60)
-        {
-            hintText = "💡 Level 31-60: Zor seviye. Buz oranı artırılmış ve prefilled bloklar stratejiktir. Parça boyutu 2-5 küp önerilir.";
-        }
-        else
-        {
-            hintText = "💡 Level 61-100: Uzman seviye. Dar zaman limitleri, yüksek buz oranı ve karmaşık parçalar (2-8 küp) bulunur.";
+            case AILevelDifficulty.Kolay:
+                hintText = "💡 Kolay Mod: Buz blokları yok, küçük parçalar (1-3 küp) kullanılır. Süre sınırı bol tutulmuştur.";
+                break;
+            case AILevelDifficulty.Orta:
+                hintText = "💡 Orta Zorluk: Az miktarda buz ve prefilled (renkli) bloklar eklenir. Parça boyutu 1-3 küp arasındadır.";
+                break;
+            case AILevelDifficulty.Zor:
+                hintText = "💡 Zor Zorluk: Prefilled bloklar stratejiktir, buz oranı artırılmıştır. Parça boyutu 2-5 küp arasındadır.";
+                break;
+            case AILevelDifficulty.Uzman:
+                hintText = "💡 Uzman Zorluk: Dar zaman limitleri, yüksek buz oranı ve karmaşık büyük parçalar (3-6 küp) bulunur.";
+                break;
         }
         EditorGUILayout.HelpBox(hintText, MessageType.Info);
         EditorGUILayout.EndVertical();
@@ -383,6 +359,9 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Label("PARÇA BÖLME ALGORİTMASI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         
+        pieceGenMode = (PieceGenMode)EditorGUILayout.EnumPopup("Parça Üretim Modu", pieceGenMode);
+        EditorGUILayout.Space(4);
+        
         EditorGUILayout.BeginHorizontal();
         
         EditorGUILayout.BeginVertical();
@@ -418,7 +397,7 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // Magenta
-        if (GUILayout.Button("⚡ SEVİYEYİ YAPAY ZEKA İLE OLUŞTUR", GUILayout.Height(40)))
+        if (GUILayout.Button("⚡ BÖLÜM & PARÇALARI ÖNİZLE (YAPAY ZEKA)", GUILayout.Height(40)))
         {
             GenerateLevelProcedurally();
         }
@@ -557,7 +536,25 @@ public class AILevelDesignerWindow : EditorWindow
                 }
             }
 
+            // Dim if highlight is active and cell is not part of highlighted piece
+            bool isDimmed = false;
+            if (highlightedPieceIndex >= 0)
+            {
+                int pIdx = GetPieceIndexForCell(cell);
+                if (pIdx != highlightedPieceIndex)
+                {
+                    fill.a = 0.15f;
+                    isDimmed = true;
+                }
+            }
+
             EditorGUI.DrawRect(cellRect, fill);
+
+            Color originalGUIColor = GUI.color;
+            if (isDimmed)
+            {
+                GUI.color = new Color(1f, 1f, 1f, 0.15f);
+            }
 
             if (isIce && cellPx >= 20 && drawView != AIDrawView.PiecesOnly)
             {
@@ -594,6 +591,8 @@ public class AILevelDesignerWindow : EditorWindow
                     GUI.Label(cellRect, (pIdx + 1).ToString(), labelStyle);
                 }
             }
+
+            GUI.color = originalGUIColor;
         }
 
         // Eksen etiketleri
@@ -628,6 +627,100 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Space(10);
 
+        // OLUŞTURULAN PARÇALAR (Her zaman görünür, parça yoksa boş durum mesajı verir)
+        GUILayout.Label("🧩 OLUŞTURULAN PARÇALAR", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        if (pieceSplitList == null || pieceSplitList.Count == 0)
+        {
+            EditorGUILayout.LabelField("Henüz parça üretilmedi.\n\nSoldaki 'BÖLÜM & PARÇALARI ÖNİZLE' butonuna basarak seviye ve parçaları önizleyebilirsiniz.", EditorStyles.wordWrappedMiniLabel);
+        }
+        else
+        {
+            for (int i = 0; i < pieceSplitList.Count; i++)
+            {
+                var piece = pieceSplitList[i];
+                if (piece == null || piece.Count == 0) continue;
+
+                Color col = PIECE_COLORS[i % PIECE_COLORS.Length];
+
+                // If this piece is highlighted, paint the box background slightly Magenta/Header color
+                Color prevBG = GUI.backgroundColor;
+                if (highlightedPieceIndex == i)
+                {
+                    GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 0.6f);
+                }
+                
+                Rect pieceClickRect = EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                GUI.backgroundColor = prevBG;
+
+                EditorGUILayout.BeginHorizontal();
+                Rect colorRect = GUILayoutUtility.GetRect(12, 12, GUILayout.Width(12), GUILayout.Height(12));
+                colorRect.y += 2;
+                EditorGUI.DrawRect(colorRect, col);
+                GUILayout.Space(4);
+                
+                var itemLabelStyle = new GUIStyle(EditorStyles.miniBoldLabel);
+                if (highlightedPieceIndex == i) itemLabelStyle.normal.textColor = Color.white;
+                EditorGUILayout.LabelField($"Parça {i + 1} ({piece.Count} Blok, Y={piece[0].y})", itemLabelStyle);
+                EditorGUILayout.EndHorizontal();
+
+                // Draw miniature 2D preview
+                int minX = piece.Min(c => c.x);
+                int maxX = piece.Max(c => c.x);
+                int minZ = piece.Min(c => c.z);
+                int maxZ = piece.Max(c => c.z);
+
+                int w = maxX - minX + 1;
+                int h = maxZ - minZ + 1;
+
+                float previewBlockSize = 14f; // Increased from 8f to 14f for a much better view!
+                float previewWidth = w * previewBlockSize;
+                float previewHeight = h * previewBlockSize;
+
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(18); // Indent to align with the text above
+                Rect previewRect = GUILayoutUtility.GetRect(previewWidth, previewHeight, GUILayout.Width(previewWidth), GUILayout.Height(previewHeight));
+                EditorGUI.DrawRect(previewRect, new Color(0.12f, 0.12f, 0.15f));
+
+                foreach (var cell in piece)
+                {
+                    int rx = cell.x - minX;
+                    int rz = cell.z - minZ;
+                    Rect blockRect = new Rect(
+                        previewRect.x + rx * previewBlockSize + 0.5f,
+                        previewRect.y + rz * previewBlockSize + 0.5f,
+                        previewBlockSize - 1f,
+                        previewBlockSize - 1f
+                    );
+                    EditorGUI.DrawRect(blockRect, col);
+                }
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.EndVertical();
+
+                // Detect click on this helpbox rect
+                if (Event.current.type == EventType.MouseDown && pieceClickRect.Contains(Event.current.mousePosition))
+                {
+                    if (highlightedPieceIndex == i)
+                    {
+                        highlightedPieceIndex = -1;
+                    }
+                    else
+                    {
+                        highlightedPieceIndex = i;
+                        drawView = AIDrawView.PiecesOnly; // Auto-switch view to pieces view!
+                    }
+                    Repaint();
+                    Event.current.Use();
+                }
+
+                GUILayout.Space(4);
+            }
+        }
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
         // Solver Sonuçları
         if (solverRan && lastSolverResult != null)
         {
@@ -658,7 +751,7 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Space(12);
 
         GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Doygun Yeşil
-        if (GUILayout.Button("💾 SEVİYEYİ VE PARÇALARI\nOTOMATİK DIŞA AKTAR", GUILayout.Height(50)))
+        if (GUILayout.Button("💾 SEVİYEYİ TAMAMEN OLUŞTUR\n(BÖLÜMÜ KAYDET)", GUILayout.Height(50)))
         {
             ExportProceduralLevel();
         }
@@ -762,6 +855,7 @@ public class AILevelDesignerWindow : EditorWindow
         prefilledMatIdx.Clear();
         frozenCells.Clear();
         pieceSplitList.Clear();
+        highlightedPieceIndex = -1;
 
         // 1. Şablondan Grid'i Yükle
         int W = gridSize.x;
@@ -1012,10 +1106,10 @@ public class AILevelDesignerWindow : EditorWindow
                     variantMaxSize = maxPieceSize;
                     strategyName = "Standart";
                     break;
-                case 1: // Sıkı Tetris (Sadece 4)
-                    variantMinSize = 4;
-                    variantMaxSize = 4;
-                    strategyName = "Sıkı Tetris (4 Blok)";
+                case 1: // Sıkı Triplet (Sadece 3)
+                    variantMinSize = 3;
+                    variantMaxSize = 3;
+                    strategyName = "Sıkı Triplet (3 Blok)";
                     break;
                 case 2: // Daha Büyük, Toplu Parçalar
                     variantMinSize = minPieceSize + 1;
@@ -1035,7 +1129,9 @@ public class AILevelDesignerWindow : EditorWindow
             }
 
             // Bu stratejiyle parçala
-            var piecesForThisStrategy = SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
+            var piecesForThisStrategy = pieceGenMode == PieceGenMode.Puzzle_Geometrik
+                ? SplitShapeWithGeometricStrategy(variantMinSize, variantMaxSize, attempt)
+                : SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
             
             if (piecesForThisStrategy.Count == 0) 
             {
@@ -1173,6 +1269,7 @@ public class AILevelDesignerWindow : EditorWindow
                 for (int j = 0; j < pieces.Count; j++)
                 {
                     if (i == j) continue;
+                    if (pieces[j][0].y != smallPiece[0].y) continue;
 
                     foreach (var sc in smallPiece)
                     {
@@ -1196,6 +1293,244 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
+        EnforceNoSizeFour(pieces);
+        return pieces;
+    }
+
+    private List<List<Vector3Int>> SplitShapeWithGeometricStrategy(int minSize, int maxSize, int randomSeed)
+    {
+        Random.InitState(randomSeed + System.DateTime.Now.Millisecond);
+        List<List<Vector3Int>> pieces = new List<List<Vector3Int>>();
+        
+        HashSet<Vector3Int> assignable = new HashSet<Vector3Int>(occupiedCells);
+        foreach (var pf in prefilledCells)
+        {
+            assignable.Remove(pf);
+        }
+
+        HashSet<Vector3Int> unassigned = new HashSet<Vector3Int>(assignable);
+
+        // Y eksenine göre hücreleri katman katman grupluyoruz ki parçalar yatay olsun
+        var cellsByY = new Dictionary<int, List<Vector3Int>>();
+        foreach (var cell in unassigned)
+        {
+            if (!cellsByY.ContainsKey(cell.y)) cellsByY[cell.y] = new List<Vector3Int>();
+            cellsByY[cell.y].Add(cell);
+        }
+
+        foreach (var yPair in cellsByY)
+        {
+            int y = yPair.Key;
+            HashSet<Vector3Int> layerUnassigned = new HashSet<Vector3Int>(yPair.Value);
+
+            while (layerUnassigned.Count > 0)
+            {
+                Vector3Int seed = layerUnassigned.ElementAt(Random.Range(0, layerUnassigned.Count));
+                List<Vector3Int> piece = new List<Vector3Int>();
+                bool found = false;
+
+                // En büyük alandan en küçüğe doğru dikdörtgen adayları oluştur
+                var candidates = new List<(int w, int d, int offsetX, int offsetZ)>();
+                for (int area = maxSize; area >= minSize; area--)
+                {
+                    for (int w = 1; w <= area; w++)
+                    {
+                        if (area % w == 0)
+                        {
+                            int d = area / w;
+                            for (int ox = 0; ox < w; ox++)
+                            {
+                                for (int oz = 0; oz < d; oz++)
+                                {
+                                    candidates.Add((w, d, ox, oz));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Rastgeleliği artırmak için adayları karıştır
+                candidates = candidates.OrderBy(c => Random.value).ToList();
+
+                foreach (var cand in candidates)
+                {
+                    int startX = seed.x - cand.offsetX;
+                    int startZ = seed.z - cand.offsetZ;
+
+                    bool valid = true;
+                    var rectCells = new List<Vector3Int>();
+
+                    for (int x = startX; x < startX + cand.w; x++)
+                    {
+                        for (int z = startZ; z < startZ + cand.d; z++)
+                        {
+                            Vector3Int c = new Vector3Int(x, y, z);
+                            if (!layerUnassigned.Contains(c))
+                            {
+                                valid = false;
+                                break;
+                            }
+                            rectCells.Add(c);
+                        }
+                        if (!valid) break;
+                    }
+
+                    if (valid)
+                    {
+                        piece = rectCells;
+                        found = true;
+                        break;
+                    }
+                }
+
+                // Eğe minSize'dan büyük bir dikdörtgen bulunamadıysa, daha küçük (örn: size=2) dikdörtgen dene
+                if (!found && minSize > 2)
+                {
+                    var smallCandidates = new List<(int w, int d, int offsetX, int offsetZ)>();
+                    for (int area = minSize - 1; area >= 2; area--)
+                    {
+                        for (int w = 1; w <= area; w++)
+                        {
+                            if (area % w == 0)
+                            {
+                                int d = area / w;
+                                for (int ox = 0; ox < w; ox++)
+                                    for (int oz = 0; oz < d; oz++)
+                                        smallCandidates.Add((w, d, ox, oz));
+                            }
+                        }
+                    }
+                    smallCandidates = smallCandidates.OrderBy(c => Random.value).ToList();
+                    foreach (var cand in smallCandidates)
+                    {
+                        int startX = seed.x - cand.offsetX;
+                        int startZ = seed.z - cand.offsetZ;
+
+                        bool valid = true;
+                        var rectCells = new List<Vector3Int>();
+
+                        for (int x = startX; x < startX + cand.w; x++)
+                        {
+                            for (int z = startZ; z < startZ + cand.d; z++)
+                            {
+                                Vector3Int c = new Vector3Int(x, y, z);
+                                if (!layerUnassigned.Contains(c))
+                                {
+                                    valid = false;
+                                    break;
+                                }
+                                rectCells.Add(c);
+                            }
+                            if (!valid) break;
+                        }
+
+                        if (valid)
+                        {
+                            piece = rectCells;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Hala bulunamadıysa L-Şekli dene (boyut 3 veya 4)
+                if (!found)
+                {
+                    List<Vector3Int> base2 = null;
+                    var dirs = new Vector3Int[] { Vector3Int.right, Vector3Int.left, new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1) };
+                    foreach (var dir in dirs)
+                    {
+                        Vector3Int neighbor = seed + dir;
+                        if (layerUnassigned.Contains(neighbor))
+                        {
+                            base2 = new List<Vector3Int> { seed, neighbor };
+                            break;
+                        }
+                    }
+
+                    if (base2 != null)
+                    {
+                        Vector3Int lCell = Vector3Int.zero;
+                        bool lFound = false;
+                        foreach (var bCell in base2)
+                        {
+                            foreach (var dir in dirs)
+                            {
+                                Vector3Int candCell = bCell + dir;
+                                if (layerUnassigned.Contains(candCell) && !base2.Contains(candCell))
+                                {
+                                    bool isStraight = (base2[0].x == base2[1].x && base2[0].x == candCell.x) ||
+                                                      (base2[0].z == base2[1].z && base2[0].z == candCell.z);
+                                    if (!isStraight)
+                                    {
+                                        lCell = candCell;
+                                        lFound = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (lFound) break;
+                        }
+
+                        if (lFound)
+                        {
+                            piece = new List<Vector3Int>(base2) { lCell };
+                            found = true;
+                        }
+                    }
+                }
+
+                // Son çare tek küp
+                if (!found)
+                {
+                    piece.Add(seed);
+                }
+
+                foreach (var c in piece)
+                {
+                    layerUnassigned.Remove(c);
+                }
+                pieces.Add(piece);
+            }
+        }
+
+        // Çok küçük parçaları aynı katmandaki en yakın komşusu ile birleştir
+        for (int i = pieces.Count - 1; i >= 0; i--)
+        {
+            if (pieces[i].Count < minSize && pieces.Count > 1)
+            {
+                var smallPiece = pieces[i];
+                int bestTargetPiece = -1;
+                float minDist = float.MaxValue;
+
+                for (int j = 0; j < pieces.Count; j++)
+                {
+                    if (i == j) continue;
+                    if (pieces[j][0].y != smallPiece[0].y) continue; // Aynı katman kısıtı
+
+                    foreach (var sc in smallPiece)
+                    {
+                        foreach (var tc in pieces[j])
+                        {
+                            float d = Vector3.Distance(sc, tc);
+                            if (d < minDist)
+                            {
+                                minDist = d;
+                                bestTargetPiece = j;
+                            }
+                        }
+                    }
+                }
+
+                if (bestTargetPiece >= 0)
+                {
+                    pieces[bestTargetPiece].AddRange(smallPiece);
+                    pieces.RemoveAt(i);
+                }
+            }
+        }
+
+        EnforceNoSizeFour(pieces);
         return pieces;
     }
 
@@ -1300,6 +1635,11 @@ public class AILevelDesignerWindow : EditorWindow
     private void SplitShapeIntoPieces()
     {
         pieceSplitList.Clear();
+        if (pieceGenMode == PieceGenMode.Puzzle_Geometrik)
+        {
+            pieceSplitList = SplitShapeWithGeometricStrategy(minPieceSize, maxPieceSize, 0);
+            return;
+        }
         // Sadece normal (prefilled olmayan) occupied hücreleri parçalara bölüyoruz
         HashSet<Vector3Int> assignable = new HashSet<Vector3Int>(occupiedCells);
         foreach (var pf in prefilledCells)
@@ -1369,6 +1709,7 @@ public class AILevelDesignerWindow : EditorWindow
                 for (int j = 0; j < pieceSplitList.Count; j++)
                 {
                     if (i == j) continue;
+                    if (pieceSplitList[j][0].y != smallPiece[0].y) continue;
 
                     foreach (var sc in smallPiece)
                     {
@@ -1388,6 +1729,81 @@ public class AILevelDesignerWindow : EditorWindow
                 {
                     pieceSplitList[bestTargetPiece].AddRange(smallPiece);
                     pieceSplitList.RemoveAt(i);
+                }
+            }
+        }
+
+        EnforceNoSizeFour(pieceSplitList);
+    }
+
+    private void EnforceNoSizeFour(List<List<Vector3Int>> pieces)
+    {
+        if (pieces == null) return;
+        
+        for (int i = pieces.Count - 1; i >= 0; i--)
+        {
+            if (pieces[i].Count >= 4)
+            {
+                var targetPiece = pieces[i];
+                pieces.RemoveAt(i);
+                
+                var remainingCells = new HashSet<Vector3Int>(targetPiece);
+                while (remainingCells.Count > 0)
+                {
+                    int totalCount = remainingCells.Count;
+                    int size = 3;
+                    if (totalCount == 4) size = 2;
+                    else if (totalCount == 5) size = 2;
+                    else if (totalCount <= 3) size = totalCount;
+
+                    Vector3Int startCell = remainingCells.First();
+                    int minNeighbors = 999;
+                    foreach (var cell in remainingCells)
+                    {
+                        int neighbors = 0;
+                        foreach (var other in remainingCells)
+                        {
+                            if (other != cell && Vector3Int.Distance(cell, other) <= 1.1f)
+                                neighbors++;
+                        }
+                        if (neighbors < minNeighbors)
+                        {
+                            minNeighbors = neighbors;
+                            startCell = cell;
+                        }
+                    }
+
+                    var subPiece = new List<Vector3Int>();
+                    var queue = new Queue<Vector3Int>();
+                    var visited = new HashSet<Vector3Int>();
+
+                    queue.Enqueue(startCell);
+                    visited.Add(startCell);
+
+                    while (queue.Count > 0 && subPiece.Count < size)
+                    {
+                        var current = queue.Dequeue();
+                        subPiece.Add(current);
+
+                        foreach (var other in remainingCells)
+                        {
+                            if (!visited.Contains(other) && Vector3Int.Distance(current, other) <= 1.1f)
+                            {
+                                if (subPiece.Count + queue.Count < size)
+                                {
+                                    visited.Add(other);
+                                    queue.Enqueue(other);
+                                }
+                            }
+                        }
+                    }
+
+                    foreach (var c in subPiece)
+                    {
+                        remainingCells.Remove(c);
+                    }
+
+                    pieces.Add(subPiece);
                 }
             }
         }
@@ -1687,53 +2103,48 @@ public class AILevelDesignerWindow : EditorWindow
         Repaint();
     }
 
-    private void ApplyDifficultyScale(int level)
+    private void ApplyDifficultyScaleForMode(AILevelDifficulty mode)
     {
-        targetLevelIndex = Mathf.Clamp(level, 1, 100);
-        levelName = $"AI_Level_{targetLevelIndex}";
+        selectedDifficulty = mode;
+        levelDifficultyModeSuggestion = mode.ToString();
         
         float baseTime = 75f;
         float baseTarget = 150f;
         
-        if (targetLevelIndex <= 10)
+        switch (mode)
         {
-            levelDifficultyModeSuggestion = "Kolay";
-            baseTime = 90f - (targetLevelIndex - 1) * 2f; 
-            baseTarget = 80 + (targetLevelIndex - 1) * 10;
-            prefillPercentage = 0f;
-            icePercentage = 0f;
-            minPieceSize = 1;
-            maxPieceSize = Mathf.Clamp(3 + (targetLevelIndex / 5), 3, 4);
-        }
-        else if (targetLevelIndex <= 30)
-        {
-            levelDifficultyModeSuggestion = "Orta";
-            baseTime = 75f - (targetLevelIndex - 10) * 1f; 
-            baseTarget = 180 + (targetLevelIndex - 10) * 12;
-            prefillPercentage = Mathf.Lerp(0.05f, 0.15f, (targetLevelIndex - 10) / 20f);
-            icePercentage = Mathf.Lerp(0.08f, 0.15f, (targetLevelIndex - 10) / 20f);
-            minPieceSize = Mathf.Clamp(1 + (targetLevelIndex / 15), 1, 2);
-            maxPieceSize = Mathf.Clamp(4 + (targetLevelIndex / 15), 4, 5);
-        }
-        else if (targetLevelIndex <= 60)
-        {
-            levelDifficultyModeSuggestion = "Zor";
-            baseTime = 60f - (targetLevelIndex - 30) * 0.5f; 
-            baseTarget = 420 + (targetLevelIndex - 30) * 15;
-            prefillPercentage = Mathf.Lerp(0.15f, 0.25f, (targetLevelIndex - 30) / 30f);
-            icePercentage = Mathf.Lerp(0.15f, 0.28f, (targetLevelIndex - 30) / 30f);
-            minPieceSize = 2;
-            maxPieceSize = 5;
-        }
-        else
-        {
-            levelDifficultyModeSuggestion = "Uzman";
-            baseTime = Mathf.Max(30f, 45f - (targetLevelIndex - 60) * 0.25f);
-            baseTarget = 870 + (targetLevelIndex - 60) * 20;
-            prefillPercentage = Mathf.Lerp(0.25f, 0.40f, (targetLevelIndex - 60) / 40f);
-            icePercentage = Mathf.Lerp(0.28f, 0.40f, (targetLevelIndex - 60) / 40f);
-            minPieceSize = Mathf.Clamp(2 + (targetLevelIndex / 40), 2, 4);
-            maxPieceSize = Mathf.Clamp(5 + (targetLevelIndex / 30), 5, 8);
+            case AILevelDifficulty.Kolay:
+                baseTime = 90f; 
+                baseTarget = 80f;
+                prefillPercentage = 0f;
+                icePercentage = 0f;
+                minPieceSize = 1;
+                maxPieceSize = 3; // 4 yasaklandı
+                break;
+            case AILevelDifficulty.Orta:
+                baseTime = 75f; 
+                baseTarget = 180f;
+                prefillPercentage = 0.10f;
+                icePercentage = 0.10f;
+                minPieceSize = 2;
+                maxPieceSize = 3; // 4 yasaklandı
+                break;
+            case AILevelDifficulty.Zor:
+                baseTime = 60f; 
+                baseTarget = 420f;
+                prefillPercentage = 0.20f;
+                icePercentage = 0.20f;
+                minPieceSize = 2;
+                maxPieceSize = 5;
+                break;
+            case AILevelDifficulty.Uzman:
+                baseTime = 45f;
+                baseTarget = 870f;
+                prefillPercentage = 0.30f;
+                icePercentage = 0.30f;
+                minPieceSize = 3; // 4 olmasın
+                maxPieceSize = 6;
+                break;
         }
 
         if (selectedTemplate != null)
