@@ -59,6 +59,11 @@ public class AILevelDesignerWindow : EditorWindow
     // Prompt tabanlı üretim
     private string aiPrompt          = "star with ice at base and golden corners";
 
+    // ── Seviye Zorluk / Hızlı Ayar Ölçeği ─────────────────────────
+    private int targetLevelIndex = 1;
+    private string levelDifficultyModeSuggestion = "Kolay";
+    private bool autoApplyDifficulty = true;
+
     // ── Grid Verisi ────────────────────────────────────────────────
     private HashSet<Vector3Int> occupiedCells   = new HashSet<Vector3Int>();
     private List<Vector3Int> prefilledCells     = new List<Vector3Int>();
@@ -137,7 +142,7 @@ public class AILevelDesignerWindow : EditorWindow
     // ── Sol Panel (Parametreler) ──────────────────────────────────
     private void DrawLeftPanel()
     {
-        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(300), GUILayout.ExpandHeight(true));
+        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(420), GUILayout.ExpandHeight(true));
         leftScroll = EditorGUILayout.BeginScrollView(leftScroll);
 
         // ŞABLON SEÇİCİ (ÖNCELİKLİ)
@@ -166,11 +171,174 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Space(10);
 
+        // 🏆 SEVİYE BAZLI DİNAMİK AYARLAR VE ÖLÇEK (HINTS & SCALE)
+        GUILayout.Label("🏆 SEVİYE BAZLI HIZLI AYARLAR", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        // 1. Hızlı Zorluk Bölgesi Seçimi
+        EditorGUILayout.LabelField("Hızlı Bölge Seçimi:", EditorStyles.miniBoldLabel);
+        EditorGUILayout.BeginHorizontal();
+        
+        // Kolay
+        GUI.backgroundColor = targetLevelIndex <= 10 ? Color.green : new Color(0.7f, 1f, 0.7f, 0.4f);
+        if (GUILayout.Button("KOLAY (1-10)", EditorStyles.miniButtonLeft, GUILayout.Height(22)))
+        {
+            targetLevelIndex = 1;
+            ApplyDifficultyScale(targetLevelIndex);
+        }
+        
+        // Orta
+        GUI.backgroundColor = (targetLevelIndex > 10 && targetLevelIndex <= 30) ? new Color(1.0f, 0.6f, 0.0f) : new Color(1f, 0.8f, 0.5f, 0.4f);
+        if (GUILayout.Button("ORTA (11-30)", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        {
+            targetLevelIndex = 15;
+            ApplyDifficultyScale(targetLevelIndex);
+        }
+        
+        // Zor
+        GUI.backgroundColor = (targetLevelIndex > 30 && targetLevelIndex <= 60) ? new Color(0.9f, 0.2f, 0.2f) : new Color(1f, 0.6f, 0.6f, 0.4f);
+        if (GUILayout.Button("ZOR (31-60)", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        {
+            targetLevelIndex = 45;
+            ApplyDifficultyScale(targetLevelIndex);
+        }
+        
+        // Uzman
+        GUI.backgroundColor = targetLevelIndex > 60 ? new Color(0.7f, 0.1f, 0.8f) : new Color(0.85f, 0.6f, 0.9f, 0.4f);
+        if (GUILayout.Button("UZMAN (61+)", EditorStyles.miniButtonRight, GUILayout.Height(22)))
+        {
+            targetLevelIndex = 80;
+            ApplyDifficultyScale(targetLevelIndex);
+        }
+        
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space(5);
+
+        // 2. Seviye Seçimi (Etiket Üstte)
+        EditorGUILayout.LabelField("🎯 Hedef Seviye Seçimi (Level):", EditorStyles.boldLabel);
+        
+        EditorGUILayout.BeginHorizontal();
+        
+        // -10 Seviye
+        if (GUILayout.Button("◀◀", GUILayout.Width(35), GUILayout.Height(22)))
+        {
+            targetLevelIndex = Mathf.Max(1, targetLevelIndex - 10);
+            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+        }
+        
+        // -1 Seviye
+        if (GUILayout.Button("◀", GUILayout.Width(25), GUILayout.Height(22)))
+        {
+            targetLevelIndex = Mathf.Max(1, targetLevelIndex - 1);
+            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+        }
+
+        int prevLevelIdx = targetLevelIndex;
+        // Slider artık tüm genişliği kaplayabilir, çünkü etiket yukarı taşındı
+        targetLevelIndex = EditorGUILayout.IntSlider(targetLevelIndex, 1, 100);
+        if (targetLevelIndex != prevLevelIdx)
+        {
+            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+        }
+
+        // +1 Seviye
+        if (GUILayout.Button("▶", GUILayout.Width(25), GUILayout.Height(22)))
+        {
+            targetLevelIndex = Mathf.Min(100, targetLevelIndex + 1);
+            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+        }
+        
+        // +10 Seviye
+        if (GUILayout.Button("▶▶", GUILayout.Width(35), GUILayout.Height(22)))
+        {
+            targetLevelIndex = Mathf.Min(100, targetLevelIndex + 10);
+            if (autoApplyDifficulty) ApplyDifficultyScale(targetLevelIndex);
+        }
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space(2);
+
+        // 3. Otomatik Uygulama Seçeneği
+        autoApplyDifficulty = EditorGUILayout.Toggle("Değerleri Otomatik Uygula", autoApplyDifficulty);
+
+        EditorGUILayout.Space(4);
+
+        // 4. Öneri Özeti ve Rozet
+        Color badgeColor = Color.green;
+        string badgeText = "KOLAY";
+        if (levelDifficultyModeSuggestion == "Orta") { badgeColor = new Color(1.0f, 0.6f, 0.0f); badgeText = "ORTA"; }
+        else if (levelDifficultyModeSuggestion == "Zor") { badgeColor = new Color(0.9f, 0.2f, 0.2f); badgeText = "ZOR"; }
+        else if (levelDifficultyModeSuggestion == "Uzman") { badgeColor = new Color(0.7f, 0.1f, 0.8f); badgeText = "UZMAN"; }
+
+        // Öneri Değerleri Önizlemesi
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.LabelField($"📈 LEVEL {targetLevelIndex} HESAPLANAN VERİLER", EditorStyles.miniBoldLabel);
+        EditorGUILayout.LabelField($"• Zorluk Modu: {badgeText}", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"• Süre Limiti: {levelTime} sn", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"• Hedef Skor: {levelTarget} Puan", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"• Hazır Küp: %{prefillPercentage * 100f:F0}", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"• Buz Küpü: %{icePercentage * 100f:F0}", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"• Parça Boyutu: {minPieceSize} - {maxPieceSize} Küp", EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+
+        if (!autoApplyDifficulty)
+        {
+            GUI.backgroundColor = badgeColor;
+            if (GUILayout.Button($"Önerilen Parametreleri Formlara Aktar", GUILayout.Height(28)))
+            {
+                ApplyDifficultyScale(targetLevelIndex);
+            }
+            GUI.backgroundColor = Color.white;
+        }
+
+        string hintText = "";
+        if (targetLevelIndex <= 10)
+        {
+            hintText = "💡 Level 1-10: Kolay başlangıç. Buz blokları yok, küçük parçalar (1-3 küp) kullanılır. Süre sınırı bol tutulmuştur.";
+        }
+        else if (targetLevelIndex <= 30)
+        {
+            hintText = "💡 Level 11-30: Orta zorluk. Buz ve prefilled (renkli) bloklar eklenir. Parça boyutu 1-4 küp önerilir.";
+        }
+        else if (targetLevelIndex <= 60)
+        {
+            hintText = "💡 Level 31-60: Zor seviye. Buz oranı artırılmış ve prefilled bloklar stratejiktir. Parça boyutu 2-5 küp önerilir.";
+        }
+        else
+        {
+            hintText = "💡 Level 61-100: Uzman seviye. Dar zaman limitleri, yüksek buz oranı ve karmaşık parçalar (2-8 küp) bulunur.";
+        }
+        EditorGUILayout.HelpBox(hintText, MessageType.Info);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        float originalLabelWidth = EditorGUIUtility.labelWidth;
+
         GUILayout.Label("GENEL AYARLAR", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        EditorGUIUtility.labelWidth = 110;
         levelName   = EditorGUILayout.TextField("Seviye Adı Öneki", levelName);
+        
+        EditorGUILayout.BeginHorizontal();
         levelTime   = EditorGUILayout.FloatField("Süre Sınırı (sn)", levelTime);
         levelTarget = EditorGUILayout.IntField("Hedef Skor", levelTarget);
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.BeginHorizontal();
+        if (levelTime <= 0)
+        {
+            EditorGUILayout.LabelField("ℹ Süresiz oyun modu aktif.", EditorStyles.miniLabel);
+        }
+        else
+        {
+            EditorGUILayout.LabelField($"ℹ Süre Önerisi: {levelTime} sn.", EditorStyles.miniLabel);
+        }
+        EditorGUILayout.LabelField($"ℹ Skor Önerisi: {levelTarget} Puan.", EditorStyles.miniLabel);
+        EditorGUILayout.EndHorizontal();
         
         GUI.enabled = false; // Şablondan geldiği için değiştirilemez
         gridSize    = EditorGUILayout.Vector3IntField("Grid Boyutu (Şablon)", gridSize);
@@ -183,25 +351,70 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUILayout.LabelField("AI sadece bu parametreleri ayarlar:", EditorStyles.miniBoldLabel);
         
+        EditorGUILayout.BeginHorizontal();
+        
+        EditorGUILayout.BeginVertical();
+        EditorGUIUtility.labelWidth = 110;
         prefillPercentage = EditorGUILayout.Slider("Hazır Küp Oranı", prefillPercentage, 0f, 0.4f);
+        string prefillScaleText = prefillPercentage == 0f ? "Yok" :
+                                  prefillPercentage <= 0.15f ? $"Orta (%{prefillPercentage*100f:F0})" :
+                                  prefillPercentage <= 0.25f ? $"Zor (%{prefillPercentage*100f:F0})" :
+                                  $"Uzm (%{prefillPercentage*100f:F0})";
+        EditorGUILayout.LabelField($"ℹ Ölçek: {prefillScaleText}", EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+        
+        GUILayout.Space(10);
+
+        EditorGUILayout.BeginVertical();
+        EditorGUIUtility.labelWidth = 100;
         icePercentage = EditorGUILayout.Slider("Buz Küpü Oranı", icePercentage, 0f, 0.4f);
+        string iceScaleText = icePercentage == 0f ? "Yok" :
+                              icePercentage <= 0.15f ? $"Orta (%{icePercentage*100f:F0})" :
+                              icePercentage <= 0.28f ? $"Zor (%{icePercentage*100f:F0})" :
+                              $"Uzm (%{icePercentage*100f:F0})";
+        EditorGUILayout.LabelField($"ℹ Ölçek: {iceScaleText}", EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+        
+        EditorGUILayout.EndHorizontal();
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
 
         GUILayout.Label("PARÇA BÖLME ALGORİTMASI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        EditorGUILayout.BeginHorizontal();
+        
+        EditorGUILayout.BeginVertical();
+        EditorGUIUtility.labelWidth = 110;
         minPieceSize = EditorGUILayout.IntSlider("Min Parça Küpü", minPieceSize, 1, 10);
+        EditorGUILayout.EndVertical();
+        
+        GUILayout.Space(10);
+
+        EditorGUILayout.BeginVertical();
+        EditorGUIUtility.labelWidth = 100;
         maxPieceSize = EditorGUILayout.IntSlider("Max Parça Küpü", maxPieceSize, minPieceSize, 18);
-        EditorGUILayout.HelpBox("AI, şekli otomatik olarak birbirine bağlı (contiguous) bu boyutlarda parçalara bölecektir. Tetris mantığı için max 4-5 önerilir.", MessageType.Info);
+        EditorGUILayout.EndVertical();
+        
+        EditorGUILayout.EndHorizontal();
+        
+        string pieceDifficultyTip = maxPieceSize <= 3 ? "Kolay Snapping" :
+                                   maxPieceSize <= 5 ? "Standart Pentomino (Orta)" :
+                                   maxPieceSize <= 7 ? "Büyük Parçalar (Zor)" :
+                                   "Dev Parçalar (Uzman)";
+        EditorGUILayout.LabelField($"ℹ Parça Önerisi: {pieceDifficultyTip}", EditorStyles.miniLabel);
+        EditorGUILayout.HelpBox("AI, şekli otomatik olarak bu boyutlarda parçalara bölecektir. Tetris için max 4-5 önerilir.", MessageType.Info);
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(12);
 
+        EditorGUIUtility.labelWidth = originalLabelWidth;
+
         cubePrefab = (GameObject)EditorGUILayout.ObjectField("Global Küp Prefabı", cubePrefab, typeof(GameObject), false);
         if (cubePrefab == null)
         {
-            EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin, aksi halde varsayılan Unity küpü üretilecektir.", MessageType.Warning);
+            EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin.", MessageType.Warning);
         }
 
         GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // Magenta
@@ -401,7 +614,7 @@ public class AILevelDesignerWindow : EditorWindow
     // ── Sağ Panel (Dışa Aktarma) ──────────────────────────────────
     private void DrawRightPanel()
     {
-        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(250), GUILayout.ExpandHeight(true));
+        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(190), GUILayout.ExpandHeight(true));
         rightScroll = EditorGUILayout.BeginScrollView(rightScroll);
 
         GUILayout.Label("DIŞA AKTAR VE DENE", styleHeader);
@@ -1472,6 +1685,70 @@ public class AILevelDesignerWindow : EditorWindow
 
         Debug.Log($"📐 Şablon yüklendi: {selectedTemplate.templateName} ({gridSize.x}x{gridSize.y}x{gridSize.z}) - Dinamik Boyut: Min {minPieceSize}, Max {maxPieceSize}");
         Repaint();
+    }
+
+    private void ApplyDifficultyScale(int level)
+    {
+        targetLevelIndex = Mathf.Clamp(level, 1, 100);
+        levelName = $"AI_Level_{targetLevelIndex}";
+        
+        float baseTime = 75f;
+        float baseTarget = 150f;
+        
+        if (targetLevelIndex <= 10)
+        {
+            levelDifficultyModeSuggestion = "Kolay";
+            baseTime = 90f - (targetLevelIndex - 1) * 2f; 
+            baseTarget = 80 + (targetLevelIndex - 1) * 10;
+            prefillPercentage = 0f;
+            icePercentage = 0f;
+            minPieceSize = 1;
+            maxPieceSize = Mathf.Clamp(3 + (targetLevelIndex / 5), 3, 4);
+        }
+        else if (targetLevelIndex <= 30)
+        {
+            levelDifficultyModeSuggestion = "Orta";
+            baseTime = 75f - (targetLevelIndex - 10) * 1f; 
+            baseTarget = 180 + (targetLevelIndex - 10) * 12;
+            prefillPercentage = Mathf.Lerp(0.05f, 0.15f, (targetLevelIndex - 10) / 20f);
+            icePercentage = Mathf.Lerp(0.08f, 0.15f, (targetLevelIndex - 10) / 20f);
+            minPieceSize = Mathf.Clamp(1 + (targetLevelIndex / 15), 1, 2);
+            maxPieceSize = Mathf.Clamp(4 + (targetLevelIndex / 15), 4, 5);
+        }
+        else if (targetLevelIndex <= 60)
+        {
+            levelDifficultyModeSuggestion = "Zor";
+            baseTime = 60f - (targetLevelIndex - 30) * 0.5f; 
+            baseTarget = 420 + (targetLevelIndex - 30) * 15;
+            prefillPercentage = Mathf.Lerp(0.15f, 0.25f, (targetLevelIndex - 30) / 30f);
+            icePercentage = Mathf.Lerp(0.15f, 0.28f, (targetLevelIndex - 30) / 30f);
+            minPieceSize = 2;
+            maxPieceSize = 5;
+        }
+        else
+        {
+            levelDifficultyModeSuggestion = "Uzman";
+            baseTime = Mathf.Max(30f, 45f - (targetLevelIndex - 60) * 0.25f);
+            baseTarget = 870 + (targetLevelIndex - 60) * 20;
+            prefillPercentage = Mathf.Lerp(0.25f, 0.40f, (targetLevelIndex - 60) / 40f);
+            icePercentage = Mathf.Lerp(0.28f, 0.40f, (targetLevelIndex - 60) / 40f);
+            minPieceSize = Mathf.Clamp(2 + (targetLevelIndex / 40), 2, 4);
+            maxPieceSize = Mathf.Clamp(5 + (targetLevelIndex / 30), 5, 8);
+        }
+
+        if (selectedTemplate != null)
+        {
+            levelTime = Mathf.Round(selectedTemplate.recommendedTimeLimit * (baseTime / 75f));
+            levelTarget = Mathf.RoundToInt(selectedTemplate.recommendedTargetScore * (baseTarget / 150f));
+        }
+        else
+        {
+            levelTime = Mathf.Round(baseTime);
+            levelTarget = Mathf.RoundToInt(baseTarget);
+        }
+
+        prefillPercentage = Mathf.Round(prefillPercentage * 100f) / 100f;
+        icePercentage = Mathf.Round(icePercentage * 100f) / 100f;
     }
 
     private Texture2D MakeTex(int width, int height, Color col)

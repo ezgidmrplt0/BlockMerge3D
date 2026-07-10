@@ -191,8 +191,9 @@ public class LevelManager : MonoBehaviour
         // Parçayı spawn et
         SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
 
-        // Parca uretildikten sonra hala hamle var mi bak
-        CheckGameOver();
+        // Game Over kontrolü burada yapılmaz.
+        // Bu metot level başında kartlar tek tek doldurulurken de çağrıldığı için
+        // erken kontrol yanlış Retry ekranı açabilir.
     }
 
     private Quaternion GetRandom90DegreeRotation()
@@ -227,7 +228,7 @@ public class LevelManager : MonoBehaviour
         if (gridManager == null) return null;
 
         var colorCounts = new Dictionary<Color, int>();
-        foreach (var c in gridManager.targetCells)
+        foreach (var c in gridManager.allShapeCells)
         {
             if (c.y == gridManager.ActiveLayerY)
             {
@@ -556,36 +557,91 @@ public class LevelManager : MonoBehaviour
 
     private void CheckGameOver()
     {
-        if (activePieces.Count == 0) return;
+        if (gridManager == null) return;
 
-        bool anyMovePossible = false;
+        // Level tamamlanmışsa kayıp değil, kazanma/katman geçişi akışı çalışmalıdır.
+        if (gridManager.IsComplete() || gridManager.IsLayerComplete())
+        {
+            return;
+        }
+
+        // Kartlar henüz oluşturulmadıysa veya geçici olarak boşsa Retry açma.
+        if (activePieces == null || activePieces.Count == 0)
+        {
+            return;
+        }
+
+        // Spawn sisteminin kullandığı uygunluk kontrolünün AYNISINI kullan.
+        // Böylece üretilebilen/döndürülerek yerleştirilebilen bir parça varken
+        // yanlışlıkla Game Over verilmez.
         foreach (var pieceGO in activePieces)
         {
             if (pieceGO == null) continue;
-            var h = pieceGO.GetComponent<CubeShapeDataHolder>();
-            if (h == null) continue;
 
-            Quaternion[] possibleRots = { 
-                Quaternion.identity, 
-                Quaternion.Euler(0, 90, 0), Quaternion.Euler(0, 180, 0), Quaternion.Euler(0, 270, 0)
-            };
-
-            foreach (var rot in possibleRots)
+            if (IsShapePlaceable(pieceGO))
             {
-                var rotatedCells = GridManager.RotateCells(h.occupiedCells, rot);
-                if (gridManager.GetPossibleOffsets(rotatedCells).Count > 0)
+                Debug.Log($"[CheckGameOver] Geçerli hamle var: {pieceGO.name}");
+                return;
+            }
+        }
+
+        // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin
+        // hiçbirinde aktif katmandaki boş hücrelere yerleşemiyorsa gelir.
+        Debug.Log("[CheckGameOver] Hiçbir uygun parça/hamle kalmadı. Game Over.");
+        GameManager.Instance?.GameOver();
+    }
+
+    private bool CanPlacementThawIce(List<Vector3Int> rotatedCells, Vector3Int offset)
+    {
+        if (gridManager == null || gridManager.frozenCells.Count == 0) return false;
+
+        Vector3Int[] neighbors = {
+            Vector3Int.left, Vector3Int.right,
+            Vector3Int.up, Vector3Int.down,
+            new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
+        };
+
+        List<Vector3Int> placedPositions = new List<Vector3Int>();
+        foreach (var c in rotatedCells)
+        {
+            placedPositions.Add(c + offset);
+        }
+
+        foreach (var frozenCell in gridManager.frozenCells)
+        {
+            if (frozenCell.y != gridManager.ActiveLayerY) continue;
+            List<Vector3Int> inLayer = new List<Vector3Int>();
+            foreach (var cell in placedPositions)
+            {
+                if (cell.y == frozenCell.y)
                 {
-                    anyMovePossible = true;
-                    break;
+                    inLayer.Add(cell);
                 }
             }
-            if (anyMovePossible) break;
+
+            if (inLayer.Count < 2) continue;
+
+            bool isAdjacent = false;
+            foreach (var cell in inLayer)
+            {
+                foreach (var nOff in neighbors)
+                {
+                    if (cell + nOff == frozenCell)
+                    {
+                        isAdjacent = true;
+                        break;
+                    }
+                }
+                if (isAdjacent) break;
+            }
+
+            if (isAdjacent)
+            {
+                return true;
+            }
         }
 
-        if (!anyMovePossible)
-        {
-            GameManager.Instance?.GameOver();
-        }
+        return false;
     }
 
     public void ClearCurrentLevel()

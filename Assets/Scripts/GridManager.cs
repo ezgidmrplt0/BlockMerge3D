@@ -72,11 +72,36 @@ public class GridManager : MonoBehaviour
         if (mainShape != null)
         {
             var holder = mainShape.GetComponent<CubeShapeDataHolder>();
-            List<Vector3Int> prefilled = holder != null && holder.prefilledCells != null ? holder.prefilledCells : new List<Vector3Int>();
+            List<Vector3Int> prefilled = holder != null && holder.prefilledCells != null
+                ? holder.prefilledCells
+                : new List<Vector3Int>();
 
-            foreach (var r in mainShape.GetComponentsInChildren<Renderer>())
+            // Mantıksal grid'i yalnızca görünür Renderer'lardan kurarsak,
+            // panelde gizli olan üst katmanlar hiç kaydedilmez.
+            // Bu yüzden bütün hücreleri doğrudan CubeShapeDataHolder'dan alıyoruz.
+            bool loadedLogicalCellsFromHolder =
+                holder != null &&
+                holder.occupiedCells != null &&
+                holder.occupiedCells.Count > 0;
+
+            if (loadedLogicalCellsFromHolder)
             {
-                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                foreach (var cell in holder.occupiedCells)
+                {
+                    allShapeCells.Add(cell);
+
+                    if (prefilled.Contains(cell))
+                        occupiedCells.Add(cell);
+                    else
+                        targetCells.Add(cell);
+                }
+            }
+
+            // true: Kapalı/disabled çocuk Renderer'ları da bul.
+            foreach (var r in mainShape.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+
                 string name = r.gameObject.name;
                 bool isCube = name.StartsWith("Cube_");
                 bool isPrefilled = name.StartsWith("Prefilled_");
@@ -88,30 +113,30 @@ public class GridManager : MonoBehaviour
                 int z = Mathf.RoundToInt(localPos.z / step);
 
                 var cell = new Vector3Int(x, y, z);
-                allShapeCells.Add(cell);
-                
-                if (isPrefilled)
+
+                // Holder verisi yoksa eski Renderer tabanlı sistemi fallback olarak kullan.
+                if (!loadedLogicalCellsFromHolder)
+                    allShapeCells.Add(cell);
+
+                if (isPrefilled || prefilled.Contains(cell))
                 {
+                    targetCells.Remove(cell);
                     occupiedCells.Add(cell);
-                    // Prefilled objeler activeMainPiece'in child'ları olduğu için cellObjects'e eklenmemeli
-                    // cellObjects sadece oyuncu tarafından yerleştirilen parçalar için kullanılır
-                    // cellObjects[cell] = r.gameObject; // ← KALDIRILDI
-                    prefilledRenderers[cell] = r; // Katman görünürlük kontrolü için renderer'ı sakla
-                    // "Prefilled_matIdx_x_y_z" → parse matIdx
+                    prefilledRenderers[cell] = r;
+
+                    if (r.sharedMaterial != null)
+                        cellColors[cell] = GetMaterialColor(r.sharedMaterial);
+
+                    // "Prefilled_matIdx_x_y_z" -> parse matIdx
                     var parts = name.Split('_');
                     if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedIdx))
                         cellMatIndex[cell] = parsedIdx;
                 }
-                else if (prefilled.Contains(cell)) // eski format fallback
-                {
-                    occupiedCells.Add(cell);
-                    // Eski format prefilled'lar da cellObjects'e eklenmemeli
-                    // cellObjects[cell] = r.gameObject; // ← KALDIRILDI
-                    prefilledRenderers[cell] = r; // Katman görünürlük kontrolü için renderer'ı sakla
-                }
                 else
                 {
-                    targetCells.Add(cell);
+                    if (!loadedLogicalCellsFromHolder)
+                        targetCells.Add(cell);
+
                     targetRenderers[cell] = r;
                 }
             }
@@ -181,37 +206,13 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // Find the first layer from gridMinY to gridMaxY that contains target cells and is not complete
-        ActiveLayerY = gridMinY;
-        for (int y = gridMinY; y <= gridMaxY; y++)
-        {
-            bool hasTargetCells = false;
-            foreach (var c in targetCells)
-            {
-                if (c.y == y)
-                {
-                    hasTargetCells = true;
-                    break;
-                }
-            }
-            if (hasTargetCells)
-            {
-                bool layerFull = true;
-                foreach (var c in targetCells)
-                {
-                    if (c.y == y && !occupiedCells.Contains(c))
-                    {
-                        layerFull = false;
-                        break;
-                    }
-                }
-                if (!layerFull)
-                {
-                    ActiveLayerY = y;
-                    break;
-                }
-            }
-        }
+        // İlk tamamlanmamış gerçek katmanı bul.
+        // targetCells yerine allShapeCells kullanılır; böylece gizli/prefilled/frozen
+        // hücreleri bulunan katmanlar da doğru şekilde hesaba katılır.
+        if (!TryFindFirstIncompleteLayer(out int firstIncompleteLayer))
+            ActiveLayerY = gridMinY;
+        else
+            ActiveLayerY = firstIncompleteLayer;
         lineClearEnabled = false; // Layer-by-layer mode
         RefreshLayerVisibility();
     }
@@ -314,7 +315,6 @@ public class GridManager : MonoBehaviour
     {
         int cellsInLayer    = 0;
         int occupiedInLayer = 0;
-        List<int> indicesInLayer = new List<int>();
 
         foreach (var c in allShapeCells)
         {
@@ -324,27 +324,41 @@ public class GridManager : MonoBehaviour
                 if (occupiedCells.Contains(c))
                 {
                     occupiedInLayer++;
-                    int matIdx = cellMatIndex.TryGetValue(c, out int idx) ? idx : -1;
-                    indicesInLayer.Add(matIdx);
                 }
             }
         }
 
-        bool allOccupied = (cellsInLayer > 0 && occupiedInLayer == cellsInLayer);
+        return (cellsInLayer > 0 && occupiedInLayer == cellsInLayer);
+    }
 
-        // Eğer tüm indeksler aynı sayıysa ve -1 değilse → aynı materyal
-        bool allSameColor = false;
-        if (indicesInLayer.Count > 0)
+    private bool TryFindFirstIncompleteLayer(out int layerY)
+    {
+        for (int y = gridMinY; y <= gridMaxY; y++)
         {
-            int first = indicesInLayer[0];
-            allSameColor = (first >= 0);
-            foreach (var idx in indicesInLayer)
+            bool hasCells = false;
+            bool layerComplete = true;
+
+            foreach (var cell in allShapeCells)
             {
-                if (idx != first) { allSameColor = false; break; }
+                if (cell.y != y) continue;
+
+                hasCells = true;
+                if (!occupiedCells.Contains(cell))
+                {
+                    layerComplete = false;
+                    break;
+                }
+            }
+
+            if (hasCells && !layerComplete)
+            {
+                layerY = y;
+                return true;
             }
         }
 
-        return (allOccupied && allSameColor);
+        layerY = gridMinY;
+        return false;
     }
 
     public void ExplodeActiveLayer(System.Action onLayerComplete, System.Action onLevelComplete)
@@ -431,6 +445,7 @@ public class GridManager : MonoBehaviour
         AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset);
 
         // --- MANTIKSAL ÇÖKME (LOGICAL COLLAPSE) ---
+        var newAllShapeCells = new HashSet<Vector3Int>();
         var newTargetCells = new HashSet<Vector3Int>();
         var newOccupiedCells = new HashSet<Vector3Int>();
         var newCellObjects = new Dictionary<Vector3Int, GameObject>();
@@ -439,6 +454,18 @@ public class GridManager : MonoBehaviour
         var newTargetRenderers = new Dictionary<Vector3Int, Renderer>();
         var newPrefilledRenderers = new Dictionary<Vector3Int, Renderer>();
         var newFrozenCells = new HashSet<Vector3Int>();
+
+        // Tamamlanan katmanı allShapeCells'ten çıkar ve üst katmanları aşağı kaydır.
+        foreach (var c in allShapeCells)
+        {
+            if (c.y == clearedY) continue;
+
+            Vector3Int newC = c.y > clearedY
+                ? new Vector3Int(c.x, c.y - 1, c.z)
+                : c;
+
+            newAllShapeCells.Add(newC);
+        }
 
         foreach (var c in targetCells)
         {
@@ -471,6 +498,7 @@ public class GridManager : MonoBehaviour
             newFrozenCells.Add(newC);
         }
 
+        allShapeCells = newAllShapeCells;
         targetCells = newTargetCells;
         occupiedCells = newOccupiedCells;
         cellObjects = newCellObjects;
@@ -513,33 +541,21 @@ public class GridManager : MonoBehaviour
 
         RefreshLayerVisibility();
 
-        if (targetCells.Count == 0)
+        // Level yalnızca gerçekten hiçbir katman/hücre kalmadığında tamamlanır.
+        // Sadece targetCells.Count kontrolü gizli üst katmanları yok sayabiliyordu.
+        if (allShapeCells.Count == 0)
         {
             ActiveLayerY = gridMaxY + 1;
             onLevelComplete?.Invoke();
         }
         else
         {
-            // Yeni aktif katmanı bul
-            ActiveLayerY = gridMinY;
-            for (int y = gridMinY; y <= gridMaxY; y++)
-            {
-                bool layerFull = true;
-                foreach (var c in targetCells)
-                {
-                    if (c.y == y && !occupiedCells.Contains(c))
-                    {
-                        layerFull = false;
-                        break;
-                    }
-                }
-                if (!layerFull)
-                {
-                    ActiveLayerY = y;
-                    break;
-                }
-            }
+            if (TryFindFirstIncompleteLayer(out int nextLayer))
+                ActiveLayerY = nextLayer;
+            else
+                ActiveLayerY = gridMinY;
 
+            RefreshLayerVisibility();
             onLayerComplete?.Invoke();
         }
     }
@@ -1149,7 +1165,7 @@ public class GridManager : MonoBehaviour
     }
 
     public bool IsComplete()
-        => targetCells.Count == 0;
+        => allShapeCells.Count == 0;
 
     // --- Smart Spawn Helpers ---
 
@@ -1613,10 +1629,7 @@ public class GridManager : MonoBehaviour
         {
             frozenCells.Remove(cell);
         }
-
-        // Callback'i hemen çağır, böylece yeni parça animasyon beklemeden gelir
-        onComplete?.Invoke();
-        
+        // Callback animasyon tamamlanana kadar bekletilir.
         List<GameObject> allCracks = new List<GameObject>();
 
         // 1. ANTICIPATION PHASE (Shake and flash)
@@ -1726,6 +1739,10 @@ public class GridManager : MonoBehaviour
         }
 
         RefreshLayerVisibility();
+
+        // Tüm mantıksal ve görsel buz kırılma işlemleri tamamlandıktan sonra
+        // yerleştirme zincirine yalnızca bir kez devam et.
+        onComplete?.Invoke();
     }
 
     public void CreateIceShatterEffect(Vector3 centerPosition)
