@@ -162,8 +162,15 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // Eğer spawn edilmemiş parça kalmadıysa (bütün parçalar dağıtıldıysa), boş bırak
-        if (availableIndices.Count == 0) return;
+        // Eğer spawn edilmemiş parça kalmadıysa (bütün parçalar dağıtıldıysa), listeyi sıfırla ve yeniden başla (Sonsuz Döngü)
+        if (availableIndices.Count == 0)
+        {
+            spawnedPieceIndices.Clear();
+            for (int i = 0; i < allPiecePrefabs.Count; i++)
+            {
+                availableIndices.Add(i);
+            }
+        }
 
         // Kalanlardan rastgele bir parça seç
         int indexToSpawn = availableIndices[Random.Range(0, availableIndices.Count)];

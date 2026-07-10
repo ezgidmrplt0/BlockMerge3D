@@ -1377,6 +1377,7 @@ public class GridManager : MonoBehaviour
     
     private Dictionary<Renderer, Color> pieceOriginalBaseColors = new Dictionary<Renderer, Color>();
     private Dictionary<Renderer, Color> pieceOriginalEmissionColors = new Dictionary<Renderer, Color>();
+    private Dictionary<Renderer, bool> pieceOriginalEmissionEnabled = new Dictionary<Renderer, bool>();
 
     private Dictionary<Renderer, VisualState> activeStates = new Dictionary<Renderer, VisualState>();
     private bool isFocusModeActive = false;
@@ -1389,6 +1390,7 @@ public class GridManager : MonoBehaviour
         activeStates.Clear();
         pieceOriginalBaseColors.Clear();
         pieceOriginalEmissionColors.Clear();
+        pieceOriginalEmissionEnabled.Clear();
 
         // 3. Save original colors for the dragged piece's renderers
         if (piece != null)
@@ -1396,6 +1398,9 @@ public class GridManager : MonoBehaviour
             foreach (var r in piece.GetComponentsInChildren<Renderer>())
             {
                 if (r == null) continue;
+                
+                // Eğer animasyon devam ediyorsa rengin açık kalmaması için tween'i bitir
+                if (r.sharedMaterial != null) r.material.DOKill(true);
                 
                 Material mat = r.material; // Instantiate material
                 
@@ -1407,6 +1412,8 @@ public class GridManager : MonoBehaviour
                 Color emissiveCol = Color.clear;
                 if (mat.HasProperty("_EmissionColor")) emissiveCol = mat.GetColor("_EmissionColor");
                 pieceOriginalEmissionColors[r] = emissiveCol;
+
+                pieceOriginalEmissionEnabled[r] = mat.IsKeywordEnabled("_EMISSION");
             }
         }
     }
@@ -1452,6 +1459,7 @@ public class GridManager : MonoBehaviour
         activeStates.Clear();
         pieceOriginalBaseColors.Clear();
         pieceOriginalEmissionColors.Clear();
+        pieceOriginalEmissionEnabled.Clear();
     }
 
     private void TransitionToState(Renderer r, VisualState state, float duration)
@@ -1477,7 +1485,10 @@ public class GridManager : MonoBehaviour
                 default:
                     targetBase = origBase;
                     targetEmission = origEmis;
-                    enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
+                    if (pieceOriginalEmissionEnabled.TryGetValue(r, out bool wasEnabled))
+                        enableEmission = wasEnabled;
+                    else
+                        enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
                     break;
 
                 case VisualState.HighlightedInvalid:
