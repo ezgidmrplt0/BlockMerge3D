@@ -67,6 +67,11 @@ public class LevelManager : MonoBehaviour
     {
         ClearCurrentLevel();
 
+        // Önceki seviyeden kalan swipe döndürmesini yeni ana şekil pivot'a
+        // parent'lanmadan ÖNCE nötrle (aksi halde SetParent eski açıyı telafi
+        // eden bir local rotasyon kilitler ve şekil kalıcı olarak yanlış görünür).
+        CameraOrbit.Instance?.ResetBoardRotation();
+
         if (level.mainShapePrefab != null)
         {
             var prefabHolder = level.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
@@ -562,48 +567,18 @@ public class LevelManager : MonoBehaviour
             return;
         }
 
-        Debug.Log($"[CheckGameOver] Checking. ActiveLayerY: {gridManager.ActiveLayerY}");
-        
-        List<Vector3Int> targetInLayer = new List<Vector3Int>();
-        foreach (var t in gridManager.TargetCells)
-        {
-            if (t.y == gridManager.ActiveLayerY) targetInLayer.Add(t);
-        }
-        Debug.Log($"[CheckGameOver] targetCells in ActiveLayerY: {string.Join(", ", targetInLayer)}");
-
-        List<Vector3Int> occupiedInLayer = new List<Vector3Int>();
-        foreach (var o in gridManager.occupiedCells)
-        {
-            if (o.y == gridManager.ActiveLayerY) occupiedInLayer.Add(o);
-        }
-        Debug.Log($"[CheckGameOver] occupiedCells in ActiveLayerY: {string.Join(", ", occupiedInLayer)}");
-
-        List<Vector3Int> frozenInLayer = new List<Vector3Int>();
-        foreach (var f in gridManager.frozenCells)
-        {
-            if (f.y == gridManager.ActiveLayerY) frozenInLayer.Add(f);
-        }
-        Debug.Log($"[CheckGameOver] frozenCells in ActiveLayerY: {string.Join(", ", frozenInLayer)}");
-
         foreach (var pieceGO in activePieces)
         {
             if (pieceGO == null) continue;
 
-            bool placeable = IsShapePlaceable(pieceGO);
-            var h = pieceGO.GetComponent<CubeShapeDataHolder>();
-            int cellsCount = h != null ? h.occupiedCells.Count : 0;
-            Debug.Log($"[CheckGameOver] Piece: {pieceGO.name}, Placeable: {placeable}, localCellsCount: {cellsCount}");
-
-            if (placeable)
+            if (IsShapePlaceable(pieceGO))
             {
-                Debug.Log($"[CheckGameOver] Geçerli hamle var: {pieceGO.name}");
                 return;
             }
         }
 
         // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin
         // hiçbirinde aktif katmandaki boş hücrelere yerleşemiyorsa gelir.
-        Debug.Log("[CheckGameOver] Hiçbir uygun parça/hamle kalmadı. Game Over.");
         GameManager.Instance?.GameOver();
     }
 

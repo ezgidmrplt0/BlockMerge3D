@@ -164,12 +164,10 @@ public class GridManager : MonoBehaviour
         }
 
         // Load frozen cells if defined on the prefab, otherwise fallback to random calculation
-        Debug.Log($"[GridManager.Initialize] shapeHolder: {(shapeHolder != null ? "not null" : "null")}, shapeHolder.frozenCells: {(shapeHolder?.frozenCells != null ? "count=" + shapeHolder.frozenCells.Count : "null")}");
         if (shapeHolder != null && shapeHolder.frozenCells != null && shapeHolder.frozenCells.Count > 0)
         {
             foreach (var cell in shapeHolder.frozenCells)
             {
-                Debug.Log($"[GridManager.Initialize] Added frozen cell from prefab: {cell}");
                 frozenCells.Add(cell);
             }
         }
@@ -782,7 +780,6 @@ public class GridManager : MonoBehaviour
             {
                 if (firstMatIdx != matIdx)
                 {
-                    Debug.Log($"[IsLineMonochrome] Rejecting: firstMatIdx={firstMatIdx} != matIdx={matIdx} (Colors were: {firstColor} vs {color})");
                     return false;
                 }
             }
@@ -790,12 +787,7 @@ public class GridManager : MonoBehaviour
             {
                 if (!ColorsApproxEqual(color, firstColor))
                 {
-                    Debug.Log($"[IsLineMonochrome] Rejecting on color fallback: {firstColor} != {color} (MatIdx: {firstMatIdx} vs {matIdx})");
                     return false;
-                }
-                else
-                {
-                    Debug.LogWarning($"[IsLineMonochrome] Warning! Merging on color fallback because matIdx is -1! Color: {firstColor}");
                 }
             }
             else
@@ -803,8 +795,7 @@ public class GridManager : MonoBehaviour
                 return false;
             }
         }
-        
-        Debug.Log($"[IsLineMonochrome] APPROVED MERGE! Length={line.Count}. firstMatIdx={firstMatIdx}, firstColor={firstColor}");
+
         return true;
     }
 
@@ -817,21 +808,12 @@ public class GridManager : MonoBehaviour
 
         if (hasMatA && hasMatB && (matA != -1 || matB != -1))
         {
-            if (matA != matB)
-            {
-                Debug.Log($"[AreCellsSameColor] REJECTED: matA={matA} != matB={matB}");
-                return false;
-            }
-            Debug.Log($"[AreCellsSameColor] ACCEPTED: matA={matA} == matB={matB}");
-            return true;
+            return matA == matB;
         }
-        
+
         if (hasColA && hasColB)
         {
-            bool eq = ColorsApproxEqual(colA, colB);
-            if (eq) Debug.LogWarning($"[AreCellsSameColor] ACCEPTED ON COLOR FALLBACK: colA={colA} == colB={colB}");
-            else Debug.Log($"[AreCellsSameColor] REJECTED ON COLOR FALLBACK: colA={colA} != colB={colB}");
-            return eq;
+            return ColorsApproxEqual(colA, colB);
         }
 
         return false;

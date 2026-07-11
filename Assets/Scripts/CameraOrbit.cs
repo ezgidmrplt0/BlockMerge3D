@@ -68,6 +68,21 @@ public class CameraOrbit : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Tahtanın (pivot) swipe ile birikmiş döndürmesini nötrler.
+    /// Yeni bir ana şekil pivot'a parent'lanmadan ÖNCE çağrılmalıdır; aksi halde
+    /// SetParent(..., true) eski açıyı telafi eden bir local rotasyon "kilitler"
+    /// ve döndürme sonradan sıfırlanınca şekil görsel olarak yanlış açıda kalır.
+    /// </summary>
+    public void ResetBoardRotation()
+    {
+        DOTween.Kill(transform);
+        currentYaw = 0f;
+        targetYaw  = 0f;
+        if (pivot != null) pivot.rotation = Quaternion.identity;
+        else if (cube != null) cube.rotation = Quaternion.identity;
+    }
+
     public void FitInView(Bounds bounds)
     {
         DOTween.Kill(transform);
@@ -174,14 +189,11 @@ public class CameraOrbit : MonoBehaviour
             
         }
 
-        // Küpün yeni başlangıç rotasyonunu belirle
-        Transform targetRotate = pivot != null ? pivot : cube;
-        if (targetRotate != null)
-        {
-            currentYaw = targetRotate.eulerAngles.y;
-            targetYaw  = currentYaw;
-            ApplyRotation();
-        }
+        // Yeni seviye her zaman nötr (0°) tahta rotasyonuyla başlar; önceki seviyeden
+        // kalan swipe döndürmesi bir sonraki seviyeye taşınmamalı (parça yerleşim yönü kayar).
+        currentYaw = 0f;
+        targetYaw  = 0f;
+        ApplyRotation();
     }
 
     public void ZoomToLayer(Vector3 layerWorldCenter, System.Action onComplete = null)
