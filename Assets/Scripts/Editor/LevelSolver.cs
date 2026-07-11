@@ -238,6 +238,10 @@ public class LevelSolver
             if (currentOccupied.Contains(worldCell))
                 return false;
 
+            // Zaten buz var
+            if (frozenCells.Contains(worldCell))
+                return false;
+
             // Hedef hücre değil
             if (!targetCells.Contains(worldCell))
                 return false;
@@ -325,6 +329,9 @@ public class LevelSolver
             currentMatIndex[worldCell] = materialIdx;
         }
 
+        // Simulate ice thawing and block explosion in the active layer (which is offset.y + cells[0].y)
+        ResolveFrozenCellsInSolver(step, offset.y + cells[0].y);
+
         return true;
     }
 
@@ -335,10 +342,104 @@ public class LevelSolver
         var lastStep = currentSolution[currentSolution.Count - 1];
         currentSolution.RemoveAt(currentSolution.Count - 1);
 
+        // 1. Restore thawed cells back to frozen
+        foreach (var cell in lastStep.thawedCells)
+        {
+            frozenCells.Add(cell);
+        }
+
+        // 2. Restore exploded cells back to occupied
+        foreach (var item in lastStep.explodedCells)
+        {
+            currentOccupied.Add(item.cell);
+            currentMatIndex[item.cell] = item.materialIndex;
+        }
+
+        // 3. Remove placed piece's cells
         foreach (var cell in lastStep.cells)
         {
             currentOccupied.Remove(cell);
             currentMatIndex.Remove(cell);
+        }
+    }
+
+    private void ResolveFrozenCellsInSolver(PlacementStep step, int activeLayerY)
+    {
+        if (frozenCells.Count == 0) return;
+
+        var cellsInLayer = targetCells.Where(c => c.y == activeLayerY).ToList();
+        var occupiedInLayer = cellsInLayer.Where(c => currentOccupied.Contains(c)).ToList();
+
+        var groups = new List<List<Vector3Int>>();
+        var visited = new HashSet<Vector3Int>();
+
+        var horizontalNeighbors = new Vector3Int[]
+        {
+            Vector3Int.right,
+            Vector3Int.left,
+            new Vector3Int(0, 0, 1),
+            new Vector3Int(0, 0, -1)
+        };
+
+        foreach (var cell in occupiedInLayer)
+        {
+            if (visited.Contains(cell)) continue;
+            if (!currentMatIndex.TryGetValue(cell, out int matIdx)) continue;
+
+            var group = new List<Vector3Int>();
+            var queue = new Queue<Vector3Int>();
+
+            queue.Enqueue(cell);
+            visited.Add(cell);
+
+            while (queue.Count > 0)
+            {
+                var curr = queue.Dequeue();
+                group.Add(curr);
+
+                foreach (var offset in horizontalNeighbors)
+                {
+                    Vector3Int neighbor = curr + offset;
+                    if (neighbor.y == activeLayerY && 
+                        occupiedInLayer.Contains(neighbor) && 
+                        !visited.Contains(neighbor))
+                    {
+                        if (currentMatIndex.TryGetValue(neighbor, out int nMatIdx) && nMatIdx == matIdx)
+                        {
+                            visited.Add(neighbor);
+                            queue.Enqueue(neighbor);
+                        }
+                    }
+                }
+            }
+
+            if (group.Count >= 2)
+            {
+                groups.Add(group);
+            }
+        }
+
+        var cellsToThaw = new HashSet<Vector3Int>();
+
+        foreach (var group in groups)
+        {
+            foreach (var cell in group)
+            {
+                foreach (var offset in horizontalNeighbors)
+                {
+                    Vector3Int neighbor = cell + offset;
+                    if (neighbor.y == activeLayerY && frozenCells.Contains(neighbor))
+                    {
+                        cellsToThaw.Add(neighbor);
+                    }
+                }
+            }
+        }
+
+        foreach (var cell in cellsToThaw)
+        {
+            frozenCells.Remove(cell);
+            step.thawedCells.Add(cell);
         }
     }
 
@@ -522,6 +623,13 @@ public class SolverResult
 }
 
 [System.Serializable]
+public struct ExplodedCellInfo
+{
+    public Vector3Int cell;
+    public int materialIndex;
+}
+
+[System.Serializable]
 public class PlacementStep
 {
     public int pieceIndex;
@@ -529,6 +637,9 @@ public class PlacementStep
     public Quaternion rotation;
     public List<Vector3Int> cells;
     public int materialIndex;
+
+    public List<Vector3Int> thawedCells = new List<Vector3Int>();
+    public List<ExplodedCellInfo> explodedCells = new List<ExplodedCellInfo>();
 }
 
 public class PieceData

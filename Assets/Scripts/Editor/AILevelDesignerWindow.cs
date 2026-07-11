@@ -1209,6 +1209,10 @@ public class AILevelDesignerWindow : EditorWindow
         {
             assignable.Remove(pf);
         }
+        foreach (var fz in frozenCells)
+        {
+            assignable.Remove(fz);
+        }
 
         HashSet<Vector3Int> unassigned = new HashSet<Vector3Int>(assignable);
 
@@ -1285,7 +1289,7 @@ public class AILevelDesignerWindow : EditorWindow
                     }
                 }
 
-                if (bestTargetPiece >= 0)
+                if (bestTargetPiece >= 0 && minDist <= 1.1f)
                 {
                     pieces[bestTargetPiece].AddRange(smallPiece);
                     pieces.RemoveAt(i);
@@ -1293,7 +1297,13 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        EnforceNoSizeFour(pieces);
+        // Add each frozen cell as a separate 1-block piece
+        foreach (var fz in frozenCells)
+        {
+            pieces.Add(new List<Vector3Int> { fz });
+        }
+
+        EnforceMaxPieceSize(pieces, maxSize);
         return pieces;
     }
 
@@ -1306,6 +1316,10 @@ public class AILevelDesignerWindow : EditorWindow
         foreach (var pf in prefilledCells)
         {
             assignable.Remove(pf);
+        }
+        foreach (var fz in frozenCells)
+        {
+            assignable.Remove(fz);
         }
 
         HashSet<Vector3Int> unassigned = new HashSet<Vector3Int>(assignable);
@@ -1522,7 +1536,7 @@ public class AILevelDesignerWindow : EditorWindow
                     }
                 }
 
-                if (bestTargetPiece >= 0)
+                if (bestTargetPiece >= 0 && minDist <= 1.1f)
                 {
                     pieces[bestTargetPiece].AddRange(smallPiece);
                     pieces.RemoveAt(i);
@@ -1530,7 +1544,13 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        EnforceNoSizeFour(pieces);
+        // Add each frozen cell as a separate 1-block piece
+        foreach (var fz in frozenCells)
+        {
+            pieces.Add(new List<Vector3Int> { fz });
+        }
+
+        EnforceMaxPieceSize(pieces, maxSize);
         return pieces;
     }
 
@@ -1640,11 +1660,15 @@ public class AILevelDesignerWindow : EditorWindow
             pieceSplitList = SplitShapeWithGeometricStrategy(minPieceSize, maxPieceSize, 0);
             return;
         }
-        // Sadece normal (prefilled olmayan) occupied hücreleri parçalara bölüyoruz
+        // Sadece normal (prefilled olmayan ve dondurulmamış) occupied hücreleri parçalara bölüyoruz
         HashSet<Vector3Int> assignable = new HashSet<Vector3Int>(occupiedCells);
         foreach (var pf in prefilledCells)
         {
             assignable.Remove(pf);
+        }
+        foreach (var fz in frozenCells)
+        {
+            assignable.Remove(fz);
         }
 
         HashSet<Vector3Int> unassigned = new HashSet<Vector3Int>(assignable);
@@ -1725,7 +1749,7 @@ public class AILevelDesignerWindow : EditorWindow
                     }
                 }
 
-                if (bestTargetPiece >= 0)
+                if (bestTargetPiece >= 0 && minDist <= 1.1f)
                 {
                     pieceSplitList[bestTargetPiece].AddRange(smallPiece);
                     pieceSplitList.RemoveAt(i);
@@ -1733,16 +1757,22 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        EnforceNoSizeFour(pieceSplitList);
+        // Add each frozen cell as a separate 1-block piece
+        foreach (var fz in frozenCells)
+        {
+            pieceSplitList.Add(new List<Vector3Int> { fz });
+        }
+
+        EnforceMaxPieceSize(pieceSplitList, maxPieceSize);
     }
 
-    private void EnforceNoSizeFour(List<List<Vector3Int>> pieces)
+    private void EnforceMaxPieceSize(List<List<Vector3Int>> pieces, int maxSize)
     {
         if (pieces == null) return;
         
         for (int i = pieces.Count - 1; i >= 0; i--)
         {
-            if (pieces[i].Count >= 4)
+            if (pieces[i].Count > maxSize)
             {
                 var targetPiece = pieces[i];
                 pieces.RemoveAt(i);
@@ -1751,10 +1781,12 @@ public class AILevelDesignerWindow : EditorWindow
                 while (remainingCells.Count > 0)
                 {
                     int totalCount = remainingCells.Count;
-                    int size = 3;
-                    if (totalCount == 4) size = 2;
-                    else if (totalCount == 5) size = 2;
-                    else if (totalCount <= 3) size = totalCount;
+                    int size = maxSize;
+                    if (totalCount < maxSize) size = totalCount;
+                    else if (totalCount < maxSize * 2 && totalCount > maxSize)
+                    {
+                        size = totalCount / 2;
+                    }
 
                     Vector3Int startCell = remainingCells.First();
                     int minNeighbors = 999;

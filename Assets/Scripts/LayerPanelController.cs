@@ -241,6 +241,17 @@ public class LayerPanelController : MonoBehaviour
                 firstCard.transform.parent.gameObject.SetActive(visible);
             }
         }
+
+        // Sync NextPiecePreviewPanel visibility with the card slot panel
+        var canvas = GameObject.Find("UICanvas");
+        if (canvas != null)
+        {
+            var nextPanel = canvas.transform.Find("NextPiecePreviewPanel");
+            if (nextPanel != null)
+            {
+                nextPanel.gameObject.SetActive(visible);
+            }
+        }
     }
 
     private void SetButtonsVisible(bool visible)

@@ -76,7 +76,56 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
                 previewImage.texture = rt;
                 previewImage.color   = Color.white;
                 previewImage.enabled = true;
+
+                // Create a real-time silhouette drop shadow of the 3D piece
+                var oldShadow = previewImage.transform.parent.Find("PreviewImageShadow");
+                if (oldShadow != null) Destroy(oldShadow.gameObject);
+
+                GameObject shadowGO = new GameObject("PreviewImageShadow", typeof(RectTransform), typeof(RawImage));
+                shadowGO.transform.SetParent(previewImage.transform.parent, false);
+                shadowGO.transform.SetSiblingIndex(previewImage.transform.GetSiblingIndex()); // Place it behind previewImage
+                
+                var shadowRT = shadowGO.GetComponent<RectTransform>();
+                shadowRT.anchorMin = previewImage.rectTransform.anchorMin;
+                shadowRT.anchorMax = previewImage.rectTransform.anchorMax;
+                shadowRT.pivot = previewImage.rectTransform.pivot;
+                shadowRT.sizeDelta = previewImage.rectTransform.sizeDelta;
+                // Offset it to the left and slightly down
+                shadowRT.anchoredPosition = new Vector2(-12f, -8f);
+                shadowRT.localScale = Vector3.one;
+
+                var shadowImg = shadowGO.GetComponent<RawImage>();
+                shadowImg.texture = rt;
+                shadowImg.color = new Color(0f, 0, 0, 0.28f); // Soft dark shadow
+                shadowImg.enabled = true;
             }
+
+            // Clean up any old lights
+            var oldKey = previewCam.transform.Find("PreviewKeyLight");
+            if (oldKey != null) Destroy(oldKey.gameObject);
+            var oldFill = previewCam.transform.Find("PreviewFillLight");
+            if (oldFill != null) Destroy(oldFill.gameObject);
+
+            // Add professional studio point lights with soft shadows and balanced intensity
+            var keyLight = new GameObject("PreviewKeyLight", typeof(Light));
+            keyLight.transform.SetParent(previewCam.transform, false);
+            keyLight.transform.localPosition = new Vector3(-4f, 4f, 1f);
+            var kL = keyLight.GetComponent<Light>();
+            kL.type = LightType.Point;
+            kL.range = 25f;
+            kL.intensity = 3.5f;
+            kL.shadows = LightShadows.Soft;
+            kL.shadowStrength = 0.85f;
+            kL.color = new Color(1f, 0.98f, 0.95f); // Warm key light
+
+            var fillLight = new GameObject("PreviewFillLight", typeof(Light));
+            fillLight.transform.SetParent(previewCam.transform, false);
+            fillLight.transform.localPosition = new Vector3(4f, -4f, 1f);
+            var fL = fillLight.GetComponent<Light>();
+            fL.type = LightType.Point;
+            fL.range = 25f;
+            fL.intensity = 1.2f;
+            fL.color = new Color(0.85f, 0.9f, 1f); // Cool fill light
         }
 
         UpdateVisuals();
@@ -225,6 +274,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
             Quaternion baseIso   = Quaternion.Euler(elev, azim, 0f);
             Quaternion targetRot = previewCam.transform.rotation * Quaternion.Inverse(baseIso);
 
+
+
             piece3D.transform.rotation   = targetRot;
             piece3D.transform.position   = center - (targetRot * localVisualCenter * scale);
             piece3D.transform.localScale = Vector3.one * scale;
@@ -295,6 +346,20 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         bool usingRT = previewCam != null && previewCam.isActiveAndEnabled;
         if (previewImage != null) previewImage.enabled = usingRT && HasPiece;
         if (emptyOverlay != null) emptyOverlay.SetActive(!HasPiece);
+
+        // Sync shadow RawImage visibility
+        if (previewImage != null && previewImage.transform.parent != null)
+        {
+            var shadowTrans = previewImage.transform.parent.Find("PreviewImageShadow");
+            if (shadowTrans != null)
+            {
+                var shadowImg = shadowTrans.GetComponent<RawImage>();
+                if (shadowImg != null)
+                {
+                    shadowImg.enabled = usingRT && HasPiece;
+                }
+            }
+        }
 
         // Kart arka planı her zaman tam opak — RenderTexture üzerinde parça görünür
         var cardBg = GetComponent<Image>();

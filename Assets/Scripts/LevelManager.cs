@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -38,6 +40,16 @@ public class LevelManager : MonoBehaviour
     private List<float>      allPieceDepths  = new List<float>();
     private List<int>        activePieceDataIndices = new List<int>();
     private List<int>        spawnedPieceIndices = new List<int>();
+
+    [Header("Next Piece Preview Settings")]
+    private int nextPieceIndex = -1;
+    private GameObject nextPiecePreviewParent;
+    private Camera nextPiecePreviewCam;
+    private GameObject nextPiecePreview3D;
+    private RawImage nextPiecePreviewRawImage;
+    private float nextPieceVisualRadius = 1f;
+    private Vector3 nextPieceVisualCenter = Vector3.zero;
+    private float previewRotationAngle = 0f;
 
     private void Awake()
     {
@@ -124,6 +136,8 @@ public class LevelManager : MonoBehaviour
         for (int i = 0; i < pieceCards.Count; i++)
             pieceCards[i]?.Init(i);
 
+        InitNextPiecePreviewSystem();
+
         for (int i = 0; i < maxVisiblePieces; i++)
             SpawnRandomPiece();
         FitCameraToScene();
@@ -152,29 +166,13 @@ public class LevelManager : MonoBehaviour
         // Kart sistemi varsa ama boş kart yoksa çık
         if (pieceCards != null && pieceCards.Count > 0 && targetCard == null) return;
 
-        // Henüz spawn edilmemiş parça indekslerini bul
-        List<int> availableIndices = new List<int>();
-        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        if (nextPieceIndex < 0)
         {
-            if (!spawnedPieceIndices.Contains(i))
-            {
-                availableIndices.Add(i);
-            }
+            PrepareNextPieceIndex();
         }
 
-        // Eğer spawn edilmemiş parça kalmadıysa (bütün parçalar dağıtıldıysa), listeyi sıfırla ve yeniden başla (Sonsuz Döngü)
-        if (availableIndices.Count == 0)
-        {
-            spawnedPieceIndices.Clear();
-            for (int i = 0; i < allPiecePrefabs.Count; i++)
-            {
-                availableIndices.Add(i);
-            }
-        }
+        int indexToSpawn = nextPieceIndex;
 
-        // Kalanlardan rastgele bir parça seç
-        int indexToSpawn = availableIndices[Random.Range(0, availableIndices.Count)];
-        
         // Bu indeksi spawn edilmiş olarak işaretle
         spawnedPieceIndices.Add(indexToSpawn);
         activeIsSmart.Add(false); // Kolaylaştırma yardımı kapalı
@@ -184,6 +182,9 @@ public class LevelManager : MonoBehaviour
 
         // Parçayı spawn et
         SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
+
+        // Get the new next piece index
+        PrepareNextPieceIndex();
     }
 
     private Quaternion GetRandom90DegreeRotation()
@@ -684,6 +685,10 @@ public class LevelManager : MonoBehaviour
         pieceToCard.Clear();
         activeIsSmart.Clear();
         spawnedPieceIndices.Clear();
+
+        // NEXT PIECE PREVIEW RESET
+        nextPieceIndex = -1;
+        ClearNextPiecePreview();
     }
 
     private void FitCameraToScene()
@@ -830,11 +835,19 @@ public class LevelManager : MonoBehaviour
                 }
                 else // Normal hedef (Ghost)
                 {
-                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                    r.receiveShadows = false;
-                    var mats = new Material[r.sharedMaterials.Length];
-                    for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
-                    r.sharedMaterials = mats;
+                    if (holderF != null && holderF.frozenCells != null && holderF.frozenCells.Contains(cellF))
+                    {
+                        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        r.receiveShadows = false;
+                    }
+                    else
+                    {
+                        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        r.receiveShadows = false;
+                        var mats = new Material[r.sharedMaterials.Length];
+                        for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
+                        r.sharedMaterials = mats;
+                    }
                 }
             }
         }
@@ -849,6 +862,29 @@ public class LevelManager : MonoBehaviour
         var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
         if (h == null) return false;
 
+        // Get all active layers that are not cleared and have cells
+        List<int> activeLayers = new List<int>();
+        int minY = gridManager.GridMinY;
+        int maxY = gridManager.GridMaxY;
+        for (int y = minY; y <= maxY; y++)
+        {
+            if (gridManager.IsLayerCleared(y)) continue;
+            
+            bool hasCells = false;
+            foreach (var cell in gridManager.TargetCells)
+            {
+                if (cell.y == y) { hasCells = true; break; }
+            }
+            if (!hasCells)
+            {
+                foreach (var cell in gridManager.occupiedCells)
+                {
+                    if (cell.y == y) { hasCells = true; break; }
+                }
+            }
+            if (hasCells) activeLayers.Add(y);
+        }
+
         Quaternion[] rots = {
             Quaternion.identity,
             Quaternion.Euler(0, 90, 0),
@@ -858,11 +894,14 @@ public class LevelManager : MonoBehaviour
             Quaternion.Euler(270, 0, 0)
         };
 
-        foreach (var r in rots)
+        foreach (var layerY in activeLayers)
         {
-            var rotated = GridManager.RotateCells(h.occupiedCells, r);
-            var offsets = gridManager.GetPossibleOffsets(rotated);
-            if (offsets.Count > 0) return true;
+            foreach (var r in rots)
+            {
+                var rotated = GridManager.RotateCells(h.occupiedCells, r);
+                var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, layerY);
+                if (offsets.Count > 0) return true;
+            }
         }
 
         return false;
@@ -909,5 +948,325 @@ public class LevelManager : MonoBehaviour
         float dg = a.g - b.g;
         float db = a.b - b.b;
         return dr * dr + dg * dg + db * db;
+    }
+
+    private void LateUpdate()
+    {
+        if (nextPiecePreview3D != null && nextPiecePreviewCam != null)
+        {
+            // Rotate slowly over time
+            previewRotationAngle += Time.deltaTime * 30f;
+            UpdateNextPiecePreviewTransform();
+        }
+    }
+
+    private void OnDestroy()
+    {
+        ClearNextPiecePreview();
+        if (nextPiecePreviewCam != null && nextPiecePreviewCam.targetTexture != null)
+        {
+            var rt = nextPiecePreviewCam.targetTexture;
+            nextPiecePreviewCam.targetTexture = null;
+            rt.Release();
+            Destroy(rt);
+        }
+        if (nextPiecePreviewParent != null)
+        {
+            Destroy(nextPiecePreviewParent);
+        }
+    }
+
+    private void ClearNextPiecePreview()
+    {
+        if (nextPiecePreview3D != null)
+        {
+            Destroy(nextPiecePreview3D);
+            nextPiecePreview3D = null;
+        }
+    }
+
+    private void InitNextPiecePreviewSystem()
+    {
+        // 1. Find UICanvas
+        var canvas = GameObject.Find("UICanvas");
+        if (canvas == null) return;
+
+        // Remove old next piece preview if exists (for safety)
+        var oldPanel = canvas.transform.Find("NextPiecePreviewPanel");
+        if (oldPanel != null) Destroy(oldPanel.gameObject);
+
+        // Get sprites directly from existing cards to guarantee identical design
+        Sprite cardSprite = null;
+        Sprite insetSprite = null;
+        if (pieceCards != null && pieceCards.Count > 0 && pieceCards[0] != null)
+        {
+            var cardImgComp = pieceCards[0].GetComponent<Image>();
+            if (cardImgComp != null) cardSprite = cardImgComp.sprite;
+
+            var overlay = pieceCards[0].emptyOverlay;
+            if (overlay != null)
+            {
+                var overlayImg = overlay.GetComponent<Image>();
+                if (overlayImg != null) insetSprite = overlayImg.sprite;
+            }
+        }
+        if (cardSprite == null) cardSprite = GetSpriteFromAtlas("GUI_52");
+        if (insetSprite == null) insetSprite = GetSpriteFromAtlas("GUI_53");
+
+        // 2. Create Next Piece Card (Perfect square matching GUI_52 styling)
+        GameObject panelGO = new GameObject("NextPiecePreviewPanel", typeof(RectTransform));
+        panelGO.transform.SetParent(canvas.transform, false);
+        var panelRT = panelGO.GetComponent<RectTransform>();
+        
+        // Position it at the bottom-right corner of the screen (as a smaller 140x140 square card)
+        panelRT.anchorMin = new Vector2(1f, 0f);
+        panelRT.anchorMax = new Vector2(1f, 0f);
+        panelRT.pivot = new Vector2(1f, 0f);
+        panelRT.anchoredPosition = new Vector2(-40f, 100f);
+        panelRT.sizeDelta = new Vector2(140f, 140f);
+
+        var panelImg = panelGO.AddComponent<Image>();
+        panelImg.sprite = cardSprite;
+        panelImg.type = Image.Type.Sliced;
+        panelImg.color = Color.white;
+
+        // Shadow/Outline matching bottom cards
+        var shadow = panelGO.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0, 0, 0, 0.4f);
+        shadow.effectDistance = new Vector2(3f, -3f);
+
+        // 3. Create Preview Area Inset Background (GUI_53)
+        GameObject bgGO = new GameObject("PreviewAreaBg", typeof(RectTransform));
+        bgGO.transform.SetParent(panelGO.transform, false);
+        var bgRT = bgGO.GetComponent<RectTransform>();
+        bgRT.anchorMin = new Vector2(0.05f, 0.05f);
+        bgRT.anchorMax = new Vector2(0.95f, 0.95f);
+        bgRT.sizeDelta = Vector2.zero;
+
+        var bgImg = bgGO.AddComponent<Image>();
+        bgImg.sprite = insetSprite;
+        bgImg.type = Image.Type.Sliced;
+        bgImg.color = new Color(1f, 1f, 1f, 0.15f);
+
+        // 4. Create RawImage for RenderTexture
+        GameObject rawGO = new GameObject("PreviewRawImage", typeof(RectTransform));
+        rawGO.transform.SetParent(bgGO.transform, false);
+        var rawRT = rawGO.GetComponent<RectTransform>();
+        rawRT.anchorMin = Vector2.zero;
+        rawRT.anchorMax = Vector2.one;
+        rawRT.sizeDelta = Vector2.zero;
+
+        nextPiecePreviewRawImage = rawGO.AddComponent<RawImage>();
+        nextPiecePreviewRawImage.color = Color.white;
+
+        // Create a real-time silhouette drop shadow for the next piece preview
+        var oldShadow = bgGO.transform.Find("PreviewImageShadow");
+        if (oldShadow != null) Destroy(oldShadow.gameObject);
+
+        GameObject shadowGO = new GameObject("PreviewImageShadow", typeof(RectTransform), typeof(RawImage));
+        shadowGO.transform.SetParent(bgGO.transform, false);
+        shadowGO.transform.SetSiblingIndex(rawGO.transform.GetSiblingIndex()); // Place it behind the main raw image
+        
+        var shadowRT = shadowGO.GetComponent<RectTransform>();
+        shadowRT.anchorMin = rawRT.anchorMin;
+        shadowRT.anchorMax = rawRT.anchorMax;
+        shadowRT.pivot = rawRT.pivot;
+        shadowRT.sizeDelta = rawRT.sizeDelta;
+        // Offset to the left and slightly down
+        shadowRT.anchoredPosition = new Vector2(-12f, -8f);
+        shadowRT.localScale = Vector3.one;
+
+        var shadowImg = shadowGO.GetComponent<RawImage>();
+        shadowImg.color = new Color(0f, 0f, 0f, 0.28f);
+
+        // 5. Create Camera and Camera Root
+        if (nextPiecePreviewParent != null) Destroy(nextPiecePreviewParent);
+        nextPiecePreviewParent = new GameObject("NextPiecePreviewCameraRoot");
+        nextPiecePreviewParent.transform.position = new Vector3(-20000f, 100f, -5000f);
+
+        GameObject camGO = new GameObject("NextPiecePreviewCam");
+        camGO.transform.SetParent(nextPiecePreviewParent.transform, false);
+        camGO.transform.localPosition = new Vector3(0f, 3.5f, -5.5f);
+        
+        nextPiecePreviewCam = camGO.AddComponent<Camera>();
+        nextPiecePreviewCam.clearFlags = CameraClearFlags.SolidColor;
+        nextPiecePreviewCam.backgroundColor = Color.clear;
+        nextPiecePreviewCam.orthographic = true;
+        nextPiecePreviewCam.orthographicSize = 2f;
+        nextPiecePreviewCam.nearClipPlane = 0.1f;
+        nextPiecePreviewCam.farClipPlane = 30f;
+        nextPiecePreviewCam.depth = -3;
+
+        // Add studio key and fill lights to next piece preview
+        var keyLight = new GameObject("NextPreviewKeyLight", typeof(Light));
+        keyLight.transform.SetParent(nextPiecePreviewCam.transform, false);
+        keyLight.transform.localPosition = new Vector3(-4f, 4f, 1f);
+        var kL = keyLight.GetComponent<Light>();
+        kL.type = LightType.Point;
+        kL.range = 25f;
+        kL.intensity = 3.5f;
+        kL.shadows = LightShadows.Soft;
+        kL.shadowStrength = 0.85f;
+        kL.color = new Color(1f, 0.98f, 0.95f);
+
+        var fillLight = new GameObject("NextPreviewFillLight", typeof(Light));
+        fillLight.transform.SetParent(nextPiecePreviewCam.transform, false);
+        fillLight.transform.localPosition = new Vector3(4f, -4f, 1f);
+        var fL = fillLight.GetComponent<Light>();
+        fL.type = LightType.Point;
+        fL.range = 25f;
+        fL.intensity = 1.2f;
+        fL.color = new Color(0.85f, 0.9f, 1f);
+
+        // Create RenderTexture
+        var rt = new RenderTexture(256, 256, 16, RenderTextureFormat.ARGB32);
+        rt.antiAliasing = 2;
+        rt.Create();
+        nextPiecePreviewCam.targetTexture = rt;
+        nextPiecePreviewRawImage.texture = rt;
+        shadowImg.texture = rt;
+    }
+
+    private Sprite GetSpriteFromAtlas(string spriteName)
+    {
+        if (pieceCards != null && pieceCards.Count > 0)
+        {
+            foreach (var card in pieceCards)
+            {
+                if (card != null)
+                {
+                    var img = card.GetComponent<Image>();
+                    if (img != null && img.sprite != null && img.sprite.name == spriteName)
+                    {
+                        return img.sprite;
+                    }
+                    var emptyOverlay = card.emptyOverlay;
+                    if (emptyOverlay != null)
+                    {
+                        var eImg = emptyOverlay.GetComponent<Image>();
+                        if (eImg != null && eImg.sprite != null && eImg.sprite.name == spriteName)
+                        {
+                            return eImg.sprite;
+                        }
+                    }
+                }
+            }
+        }
+        return Resources.FindObjectsOfTypeAll<Sprite>().FirstOrDefault(s => s.name == spriteName);
+    }
+
+    private void AssignDefaultFontAsset(TextMeshProUGUI tmp)
+    {
+        var otherText = Resources.FindObjectsOfTypeAll<TextMeshProUGUI>().FirstOrDefault(t => t.font != null);
+        if (otherText != null && otherText.font != null)
+        {
+            tmp.font = otherText.font;
+        }
+    }
+
+    private void PrepareNextPieceIndex()
+    {
+        if (allPiecePrefabs.Count == 0)
+        {
+            nextPieceIndex = -1;
+            return;
+        }
+
+        List<int> availableIndices = new List<int>();
+        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        {
+            if (!spawnedPieceIndices.Contains(i))
+            {
+                availableIndices.Add(i);
+            }
+        }
+
+        if (availableIndices.Count == 0)
+        {
+            spawnedPieceIndices.Clear();
+            for (int i = 0; i < allPiecePrefabs.Count; i++)
+            {
+                availableIndices.Add(i);
+            }
+        }
+
+        nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
+        UpdateNextPiecePreviewVisuals();
+    }
+
+    private void UpdateNextPiecePreviewVisuals()
+    {
+        ClearNextPiecePreview();
+
+        if (nextPieceIndex < 0 || allPiecePrefabs.Count == 0) return;
+        if (nextPiecePreviewCam == null) return;
+
+        var prefab = allPiecePrefabs[nextPieceIndex];
+        nextPiecePreview3D = Instantiate(prefab, nextPiecePreviewParent.transform);
+        
+        foreach (var col in nextPiecePreview3D.GetComponentsInChildren<Collider>())
+        {
+            col.enabled = false;
+        }
+        var drag = nextPiecePreview3D.GetComponent<DraggablePiece>();
+        if (drag != null) drag.enabled = false;
+
+        Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+        if (matchingMaterial != null)
+        {
+            var renderers = nextPiecePreview3D.GetComponentsInChildren<Renderer>();
+            foreach (var r in renderers)
+            {
+                if (r.gameObject.name.StartsWith("Cube_"))
+                {
+                    var mats = new Material[r.sharedMaterials.Length];
+                    for (int i = 0; i < mats.Length; i++) mats[i] = matchingMaterial;
+                    r.sharedMaterials = mats;
+                }
+            }
+        }
+
+        nextPiecePreview3D.transform.position = Vector3.zero;
+        nextPiecePreview3D.transform.rotation = Quaternion.identity;
+        nextPiecePreview3D.transform.localScale = Vector3.one;
+
+        var rends = nextPiecePreview3D.GetComponentsInChildren<Renderer>();
+        if (rends.Length > 0)
+        {
+            Bounds b = rends[0].bounds;
+            foreach (var r in rends) b.Encapsulate(r.bounds);
+
+            nextPieceVisualCenter = nextPiecePreview3D.transform.InverseTransformPoint(b.center);
+            nextPieceVisualRadius = b.extents.magnitude;
+            if (nextPieceVisualRadius < 0.001f) nextPieceVisualRadius = 1f;
+        }
+        else
+        {
+            nextPieceVisualCenter = Vector3.zero;
+            nextPieceVisualRadius = 1f;
+        }
+
+        UpdateNextPiecePreviewTransform();
+    }
+
+    private void UpdateNextPiecePreviewTransform()
+    {
+        if (nextPiecePreview3D == null || nextPiecePreviewCam == null) return;
+
+        float depth = 3.5f;
+        float viewH = 2f * nextPiecePreviewCam.orthographicSize;
+        float scale = (viewH * 0.70f * 0.5f) / Mathf.Max(nextPieceVisualRadius, 0.001f);
+
+        Vector3 center = nextPiecePreviewCam.transform.position + nextPiecePreviewCam.transform.forward * depth;
+
+        float elev = 90f;
+        float azim = 0f;
+        Quaternion baseIso = Quaternion.Euler(elev, azim, 0f);
+
+        Quaternion targetRot = nextPiecePreviewCam.transform.rotation * Quaternion.Inverse(baseIso) * Quaternion.Euler(0f, previewRotationAngle, 0f);
+
+        nextPiecePreview3D.transform.rotation = targetRot;
+        nextPiecePreview3D.transform.position = center - (targetRot * nextPieceVisualCenter * scale);
+        nextPiecePreview3D.transform.localScale = Vector3.one * scale;
     }
 }

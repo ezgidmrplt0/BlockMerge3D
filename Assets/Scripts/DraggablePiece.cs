@@ -146,10 +146,11 @@ public class DraggablePiece : MonoBehaviour
             TryBeginDrag();
         }
 
-        // Sürükleme sırasında rotasyonu ekran hizalı (Quaternion.identity) olarak sabitliyoruz
+        // Sürükleme sırasında rotasyonu tahta rotasyonuyla eşitliyoruz
         if (isDragging)
         {
-            transform.rotation = Quaternion.identity;
+            Quaternion boardRot = (CameraOrbit.Instance != null && CameraOrbit.Instance.pivot != null) ? CameraOrbit.Instance.pivot.rotation : Quaternion.identity;
+            transform.rotation = boardRot;
             UpdateBoardCells();
             UpdateChildPositions();
         }
@@ -213,8 +214,9 @@ public class DraggablePiece : MonoBehaviour
         }
         else secondTouchConsumed = false;
 
-        // Rotasyon her kosulda sabit kalacak
-        transform.rotation = Quaternion.identity;
+        // Rotasyon her kosulda tahta rotasyonu ile uyumlu kalacak
+        Quaternion boardRot = (CameraOrbit.Instance != null && CameraOrbit.Instance.pivot != null) ? CameraOrbit.Instance.pivot.rotation : Quaternion.identity;
+        transform.rotation = boardRot;
         UpdateBoardCells();
 
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
@@ -474,6 +476,7 @@ public class DraggablePiece : MonoBehaviour
             {
                 Vector3 worldCellPos = grid.CellToWorld(currentCells[i] + snapOff);
                 children[i].localPosition = transform.InverseTransformPoint(worldCellPos);
+                children[i].localRotation = currentRotation;
             }
         }
         else
@@ -486,6 +489,7 @@ public class DraggablePiece : MonoBehaviour
                     c.x * grid.Step + half,
                     c.y * grid.Step + half,
                     c.z * grid.Step + half);
+                children[i].localRotation = currentRotation;
             }
         }
     }

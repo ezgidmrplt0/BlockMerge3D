@@ -164,10 +164,12 @@ public class GridManager : MonoBehaviour
         }
 
         // Load frozen cells if defined on the prefab, otherwise fallback to random calculation
+        Debug.Log($"[GridManager.Initialize] shapeHolder: {(shapeHolder != null ? "not null" : "null")}, shapeHolder.frozenCells: {(shapeHolder?.frozenCells != null ? "count=" + shapeHolder.frozenCells.Count : "null")}");
         if (shapeHolder != null && shapeHolder.frozenCells != null && shapeHolder.frozenCells.Count > 0)
         {
             foreach (var cell in shapeHolder.frozenCells)
             {
+                Debug.Log($"[GridManager.Initialize] Added frozen cell from prefab: {cell}");
                 frozenCells.Add(cell);
             }
         }
@@ -1331,6 +1333,38 @@ public class GridManager : MonoBehaviour
         return valid;
     }
 
+    public List<Vector3Int> GetPossibleOffsetsOnLayer(List<Vector3Int> cells, int layerY)
+    {
+        var valid = new List<Vector3Int>();
+        var seen  = new HashSet<Vector3Int>();
+        foreach (var t in targetCells)
+        {
+            if (t.y != layerY) continue;
+            if (occupiedCells.Contains(t)) continue;
+            foreach (var c in cells)
+            {
+                var off = t - c;
+                if (!seen.Add(off)) continue;
+                if (CanPlaceOnLayer(cells, off, layerY)) valid.Add(off);
+            }
+        }
+        return valid;
+    }
+
+    public bool CanPlaceOnLayer(List<Vector3Int> cells, Vector3Int offset, int layerY)
+    {
+        foreach (var c in cells)
+        {
+            var g = c + offset;
+            if (!targetCells.Contains(g) || g.y != layerY) return false;
+            if (occupiedCells.Contains(g)) return false;
+            if (frozenCells.Contains(g)) return false;
+            if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
+        }
+
+        return true;
+    }
+
     public Color? GetMergeColor(List<Vector3Int> cells, Vector3Int offset)
     {
         var tempPlaced = new HashSet<Vector3Int>();
@@ -1838,6 +1872,13 @@ public class GridManager : MonoBehaviour
                     // Restore default color state
                     if (rend != null)
                     {
+                        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                        {
+                            var mats = new Material[rend.sharedMaterials.Length];
+                            for (int i = 0; i < mats.Length; i++) mats[i] = LevelManager.Instance.ghostTargetMaterial;
+                            rend.sharedMaterials = mats;
+                        }
+
                         MaterialPropertyBlock prop = new MaterialPropertyBlock();
                         rend.GetPropertyBlock(prop);
                         prop.SetColor("_BaseColor", defaultColor);
