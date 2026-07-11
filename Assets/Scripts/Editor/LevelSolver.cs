@@ -65,11 +65,13 @@ public class LevelSolver
             var ph = piecePrefabs[i].GetComponent<CubeShapeDataHolder>();
             if (ph != null && ph.occupiedCells.Count > 0)
             {
+                var cellsCopy = new List<Vector3Int>(ph.occupiedCells);
                 pieces.Add(new PieceData
                 {
                     index = i,
-                    cells = new List<Vector3Int>(ph.occupiedCells),
-                    used = false
+                    cells = cellsCopy,
+                    used = false,
+                    shapeKey = ComputeShapeKey(cellsCopy)
                 });
             }
         }
@@ -136,6 +138,26 @@ public class LevelSolver
         return bestResult;
     }
 
+    // Parçanın normalize edilmiş (orijine kaydırılmış, sıralanmış) hücre setinden benzersiz bir
+    // şekil imzası üretir. İki parçanın shapeKey'i eşitse, geometrik olarak birebir aynı şekildir.
+    private static string ComputeShapeKey(List<Vector3Int> cells)
+    {
+        int minX = int.MaxValue, minY = int.MaxValue, minZ = int.MaxValue;
+        foreach (var c in cells)
+        {
+            if (c.x < minX) minX = c.x;
+            if (c.y < minY) minY = c.y;
+            if (c.z < minZ) minZ = c.z;
+        }
+
+        var normalized = cells
+            .Select(c => new Vector3Int(c.x - minX, c.y - minY, c.z - minZ))
+            .OrderBy(c => c.x).ThenBy(c => c.y).ThenBy(c => c.z)
+            .ToList();
+
+        return string.Join("|", normalized.Select(c => $"{c.x},{c.y},{c.z}"));
+    }
+
     private void InitializeFromHolder(CubeShapeDataHolder holder)
     {
         gridSize = holder.gridSize;
@@ -181,10 +203,14 @@ public class LevelSolver
             return false;
         }
 
-        // Kullanılmamış bir parça seç
+        // Kullanılmamış bir parça seç. Aynı şekle sahip (örn. Tetromino modunda birçok özdeş
+        // parça) birden fazla parça varsa, bu dalda sadece BİRİNİ deneriz — diğerleri tamamen
+        // aynı alt-ağacı tekrar keşfeder ve arama uzayını (N! kadar) gereksiz yere patlatır.
+        var triedShapesAtThisLevel = new HashSet<string>();
         for (int i = 0; i < pieces.Count; i++)
         {
             if (pieces[i].used) continue;
+            if (pieces[i].shapeKey != null && !triedShapesAtThisLevel.Add(pieces[i].shapeKey)) continue;
 
             pieces[i].used = true;
 
@@ -647,4 +673,5 @@ public class PieceData
     public int index;
     public List<Vector3Int> cells;
     public bool used;
+    public string shapeKey;
 }

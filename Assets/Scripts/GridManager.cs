@@ -29,6 +29,9 @@ public class GridManager : MonoBehaviour
         return cellColors.TryGetValue(cell, out color);
     }
 
+    // Hücre, seviye başında hazır (prefilled) bir engel mi, yoksa oyuncu tarafından mı yerleştirildi?
+    public bool IsCellPrefilled(Vector3Int cell) => prefilledRenderers.ContainsKey(cell);
+
     public bool IsLayerCleared(int y) => false; // Dinamik daralan sistemde katman tamamlandığında silinir, "temizlenmiş katman" kalmaz.
 
     public int TotalCells   => targetCells.Count;
@@ -1072,7 +1075,7 @@ public class GridManager : MonoBehaviour
                         }
                     }
                     
-                    if (!outOfBounds)
+                    if (!outOfBounds && CanPlace(cells, snapOff))
                     {
                         result = snapOff;
                         return true;
@@ -1082,15 +1085,13 @@ public class GridManager : MonoBehaviour
         }
 
         // 2. Proximity-based Snapping Fallback (when dragging in empty space near the grid)
+        // Yalnızca gerçekten yerleştirilebilir (dolu olmayan) konumlar aday olur;
+        // dolu bir yere yakınsa parça oraya "yapışmaz", sürüklenen elde kalır.
         var seen = new HashSet<Vector3Int>();
-        
+
         float bestValidD = 4.5f;
         Vector3Int bestValidOff = Vector3Int.zero;
         bool foundValid = false;
-
-        float bestInvalidD = 3.0f; 
-        Vector3Int bestInvalidOff = Vector3Int.zero;
-        bool foundInvalid = false;
 
         foreach (var t in targetCells)
         {
@@ -1111,6 +1112,7 @@ public class GridManager : MonoBehaviour
                     }
                 }
                 if (outOfBounds) continue;
+                if (!CanPlace(cells, off)) continue;
 
                 // Visual Center of the snapped piece cells
                 Vector3 snappedCenter = Vector3.zero;
@@ -1122,25 +1124,12 @@ public class GridManager : MonoBehaviour
 
                 // Distance from center to the drag ray
                 float d = Vector3.Cross(ray.direction, snappedCenter - ray.origin).magnitude;
-                
-                bool isValid = CanPlace(cells, off);
-                if (isValid)
+
+                if (d < bestValidD)
                 {
-                    if (d < bestValidD)
-                    {
-                        bestValidD = d;
-                        bestValidOff = off;
-                        foundValid = true;
-                    }
-                }
-                else
-                {
-                    if (d < bestInvalidD)
-                    {
-                        bestInvalidD = d;
-                        bestInvalidOff = off;
-                        foundInvalid = true;
-                    }
+                    bestValidD = d;
+                    bestValidOff = off;
+                    foundValid = true;
                 }
             }
         }
@@ -1148,11 +1137,6 @@ public class GridManager : MonoBehaviour
         if (foundValid)
         {
             result = bestValidOff;
-            return true;
-        }
-        else if (foundInvalid)
-        {
-            result = bestInvalidOff;
             return true;
         }
 
@@ -1505,8 +1489,7 @@ public class GridManager : MonoBehaviour
     {
         Normal,
         Darkened,
-        HighlightedValid,
-        HighlightedInvalid
+        HighlightedValid
     }
 
     private Dictionary<Renderer, Color> originalBaseColors = new Dictionary<Renderer, Color>();
@@ -1562,8 +1545,9 @@ public class GridManager : MonoBehaviour
         var currentCells = piece.CurrentCells;
         if (currentCells == null || currentCells.Count == 0) return;
 
-        bool placementValid = isSnapped && CanPlace(currentCells, snapOffset);
-        VisualState pieceState = (isSnapped && !placementValid) ? VisualState.HighlightedInvalid : VisualState.Normal;
+        // TryFindSnapOffset artık yalnızca gerçekten yerleştirilebilir konumlar için
+        // isSnapped=true döndürür, bu yüzden burada geçersiz/kırmızı bir durum yok.
+        VisualState pieceState = VisualState.Normal;
 
         foreach (var r in piece.GetComponentsInChildren<Renderer>())
         {
@@ -1626,12 +1610,6 @@ public class GridManager : MonoBehaviour
                         enableEmission = wasEnabled;
                     else
                         enableEmission = origEmis != Color.clear && origEmis.maxColorComponent > 0.01f;
-                    break;
-
-                case VisualState.HighlightedInvalid:
-                    targetBase = Color.Lerp(origBase, new Color(0.9f, 0.2f, 0.2f, 1f), 0.5f);
-                    targetEmission = new Color(0.9f, 0.2f, 0.2f) * 0.25f;
-                    enableEmission = true;
                     break;
             }
         }
@@ -1753,6 +1731,29 @@ public class GridManager : MonoBehaviour
         return true;
     }
 
+    // Bir Renderer'ı (var olan bir hedef ghost'u ya da patlamış bir prefilled küpü) normal,
+    // boş "hedef" (ghost) hücre görünümüne döndürür ve targetRenderers'a kaydeder. Prefilled
+    // hücrelerde Initialize() hiç ayrı bir ghost objesi üretmediği için, o hücredeki küp
+    // patladığında geriye gösterilecek hiçbir şey kalmıyordu — bu fonksiyon küpün kendi
+    // Renderer'ını ghost olarak yeniden kullanır.
+    private void RestoreAsGhostTarget(Vector3Int cell, Renderer rend)
+    {
+        if (rend == null) return;
+
+        rend.transform.localScale = Vector3.one * CellSize;
+        rend.enabled = true;
+
+        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+        {
+            var mats = new Material[rend.sharedMaterials.Length];
+            for (int i = 0; i < mats.Length; i++) mats[i] = LevelManager.Instance.ghostTargetMaterial;
+            rend.sharedMaterials = mats;
+        }
+
+        targetRenderers[cell] = rend;
+        RefreshLayerVisibility();
+    }
+
     private IEnumerator AnimateExplodeAndThaw(HashSet<Vector3Int> cellsToExplode, HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
     {
         // 1. Capture GameObjects and Colors before logically clearing them
@@ -1818,63 +1819,70 @@ public class GridManager : MonoBehaviour
             var go = kvp.Value;
             Color blockColor = capturedColors.ContainsKey(cell) ? capturedColors[cell] : Color.white;
 
-            // Parça yok olurken hemen ghost grid'i göster
-            if (targetRenderers.TryGetValue(cell, out var targetRend) && targetRend != null)
+            // Bu hücrenin zaten bir ghost/hedef objesi var mı? Sadece normal "Cube_" hücrelerde
+            // olur — prefilled hücreler için Initialize() hiç ghost üretmez (bkz. targetRenderers
+            // vs prefilledRenderers ayrımı). Ghost yoksa patlayan küpün kendisini ghost'a çevireceğiz.
+            bool hasExistingGhost = targetRenderers.TryGetValue(cell, out var targetRend) && targetRend != null;
+            if (hasExistingGhost)
             {
+                // Parça yok olurken hemen ghost grid'i göster
                 targetRend.enabled = true;
             }
 
             if (IceBreakEffect.Instance != null)
             {
-                IceBreakEffect.Play(go, blockColor, onOneEffectDone);
+                // Bu bloklar buzu eritiyor — patlamadan önce kısa bir ısı-temas parıltısı
+                IceBreakEffect.PlayContactHeatFlash(go);
+
+                if (hasExistingGhost)
+                {
+                    IceBreakEffect.Play(go, blockColor, onOneEffectDone);
+                }
+                else
+                {
+                    // Prefilled küp: altında hazır bir ghost yok, yoksa hücre kalıcı olarak
+                    // boş/görünmez kalır. hideTarget:false ile küp hiç gizlenmiyor/kaybolmuyor —
+                    // sadece kısa bir parlama + sıçrama efekti oynuyor, animasyon bitince
+                    // kendi Renderer'ını normal bir hedef (ghost) hücresine dönüştürüyoruz.
+                    var prefilledRend = go.GetComponentInChildren<Renderer>(true);
+                    IceBreakEffect.Play(go, blockColor, () =>
+                    {
+                        RestoreAsGhostTarget(cell, prefilledRend);
+                        onOneEffectDone();
+                    }, hideTarget: false);
+                }
             }
             else
             {
-                go.transform.DOScale(Vector3.zero, 0.2f).OnComplete(() => {
-                    Destroy(go);
+                if (hasExistingGhost)
+                {
+                    go.transform.DOScale(Vector3.zero, 0.2f).OnComplete(() => {
+                        Destroy(go);
+                        onOneEffectDone();
+                    });
+                }
+                else
+                {
+                    // Ghost'a dönüşecek küp hiç gizlenmesin/küçülmesin — direkt ghost'a çevir.
+                    RestoreAsGhostTarget(cell, go.GetComponentInChildren<Renderer>(true));
                     onOneEffectDone();
-                });
+                }
             }
         }
 
-        // 4. Play Ice Break Effect for Thawed Ice Blocks
+        // 4. Play Ice Melt Effect for Thawed Ice Blocks
         foreach (var cell in cellsToThaw)
         {
             if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)
             {
-                Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
-                
                 System.Action onThisIceDone = () => {
-                    Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
-                    if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
-                    {
-                        defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
-                    }
-
-                    // Restore default color state
-                    if (rend != null)
-                    {
-                        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
-                        {
-                            var mats = new Material[rend.sharedMaterials.Length];
-                            for (int i = 0; i < mats.Length; i++) mats[i] = LevelManager.Instance.ghostTargetMaterial;
-                            rend.sharedMaterials = mats;
-                        }
-
-                        MaterialPropertyBlock prop = new MaterialPropertyBlock();
-                        rend.GetPropertyBlock(prop);
-                        prop.SetColor("_BaseColor", defaultColor);
-                        prop.SetColor("_Color", defaultColor);
-                        prop.SetColor("_EmissionColor", Color.clear);
-                        rend.SetPropertyBlock(prop);
-                    }
-                    
+                    RestoreAsGhostTarget(cell, rend);
                     onOneEffectDone();
                 };
 
                 if (IceBreakEffect.Instance != null)
                 {
-                    IceBreakEffect.Play(rend.gameObject, iceColor, onThisIceDone, hideTarget: false);
+                    IceBreakEffect.PlayIceMelt(rend.gameObject, onThisIceDone);
                 }
                 else
                 {

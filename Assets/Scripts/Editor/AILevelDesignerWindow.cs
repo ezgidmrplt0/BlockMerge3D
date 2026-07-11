@@ -17,6 +17,7 @@ public class AILevelDesignerWindow : EditorWindow
     // ── Sabitler ─────────────────────────────────────────────────
     private const string LEVELS_PATH = "Assets/Levels";
     private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
+    private const string PREFILLED_MATERIALS_PATH = "Assets/Materials/Premium";
 
     private static readonly Color COL_BG         = new Color(0.09f, 0.09f, 0.12f);
     private static readonly Color COL_GRID        = new Color(0.24f, 0.26f, 0.35f);
@@ -55,7 +56,7 @@ public class AILevelDesignerWindow : EditorWindow
     // Parçalara Ayırma Ayarları
     private int minPieceSize         = 1;
     private int maxPieceSize         = 5;
-    private enum PieceGenMode { Gelisiguzel_BFS, Puzzle_Geometrik }
+    private enum PieceGenMode { Gelisiguzel_BFS, Puzzle_Geometrik, Tetromino_Klasik }
     private PieceGenMode pieceGenMode = PieceGenMode.Puzzle_Geometrik;
 
     // Prompt tabanlı üretim
@@ -85,6 +86,7 @@ public class AILevelDesignerWindow : EditorWindow
     private AIDrawView drawView      = AIDrawView.FullShape;
     private Vector2 leftScroll, rightScroll;
     private GameObject cubePrefab;
+    private Material[] prefilledMaterials; // Engel (prefilled) küplerin gerçek rengini oynatan materyal paleti — pieceMaterials (LevelManager) ile aynı sırada olmalı
     private int activeTab = 0; // 0: AI Jeneratör, 1: AI Eğitim Paneli
 
     // ── Stil ─────────────────────────────────────────────────────
@@ -108,6 +110,22 @@ public class AILevelDesignerWindow : EditorWindow
         {
             cubePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
         }
+
+        LoadPrefilledMaterialsPalette();
+    }
+
+    // Prefilled (engel) küpler için Assets/Materials/Premium altındaki PremiumMaterial_N.mat
+    // dosyalarını index sırasına göre yükler. Bu sıra, LevelManager.pieceMaterials ile aynı
+    // olmalıdır ki matIdx hem oyun mantığında hem görsel olarak aynı rengi ifade etsin.
+    private void LoadPrefilledMaterialsPalette()
+    {
+        var guids = AssetDatabase.FindAssets("t:Material", new[] { PREFILLED_MATERIALS_PATH });
+        var mats = guids
+            .Select(g => AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g)))
+            .Where(m => m != null)
+            .OrderBy(m => m.name, System.StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (mats.Length > 0) prefilledMaterials = mats;
     }
 
     public void OnGUI()
@@ -361,29 +379,40 @@ public class AILevelDesignerWindow : EditorWindow
         
         pieceGenMode = (PieceGenMode)EditorGUILayout.EnumPopup("Parça Üretim Modu", pieceGenMode);
         EditorGUILayout.Space(4);
-        
+
+        bool isTetrominoMode = pieceGenMode == PieceGenMode.Tetromino_Klasik;
+
+        EditorGUI.BeginDisabledGroup(isTetrominoMode);
         EditorGUILayout.BeginHorizontal();
-        
+
         EditorGUILayout.BeginVertical();
         EditorGUIUtility.labelWidth = 110;
         minPieceSize = EditorGUILayout.IntSlider("Min Parça Küpü", minPieceSize, 1, 10);
         EditorGUILayout.EndVertical();
-        
+
         GUILayout.Space(10);
 
         EditorGUILayout.BeginVertical();
         EditorGUIUtility.labelWidth = 100;
         maxPieceSize = EditorGUILayout.IntSlider("Max Parça Küpü", maxPieceSize, minPieceSize, 18);
         EditorGUILayout.EndVertical();
-        
+
         EditorGUILayout.EndHorizontal();
-        
-        string pieceDifficultyTip = maxPieceSize <= 3 ? "Kolay Snapping" :
-                                   maxPieceSize <= 5 ? "Standart Pentomino (Orta)" :
-                                   maxPieceSize <= 7 ? "Büyük Parçalar (Zor)" :
-                                   "Dev Parçalar (Uzman)";
-        EditorGUILayout.LabelField($"ℹ Parça Önerisi: {pieceDifficultyTip}", EditorStyles.miniLabel);
-        EditorGUILayout.HelpBox("AI, şekli otomatik olarak bu boyutlarda parçalara bölecektir. Tetris için max 4-5 önerilir.", MessageType.Info);
+        EditorGUI.EndDisabledGroup();
+
+        if (isTetrominoMode)
+        {
+            EditorGUILayout.HelpBox("🧩 Tetromino modu: parçalar her zaman klasik Tetris şekillerinden (I, O, T, S, Z, J, L) oluşur, sabit 4 hücrelidir. Min/Max Parça Küpü bu modda geçersizdir.", MessageType.Info);
+        }
+        else
+        {
+            string pieceDifficultyTip = maxPieceSize <= 3 ? "Kolay Snapping" :
+                                       maxPieceSize <= 5 ? "Standart Pentomino (Orta)" :
+                                       maxPieceSize <= 7 ? "Büyük Parçalar (Zor)" :
+                                       "Dev Parçalar (Uzman)";
+            EditorGUILayout.LabelField($"ℹ Parça Önerisi: {pieceDifficultyTip}", EditorStyles.miniLabel);
+            EditorGUILayout.HelpBox("AI, şekli otomatik olarak bu boyutlarda parçalara bölecektir. Tetris için max 4-5 önerilir.", MessageType.Info);
+        }
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(12);
@@ -394,6 +423,19 @@ public class AILevelDesignerWindow : EditorWindow
         if (cubePrefab == null)
         {
             EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin.", MessageType.Warning);
+        }
+
+        if (prefilledMaterials == null || prefilledMaterials.Length == 0)
+        {
+            EditorGUILayout.HelpBox($"⚠ Prefilled (engel) küp renk paleti bulunamadı ({PREFILLED_MATERIALS_PATH}). Prefilled küpler pembe (varsayılan) görünecek.", MessageType.Warning);
+            if (GUILayout.Button("Paleti Yeniden Yükle"))
+            {
+                LoadPrefilledMaterialsPalette();
+            }
+        }
+        else
+        {
+            EditorGUILayout.LabelField($"ℹ Prefilled Renk Paleti: {prefilledMaterials.Length} materyal ({PREFILLED_MATERIALS_PATH})", EditorStyles.miniLabel);
         }
 
         GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // Magenta
@@ -915,15 +957,27 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         // Hazır renkli blokları dağıt (buz olanlara renk atanmaz)
+        // Önemli: Bir katman (Y) sadece tek bir renk olduğunda temizlenebiliyor
+        // (bkz. GridManager/LevelSolver: katman tamamen dolduğunda tüm hücreler aynı
+        // materyalde olmalı). Eskiden renk "(x + y) % 6" ile hücre bazında seçiliyordu;
+        // bu da aynı katmanda x'e göre farklı renkte prefilled hücreler üretip o katmanı
+        // -hiçbir parça diziliminde- çözülemez hale getirebiliyordu (özellikle Uzman
+        // modda prefill oranı yüksek olduğu için sık rastlanıyordu). Bu yüzden renk artık
+        // katman başına bir kere seçiliyor.
+        Dictionary<int, int> layerColorIdx = new Dictionary<int, int>();
         int prefilledDone = 0;
         foreach (var cell in finalOccupied)
         {
             if (prefilledDone >= targetPrefillCount) break;
             if (frozenCells.Contains(cell)) continue;
 
+            if (!layerColorIdx.TryGetValue(cell.y, out int colorIdx))
+            {
+                colorIdx = Random.Range(0, 6); // PREFILL_COLORS boyutu 6
+                layerColorIdx[cell.y] = colorIdx;
+            }
+
             prefilledCells.Add(cell);
-            // Renk gruplaması: Yan yana olanlara benzer renkler ver
-            int colorIdx = (cell.x + cell.y) % 6; // PREFILL_COLORS boyutu 6
             prefilledMatIdx.Add(colorIdx);
             prefilledDone++;
         }
@@ -1090,7 +1144,10 @@ public class AILevelDesignerWindow : EditorWindow
                             gridVolume < 100 ? 4 :   // Orta grid: 4 strateji
                             5;                        // Büyük grid: 5 strateji
         
-        int maxSolvableNeeded = gridVolume < 50 ? 1 : 2; // Küçük grid için 1 çözülebilir yeter
+        // En az 2 çözülebilir aday toplanmadan seçim yapılmaz; aksi halde ilk bulunan
+        // (genelde en kolay/standart) strateji hiç karşılaştırılmadan kabul edilir ve
+        // seçilen zorluk modu (Zor/Uzman) etkisiz kalır.
+        int maxSolvableNeeded = gridVolume < 50 ? 2 : 3;
         
         for (int attempt = 0; attempt < maxStrategies; attempt++)
         {
@@ -1129,9 +1186,11 @@ public class AILevelDesignerWindow : EditorWindow
             }
 
             // Bu stratejiyle parçala
-            var piecesForThisStrategy = pieceGenMode == PieceGenMode.Puzzle_Geometrik
-                ? SplitShapeWithGeometricStrategy(variantMinSize, variantMaxSize, attempt)
-                : SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
+            var piecesForThisStrategy = pieceGenMode == PieceGenMode.Tetromino_Klasik
+                ? SplitShapeAsTetrominoes(attempt)
+                : pieceGenMode == PieceGenMode.Puzzle_Geometrik
+                    ? SplitShapeWithGeometricStrategy(variantMinSize, variantMaxSize, attempt)
+                    : SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
             
             if (piecesForThisStrategy.Count == 0) 
             {
@@ -1297,11 +1356,7 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        // Add each frozen cell as a separate 1-block piece
-        foreach (var fz in frozenCells)
-        {
-            pieces.Add(new List<Vector3Int> { fz });
-        }
+        MergeCellsIntoNearestPieces(pieces, frozenCells);
 
         EnforceMaxPieceSize(pieces, maxSize);
         return pieces;
@@ -1544,11 +1599,7 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        // Add each frozen cell as a separate 1-block piece
-        foreach (var fz in frozenCells)
-        {
-            pieces.Add(new List<Vector3Int> { fz });
-        }
+        MergeCellsIntoNearestPieces(pieces, frozenCells);
 
         EnforceMaxPieceSize(pieces, maxSize);
         return pieces;
@@ -1598,37 +1649,51 @@ public class AILevelDesignerWindow : EditorWindow
         return result;
     }
 
-    private (List<List<Vector3Int>> pieces, SolverResult result, string strategyName) 
+    // Seçilen zorluk moduna göre hedef zorluk skoru (LevelSolver 0.0-1.0 skalasında çalışır),
+    // ideal parça sayısı ve ideal hamle aralığı. SelectBestStrategy bu hedeflere göre puanlar;
+    // aksi halde (eskiden olduğu gibi) sabit "orta zorluk" hedefi Zor/Uzman modlarında bile
+    // en kolay/az parçalı sonucu seçmeye devam eder.
+    private (float targetScore, int idealPieceCount, int minMoves, int maxMoves) GetDifficultyTargets(AILevelDifficulty mode)
+    {
+        switch (mode)
+        {
+            case AILevelDifficulty.Kolay: return (0.15f, 3, 2, 6);
+            case AILevelDifficulty.Orta:  return (0.40f, 5, 4, 10);
+            case AILevelDifficulty.Zor:   return (0.65f, 7, 6, 16);
+            case AILevelDifficulty.Uzman: return (0.85f, 10, 8, 24);
+            default: return (0.40f, 5, 4, 10);
+        }
+    }
+
+    private (List<List<Vector3Int>> pieces, SolverResult result, string strategyName)
         SelectBestStrategy(List<(List<List<Vector3Int>> pieces, SolverResult result, string strategyName)> strategies)
     {
         // En iyi stratejiyi seçme kriterleri:
         // 1. Önce çözülebilir olanları filtrele
-        // 2. İdeal parça sayısına yakın olanı seç (3-6 parça ideal)
-        // 3. İstenen zorluk seviyesine yakın olanı seç
+        // 2. Seçilen zorluk moduna (Kolay/Orta/Zor/Uzman) en yakın olanı seç
 
         var solvable = strategies.Where(s => s.result.isSolvable).ToList();
-        
+
         if (solvable.Count == 0)
         {
             Debug.LogWarning("⚠️ Çözülebilir strateji bulunamadı!");
             return (null, null, "");
         }
 
-        // İdeal parça sayısı: 3-6 arası
-        int idealPieceCount = 4;
-        
+        var targets = GetDifficultyTargets(selectedDifficulty);
+
         // En iyi stratejiyi seç (çok faktörlü skor sistemi)
         var best = solvable
             .Select(s => new
             {
                 strategy = s,
                 // Skor hesaplama:
-                // - Parça sayısı skoru (ideal 4, tolerans ±2)
-                pieceScore = 100f - Mathf.Abs(s.pieces.Count - idealPieceCount) * 10f,
-                // - Zorluk skoru (orta zorluk tercih edilir, 40-60 arası ideal)
-                difficultyScore = 100f - Mathf.Abs(s.result.difficultyScore - 50f),
-                // - Hamle sayısı skoru (3-10 hamle arası ideal)
-                moveScore = (s.result.minMoveCount >= 3 && s.result.minMoveCount <= 10) ? 100f : 50f,
+                // - Parça sayısı skoru (ideal, zorluk moduna göre değişir)
+                pieceScore = 100f - Mathf.Abs(s.pieces.Count - targets.idealPieceCount) * 8f,
+                // - Zorluk skoru: solver 0.0-1.0 döndürür, hedefle aynı skalada karşılaştırılır
+                difficultyScore = 100f - Mathf.Abs(s.result.difficultyScore - targets.targetScore) * 100f,
+                // - Hamle sayısı skoru (zorluk moduna göre ideal aralık)
+                moveScore = (s.result.minMoveCount >= targets.minMoves && s.result.minMoveCount <= targets.maxMoves) ? 100f : 50f,
                 // Toplam skor
                 totalScore = 0f
             })
@@ -1652,9 +1717,143 @@ public class AILevelDesignerWindow : EditorWindow
         return best.strategy;
     }
 
+    // ═════════════════════════════════════════════════════════════
+    // TETROMİNO (KLASİK TETRİS) PARÇA ÜRETİMİ
+    // Parçalar her zaman gerçek Tetris şekillerinden (I, O, T, S, Z, J, L) oluşur.
+    // minPieceSize/maxPieceSize bu modda geçerli değildir — şekiller sabit 4 hücrelidir.
+    // ═════════════════════════════════════════════════════════════
+
+    // Her şekil, (x, z) yerel hücre ofsetleri olarak tanımlanır (y=0 sabit; parçalar hep yatay).
+    private static readonly Vector2Int[][] TETROMINO_BASE_SHAPES = new Vector2Int[][]
+    {
+        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(3,0) }, // I
+        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(1,1) }, // O
+        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(1,1) }, // T
+        new[] { new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(0,1), new Vector2Int(1,1) }, // S
+        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(1,1), new Vector2Int(2,1) }, // Z
+        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1) }, // J
+        new[] { new Vector2Int(2,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1) }, // L
+    };
+
+    private static Vector2Int[] NormalizeShape(Vector2Int[] shape)
+    {
+        int minX = shape.Min(c => c.x);
+        int minZ = shape.Min(c => c.y);
+        var norm = shape.Select(c => new Vector2Int(c.x - minX, c.y - minZ)).ToArray();
+        System.Array.Sort(norm, (a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
+        return norm;
+    }
+
+    private static Vector2Int[] RotateShape90(Vector2Int[] shape)
+    {
+        // (x, z) -> (z, -x)
+        var rotated = shape.Select(c => new Vector2Int(c.y, -c.x)).ToArray();
+        return NormalizeShape(rotated);
+    }
+
+    // 7 klasik tetromino için tüm benzersiz rotasyonları (simetrik şekillerde tekrar edenler elenir).
+    private static List<Vector2Int[]> GetAllTetrominoOrientations()
+    {
+        var result = new List<Vector2Int[]>();
+        var seen = new HashSet<string>();
+        foreach (var baseShape in TETROMINO_BASE_SHAPES)
+        {
+            var current = NormalizeShape(baseShape);
+            for (int r = 0; r < 4; r++)
+            {
+                string key = string.Join("|", current.Select(c => $"{c.x},{c.y}"));
+                if (seen.Add(key)) result.Add(current);
+                current = RotateShape90(current);
+            }
+        }
+        return result;
+    }
+
+    private static void ShuffleList<T>(List<T> list)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    private List<List<Vector3Int>> SplitShapeAsTetrominoes(int randomSeed)
+    {
+        Random.InitState(randomSeed + System.DateTime.Now.Millisecond);
+
+        List<List<Vector3Int>> pieces = new List<List<Vector3Int>>();
+
+        HashSet<Vector3Int> assignable = new HashSet<Vector3Int>(occupiedCells);
+        foreach (var pf in prefilledCells) assignable.Remove(pf);
+        foreach (var fz in frozenCells) assignable.Remove(fz);
+
+        var orientations = GetAllTetrominoOrientations();
+
+        // Parçalar tek bir katmanda kalmalı; her katmanı ayrı ayrı döşüyoruz.
+        var cellsByY = new Dictionary<int, HashSet<Vector3Int>>();
+        foreach (var c in assignable)
+        {
+            if (!cellsByY.ContainsKey(c.y)) cellsByY[c.y] = new HashSet<Vector3Int>();
+            cellsByY[c.y].Add(c);
+        }
+
+        foreach (var kvp in cellsByY)
+        {
+            int y = kvp.Key;
+            var remaining = kvp.Value;
+
+            var order = remaining.OrderBy(c => c.x).ThenBy(c => c.z).ToList();
+            ShuffleList(order);
+
+            foreach (var seed in order)
+            {
+                if (!remaining.Contains(seed)) continue;
+
+                var shuffledOrientations = new List<Vector2Int[]>(orientations);
+                ShuffleList(shuffledOrientations);
+
+                bool placed = false;
+                foreach (var shape in shuffledOrientations)
+                {
+                    // Şeklin herhangi bir hücresini "seed"e denk getirip tüm şeklin boşta olan
+                    // hücrelere sığıp sığmadığına bakıyoruz.
+                    foreach (var anchor in shape)
+                    {
+                        int originX = seed.x - anchor.x;
+                        int originZ = seed.z - anchor.y;
+                        var candidate = shape.Select(c => new Vector3Int(originX + c.x, y, originZ + c.y)).ToList();
+                        if (candidate.All(c => remaining.Contains(c)))
+                        {
+                            pieces.Add(candidate);
+                            foreach (var c in candidate) remaining.Remove(c);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (placed) break;
+                }
+            }
+
+            // Tam bir tetrominoya sığmayan artık hücreler (kenarda kalan tek/ikili parçalar)
+            // en yakın komşu parçaya katılır — ayrı, tuhaf küçük parçalar kalmaz.
+            if (remaining.Count > 0)
+            {
+                MergeCellsIntoNearestPieces(pieces, remaining);
+            }
+        }
+
+        return pieces;
+    }
+
     private void SplitShapeIntoPieces()
     {
         pieceSplitList.Clear();
+        if (pieceGenMode == PieceGenMode.Tetromino_Klasik)
+        {
+            pieceSplitList = SplitShapeAsTetrominoes(0);
+            return;
+        }
         if (pieceGenMode == PieceGenMode.Puzzle_Geometrik)
         {
             pieceSplitList = SplitShapeWithGeometricStrategy(minPieceSize, maxPieceSize, 0);
@@ -1757,13 +1956,49 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        // Add each frozen cell as a separate 1-block piece
-        foreach (var fz in frozenCells)
-        {
-            pieceSplitList.Add(new List<Vector3Int> { fz });
-        }
+        MergeCellsIntoNearestPieces(pieceSplitList, frozenCells);
 
         EnforceMaxPieceSize(pieceSplitList, maxPieceSize);
+    }
+
+    // Verilen hücreleri (dondurulmuş/buz hücreleri, tetromino ile kaplanamayan artıklar, vb.)
+    // ayrı birer 1-bloklu "parça" olarak eklemek yerine en yakın aynı-katmandaki komşu parçaya
+    // katar. Export edilen parçalar normalize edilip düz şekil verisine dönüştüğü için (hangi
+    // orijinal hücreden geldiği bilgisi kaybolur), bu birleştirme oyun mantığını etkilemez —
+    // sadece parça havuzunun onlarca gereksiz tekli küple şişmesini önler. Toplam arz edilen
+    // küp sayısı aynı kalır.
+    private void MergeCellsIntoNearestPieces(List<List<Vector3Int>> pieces, IEnumerable<Vector3Int> extraCells)
+    {
+        foreach (var fz in extraCells)
+        {
+            int bestTargetPiece = -1;
+            float minDist = float.MaxValue;
+
+            for (int j = 0; j < pieces.Count; j++)
+            {
+                if (pieces[j].Count == 0 || pieces[j][0].y != fz.y) continue; // Aynı katman kısıtı
+
+                foreach (var tc in pieces[j])
+                {
+                    float d = Vector3.Distance(fz, tc);
+                    if (d < minDist)
+                    {
+                        minDist = d;
+                        bestTargetPiece = j;
+                    }
+                }
+            }
+
+            if (bestTargetPiece >= 0 && minDist <= 1.1f)
+            {
+                pieces[bestTargetPiece].Add(fz);
+            }
+            else
+            {
+                // Aynı katmanda hiç komşu parça yoksa (nadir durum), yine de tek başına ekle.
+                pieces.Add(new List<Vector3Int> { fz });
+            }
+        }
     }
 
     private void EnforceMaxPieceSize(List<List<Vector3Int>> pieces, int maxSize)
@@ -1930,6 +2165,14 @@ public class AILevelDesignerWindow : EditorWindow
                 int pfIndex = prefilledCells.IndexOf(cell);
                 int matIdx = (pfIndex >= 0 && pfIndex < prefilledMatIdx.Count) ? prefilledMatIdx[pfIndex] : 0;
                 cube.name = $"Prefilled_{matIdx}_{cell.x}_{cell.y}_{cell.z}";
+
+                // Küpün ismindeki matIdx sadece mantık içindi; oyuncunun engelin rengini
+                // görebilmesi için gerçek Renderer materyalini de aynı index'e eşleyelim.
+                if (prefilledMaterials != null && matIdx >= 0 && matIdx < prefilledMaterials.Length && prefilledMaterials[matIdx] != null)
+                {
+                    var pfRend = cube.GetComponentInChildren<Renderer>(true);
+                    if (pfRend != null) pfRend.sharedMaterial = prefilledMaterials[matIdx];
+                }
             }
             else
             {

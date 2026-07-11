@@ -228,7 +228,10 @@ public class LevelManager : MonoBehaviour
         {
             if (c.y == gridManager.ActiveLayerY)
             {
-                if (gridManager.occupiedCells.Contains(c))
+                // Prefilled (seviye başında hazır gelen engel) hücreler burada sayılmamalı —
+                // yoksa "aktif katmanda hiç blok yoksa rastgele renk seç" esnekliği hiç devreye
+                // girmiyor ve ilk parçalar hep prefilled engelin rengine kilitleniyordu.
+                if (gridManager.occupiedCells.Contains(c) && !gridManager.IsCellPrefilled(c))
                 {
                     if (gridManager.GetCellColor(c, out Color col))
                     {

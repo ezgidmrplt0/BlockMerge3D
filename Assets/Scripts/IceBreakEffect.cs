@@ -226,11 +226,249 @@ public class IceBreakEffect : MonoBehaviour
 
         // 3. Cleanup / Callback
         seq.AppendInterval(effectDuration);
+
+        // Parlaklık patlaması hiç geri söndürülmüyordu; hideTarget:true olan çağrılarda obje
+        // hemen gizlendiği için fark edilmiyordu ama hideTarget:false ile (obje görünür kalınca)
+        // materyal efekt boyunca beyaz/aşırı parlak takılı kalıyordu. Burst'ten hemen sonraki
+        // 0.18s'lik dilime Insert ederek toplam süreyi uzatmadan normale söndürüyoruz.
+        if (targetRend != null && targetRend.material != null && targetRend.material.HasProperty("_EmissionColor"))
+        {
+            seq.Insert(0.10f, targetRend.material.DOColor(Color.clear, "_EmissionColor", 0.18f).SetEase(Ease.OutQuad));
+        }
+
         seq.OnComplete(() =>
         {
             onComplete?.Invoke();
             // Not: Hedef obje dışarıdan yönetiliyor (örn. GridManager tarafından Destroy edilecek).
             // Eğer sadece görsel kapatma lazımsa, görünmez yapıldı (enabled = false).
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BUZ ERİME EFEKTİ: Isı transferi metaforu — sıcak blok soğuk buza değer,
+    // buz zamanla (ani kırılma değil) organik biçimde erir. Shader/ses/doku
+    // asseti gerektirmeyen, tamamen DOTween + MaterialPropertyBlock tabanlı
+    // bir yaklaşım (gerçek dissolve shader'ın kod-only yaklaşımı).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static readonly Color ContactFlashColor = new Color(1f, 0.98f, 0.863f);   // sıcak-soğuk temas anı
+    private static readonly Color EdgeGlowColor      = new Color(0.863f, 0.98f, 1f);   // "erime hattı" parıltısı
+    private static readonly Color WaterDropColor     = new Color(0.678f, 0.847f, 0.902f);
+    private static readonly Color SparkleColor       = Color.white;
+
+    /// <summary>
+    /// Temas anında (parça buza değdiği ilk kare) çağrılır: kısa bir buhar
+    /// patlaması + (varsa) hafif mobil titreşim. Ateşle-unut niteliğindedir,
+    /// asıl erime sekansını (PlayIceMelt) engellemez/beklemez.
+    /// </summary>
+    public static void PlayContactHeatFlash(GameObject targetBlock)
+    {
+        if (targetBlock == null) return;
+        Instance.PlayContactHeatFlashEffect(targetBlock);
+    }
+
+    private void PlayContactHeatFlashEffect(GameObject targetBlock)
+    {
+        Vector3 center = targetBlock.transform.position;
+        Renderer rend = targetBlock.GetComponentInChildren<Renderer>();
+
+        if (rend != null && rend.material != null && rend.material.HasProperty("_EmissionColor"))
+        {
+            rend.material.EnableKeyword("_EMISSION");
+            rend.material.DOKill();
+            rend.material.DOColor(ContactFlashColor * 1.5f, "_EmissionColor", 0.08f).SetLoops(2, LoopType.Yoyo);
+        }
+
+        SpawnBurstParticles(center, 4, ContactFlashColor, radiating: true);
+
+#if UNITY_ANDROID || UNITY_IOS
+        Handheld.Vibrate();
+#endif
+    }
+
+    /// <summary>
+    /// Buzun kırılma yerine erime animasyonu: alpha "dissolve" illüzyonu
+    /// (yavaş başlayıp hızlanan ease-in eğrisi), kenarda kısa bir "erime hattı"
+    /// parıltısı, düşen su damlaları, sonda hafif bir mesh çöküşü ve kapanışta
+    /// bir final parıltısı. targetBlock'un gerçek grid durumu (occupiedCells)
+    /// bu görsel sekanstan önce, çağıran taraf (GridManager) tarafından zaten
+    /// güncellenmiş olmalı — burada sadece görsel oynatılır.
+    /// </summary>
+    public static void PlayIceMelt(GameObject targetBlock, Action onComplete = null)
+    {
+        Instance.PlayIceMeltEffect(targetBlock, onComplete);
+    }
+
+    private void PlayIceMeltEffect(GameObject targetBlock, Action onComplete)
+    {
+        if (targetBlock == null)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+
+        Vector3 center = targetBlock.transform.position;
+        Vector3 origScale = targetBlock.transform.localScale;
+        Renderer targetRend = targetBlock.GetComponentInChildren<Renderer>();
+
+        targetBlock.transform.DOKill();
+        if (targetRend != null && targetRend.material != null) targetRend.material.DOKill();
+
+        const float meltDuration = 0.55f;
+        bool hasEmission = targetRend != null && targetRend.material != null && targetRend.material.HasProperty("_EmissionColor");
+        string colorProp = targetRend != null && targetRend.material != null
+            ? (targetRend.material.HasProperty("_BaseColor") ? "_BaseColor"
+                : targetRend.material.HasProperty("_Color") ? "_Color" : null)
+            : null;
+        Color origColor = colorProp != null ? targetRend.material.GetColor(colorProp) : Color.white;
+
+        Sequence seq = DOTween.Sequence();
+
+        // 0. Temas anı: erime başlar başlamaz temas noktasında kısa bir buhar patlaması
+        seq.InsertCallback(0f, () => SpawnBurstParticles(center, 4, ContactFlashColor, radiating: true));
+
+        // 1. Ana erime: alpha yavaş başlayıp hızlanarak 0'a iner (kalın buz yavaş,
+        //    incelen buz hızlı erir hissi)
+        if (colorProp != null)
+        {
+            Color faded = origColor; faded.a = 0f;
+            seq.Append(targetRend.material.DOColor(faded, colorProp, meltDuration).SetEase(Ease.InQuad));
+        }
+        else
+        {
+            seq.AppendInterval(meltDuration);
+        }
+
+        // 2. Erime hattı parıltısı: sürecin ortasında kısa bir parlama (dissolve
+        //    edge-glow illüzyonu), ardından sönüp kapanır
+        if (hasEmission)
+        {
+            targetRend.material.EnableKeyword("_EMISSION");
+            seq.Insert(meltDuration * 0.45f, targetRend.material.DOColor(EdgeGlowColor * 1.4f, "_EmissionColor", meltDuration * 0.2f).SetLoops(2, LoopType.Yoyo));
+            seq.Insert(meltDuration * 0.85f, targetRend.material.DOColor(Color.clear, "_EmissionColor", meltDuration * 0.15f));
+        }
+
+        // 3. Su damlaları: erime sırasında iki dalga halinde düşen damlalar
+        seq.InsertCallback(meltDuration * 0.15f, () => SpawnWaterDroplets(center, origScale, 3));
+        seq.InsertCallback(meltDuration * 0.55f, () => SpawnWaterDroplets(center, origScale, 3));
+
+        // 4. Mesh çöküşü: sürecin son %30'unda hafifçe çöker (tamamen kozmetik,
+        //    grid mantığını etkilemez)
+        seq.Insert(meltDuration * 0.7f, targetBlock.transform.DOScale(
+            new Vector3(origScale.x, origScale.y * 0.85f, origScale.z), meltDuration * 0.3f).SetEase(Ease.OutQuad));
+
+        // 5. Final parıltı: erime bitince kısa, parlak bir "chime" ışığı
+        seq.InsertCallback(meltDuration, () => SpawnFinalSparkle(center));
+
+        seq.OnComplete(() =>
+        {
+            // Görünüm dışarıdan (GridManager) sıfırlanacak; burada sadece transformu toparlıyoruz.
+            targetBlock.transform.localScale = origScale;
+            onComplete?.Invoke();
+        });
+    }
+
+    /// <summary>
+    /// Düşen (yerçekimi hissi veren) su damlaları — buz kırıklarının aksine
+    /// dışa doğru patlamaz, aşağı süzülüp hafif sönerek kaybolur.
+    /// </summary>
+    private void SpawnWaterDroplets(Vector3 center, Vector3 iceScale, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            GameObject drop = GetShard();
+            Vector3 edgeOffset = new Vector3(
+                UnityEngine.Random.Range(-0.5f, 0.5f) * iceScale.x,
+                -iceScale.y * 0.4f,
+                UnityEngine.Random.Range(-0.5f, 0.5f) * iceScale.z);
+            drop.transform.position = center + edgeOffset;
+
+            float s = UnityEngine.Random.Range(0.05f, 0.1f);
+            drop.transform.localScale = Vector3.one * s;
+
+            Renderer dr = drop.GetComponent<Renderer>();
+            if (dr != null && dr.material != null)
+            {
+                dr.material.color = WaterDropColor;
+                if (dr.material.HasProperty("_EmissionColor"))
+                {
+                    dr.material.EnableKeyword("_EMISSION");
+                    dr.material.SetColor("_EmissionColor", WaterDropColor * 0.3f);
+                }
+            }
+
+            float dur = UnityEngine.Random.Range(0.3f, 0.45f);
+            Vector3 fallTarget = drop.transform.position + Vector3.down * UnityEngine.Random.Range(0.4f, 0.7f);
+
+            drop.transform.DOMove(fallTarget, dur).SetEase(Ease.InQuad);
+            drop.transform.DOScale(Vector3.zero, dur * 0.5f).SetDelay(dur * 0.5f).SetEase(Ease.InQuad).OnComplete(() =>
+            {
+                ReturnShard(drop);
+            });
+        }
+    }
+
+    /// <summary>
+    /// Temas anındaki buhar patlaması ve benzeri kısa, dışa doğru genişleyen
+    /// parçacık patlamaları için ortak yardımcı.
+    /// </summary>
+    private void SpawnBurstParticles(Vector3 center, int count, Color color, bool radiating)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            GameObject p = GetShard();
+            p.transform.position = center + UnityEngine.Random.insideUnitSphere * 0.1f;
+
+            float s = UnityEngine.Random.Range(0.05f, 0.12f);
+            p.transform.localScale = Vector3.one * s;
+
+            Renderer pr = p.GetComponent<Renderer>();
+            if (pr != null && pr.material != null)
+            {
+                pr.material.color = color;
+                if (pr.material.HasProperty("_EmissionColor"))
+                {
+                    pr.material.EnableKeyword("_EMISSION");
+                    pr.material.SetColor("_EmissionColor", color * 1.5f);
+                }
+            }
+
+            Vector3 dir = radiating ? UnityEngine.Random.insideUnitSphere.normalized : Vector3.up;
+            float dur = UnityEngine.Random.Range(0.2f, 0.3f);
+            Vector3 targetPos = p.transform.position + dir * UnityEngine.Random.Range(0.3f, 0.5f);
+
+            p.transform.DOMove(targetPos, dur).SetEase(Ease.OutQuad);
+            p.transform.DOScale(Vector3.zero, dur).SetEase(Ease.InQuad).OnComplete(() =>
+            {
+                ReturnShard(p);
+            });
+        }
+    }
+
+    /// <summary>
+    /// Erimenin bittiğini işaret eden kısa, parlak final parıltısı.
+    /// </summary>
+    private void SpawnFinalSparkle(Vector3 center)
+    {
+        GameObject sparkle = GetShard();
+        sparkle.transform.position = center;
+        sparkle.transform.localScale = Vector3.zero;
+
+        Renderer sr = sparkle.GetComponent<Renderer>();
+        if (sr != null && sr.material != null)
+        {
+            sr.material.color = SparkleColor;
+            if (sr.material.HasProperty("_EmissionColor"))
+            {
+                sr.material.EnableKeyword("_EMISSION");
+                sr.material.SetColor("_EmissionColor", SparkleColor * 2.5f);
+            }
+        }
+
+        const float dur = 0.15f;
+        Sequence seq = DOTween.Sequence();
+        seq.Append(sparkle.transform.DOScale(Vector3.one * 0.4f, dur * 0.4f).SetEase(Ease.OutQuad));
+        seq.Append(sparkle.transform.DOScale(Vector3.zero, dur * 0.6f).SetEase(Ease.InQuad));
+        seq.OnComplete(() => ReturnShard(sparkle));
     }
 }
