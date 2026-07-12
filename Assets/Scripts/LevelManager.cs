@@ -43,6 +43,13 @@ public class LevelManager : MonoBehaviour
 
     [Header("Next Piece Preview Settings")]
     private int nextPieceIndex = -1;
+    // "Sıradaki parça" önizlemesinde gösterilen renk — o parça gerçekten spawn edilirken
+    // AYNI renk kullanılmalı. GetDominantMaterialOnActiveLayer() aktif katmanın anlık durumuna
+    // göre değişir; önizleme gösterildikten sonra oyuncu bir parça yerleştirirse katmanın baskın
+    // rengi değişebilir, ve spawn anında yeniden hesaplanırsa önizlemeyle eşleşmeyen bir renk
+    // çıkabilir (örn. önizleme kırmızı gösterirken parça mor gelir). Bu yüzden renk, önizleme
+    // oluşturulduğu anda BİR KEZ hesaplanıp burada saklanır, spawn'da yeniden hesaplanmaz.
+    private Material nextPieceMaterial;
     private GameObject nextPiecePreviewParent;
     private Camera nextPiecePreviewCam;
     private GameObject nextPiecePreview3D;
@@ -182,8 +189,11 @@ public class LevelManager : MonoBehaviour
         spawnedPieceIndices.Add(indexToSpawn);
         activeIsSmart.Add(false); // Kolaylaştırma yardımı kapalı
 
-        // Aktif katmandaki baskın renge göre renk ata
-        Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+        // Bu parçanın rengi, önizlemesi gösterildiği anda (PrepareNextPieceIndex içinde) zaten
+        // kararlaştırılıp nextPieceMaterial'e kaydedilmişti — burada YENİDEN hesaplanmaz, aksi
+        // halde önizlemede gösterilen renkle spawn edilen renk (araya giren bir yerleştirme
+        // aktif katmanın baskın rengini değiştirdiyse) birbirini tutmayabilir.
+        Material matchingMaterial = nextPieceMaterial;
 
         // Parçayı spawn et
         SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
@@ -666,6 +676,7 @@ public class LevelManager : MonoBehaviour
 
         // NEXT PIECE PREVIEW RESET
         nextPieceIndex = -1;
+        nextPieceMaterial = null;
         ClearNextPiecePreview();
     }
 
@@ -1147,6 +1158,7 @@ public class LevelManager : MonoBehaviour
         if (allPiecePrefabs.Count == 0)
         {
             nextPieceIndex = -1;
+            nextPieceMaterial = null;
             return;
         }
 
@@ -1169,6 +1181,9 @@ public class LevelManager : MonoBehaviour
         }
 
         nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
+        // Bu parçanın rengi ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de
+        // parça gerçekten spawn edilirken (bkz. SpawnRandomPiece) AYNI renk kullanılacak.
+        nextPieceMaterial = GetDominantMaterialOnActiveLayer();
         UpdateNextPiecePreviewVisuals();
     }
 
@@ -1181,7 +1196,7 @@ public class LevelManager : MonoBehaviour
 
         var prefab = allPiecePrefabs[nextPieceIndex];
         nextPiecePreview3D = Instantiate(prefab, nextPiecePreviewParent.transform);
-        
+
         foreach (var col in nextPiecePreview3D.GetComponentsInChildren<Collider>())
         {
             col.enabled = false;
@@ -1189,7 +1204,7 @@ public class LevelManager : MonoBehaviour
         var drag = nextPiecePreview3D.GetComponent<DraggablePiece>();
         if (drag != null) drag.enabled = false;
 
-        Material matchingMaterial = GetDominantMaterialOnActiveLayer();
+        Material matchingMaterial = nextPieceMaterial;
         if (matchingMaterial != null)
         {
             var renderers = nextPiecePreview3D.GetComponentsInChildren<Renderer>();
