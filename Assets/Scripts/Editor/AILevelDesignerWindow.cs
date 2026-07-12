@@ -171,15 +171,15 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Label("📐 ŞABLON BAZLI ÜRETİM", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUILayout.HelpBox("AI sıfırdan grid oluşturmaz. Hazır şablonlar üzerinden çalışır.", MessageType.Info);
-        
+
         LevelTemplate prevTemplate = selectedTemplate;
         selectedTemplate = (LevelTemplate)EditorGUILayout.ObjectField("Level Şablonu", selectedTemplate, typeof(LevelTemplate), false);
-        
+
         if (selectedTemplate != prevTemplate && selectedTemplate != null)
         {
             LoadTemplateParameters();
         }
-        
+
         if (selectedTemplate != null)
         {
             EditorGUILayout.LabelField($"📝 {selectedTemplate.templateName}", EditorStyles.boldLabel);
@@ -852,10 +852,9 @@ public class AILevelDesignerWindow : EditorWindow
 
         EditorGUILayout.BeginVertical(styleInstructionBox);
         GUILayout.Label("2. ALGORİTMİK YAPAY ZEKA NASIL KULLANILIR?", EditorStyles.boldLabel);
-        GUILayout.Label("AI Level Designer, 3D matematiksel algoritmalar ve simetri kuralları kullanarak karmaşık bulmaca tasarımları üretir:\n" +
-                      " • Şekil Tipi: Piramit, spiral, kale veya yıldız gibi temel şekilleri 3D voxel olarak hesaplar.\n" +
-                      " • Doluluk Yoğunluğu: Şeklin ne kadarının dolu olacağını seçer. Düşük yoğunluklar daha oyuk/delikli şekiller üretir.\n" +
-                      " • Simetri Modu: Sol tarafta yapılan çizimlerin sağ tarafta, ön taraftaki çizimlerin arkada otomatik tekrarlanmasını sağlayarak estetik tasarımlar ortaya çıkarır.", EditorStyles.wordWrappedLabel);
+        GUILayout.Label("AI Level Designer, seçilen Level Şablonu üzerinden çalışır ve buna prosedürel engel/parça mantığı ekler:\n" +
+                      " • Şekil: Şablon dolu hücrelere sahipse o elle tasarlanmış şekil kullanılır; boşsa (ör. hazır 'tam küp' şablonları) Grid Boyutu kadar düz dolu bir kutu üretilir.\n" +
+                      " • Doluluk Yoğunluğu: Şeklin ne kadarının dolu olacağını seçer. Düşük yoğunluklar daha oyuk/delikli şekiller üretir.", EditorStyles.wordWrappedLabel);
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
@@ -907,17 +906,7 @@ public class AILevelDesignerWindow : EditorWindow
         // Şablon boşsa (occupiedCells listesi boşsa) = tam dolu küp
         if (selectedTemplate.occupiedCells == null || selectedTemplate.occupiedCells.Count == 0)
         {
-            // Tam dolu küp oluştur
-            for (int x = 0; x < W; x++)
-            {
-                for (int y = 0; y < H; y++)
-                {
-                    for (int z = 0; z < D; z++)
-                    {
-                        occupiedCells.Add(new Vector3Int(x, y, z));
-                    }
-                }
-            }
+            BuildSolidBoxShape(W, H, D);
             Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' - Tam dolu {W}x{H}x{D} küp: {occupiedCells.Count} blok");
         }
         else
@@ -933,6 +922,28 @@ public class AILevelDesignerWindow : EditorWindow
             occupiedCells.Add(new Vector3Int(W / 2, 0, D / 2));
         }
 
+        ApplyObstaclesAndSplitPieces(W, H, D);
+
+        activeLayer = 0;
+        Repaint();
+        Debug.Log($"🤖 Yapay Zeka: '{levelName}' seviyesi procedurally oluşturuldu. Küp: {occupiedCells.Count}, Parça: {pieceSplitList.Count}");
+    }
+
+    // occupiedCells'i W×H×D'lik tam dolu bir kutuyla doldurur. Şablon seçilmediği/boş olduğu
+    // durumlarda (bkz. yukarısı) ve şablon gerektirmeyen toplu üretimde (bkz.
+    // GenerateAndExportAIBatchDataset) kullanılan tek, ortak "düz kutu" üretim yolu.
+    private void BuildSolidBoxShape(int W, int H, int D)
+    {
+        for (int x = 0; x < W; x++)
+            for (int y = 0; y < H; y++)
+                for (int z = 0; z < D; z++)
+                    occupiedCells.Add(new Vector3Int(x, y, z));
+    }
+
+    // occupiedCells zaten dolduktan sonra: buz/prefilled dağıtımı + akıllı parça bölme.
+    // GenerateLevelProcedurally ve GenerateAndExportAIBatchDataset tarafından ortak kullanılır.
+    private void ApplyObstaclesAndSplitPieces(int W, int H, int D)
+    {
         // 2. AI Parametreleri: Renkli Küpler (Prefilled) ve Buzları Dağıt
         List<Vector3Int> finalOccupied = occupiedCells.ToList();
         int targetPrefillCount = Mathf.RoundToInt(finalOccupied.Count * prefillPercentage);
@@ -946,7 +957,7 @@ public class AILevelDesignerWindow : EditorWindow
         foreach (var cell in finalOccupied)
         {
             if (iceDone >= targetIceCount) break;
-            
+
             // Strateji: Buzlar genellikle daha alt katmanlarda veya kenarlarda olsun
             bool strategicPlace = (cell.y <= H / 2) || (cell.x == 0 || cell.x == W - 1 || cell.z == 0 || cell.z == D - 1);
             if (strategicPlace || Random.value < 0.5f)
@@ -984,10 +995,6 @@ public class AILevelDesignerWindow : EditorWindow
 
         // 3. Akıllı Parça Üretimi: Birden fazla strateji dene, en iyisini seç
         SmartPieceSplitting();
-
-        activeLayer = 0;
-        Repaint();
-        Debug.Log($"🤖 Yapay Zeka: '{levelName}' seviyesi procedurally oluşturuldu. Küp: {occupiedCells.Count}, Parça: {pieceSplitList.Count}");
     }
 
     private bool EvaluateShapeFormula(Vector3Int c, int W, int H, int D)
@@ -1649,20 +1656,69 @@ public class AILevelDesignerWindow : EditorWindow
         return result;
     }
 
+    // Tüm zorluk modlarının parametreleri TEK bir yerden okunur (bkz. DifficultySpecs altta).
+    // Eskiden ApplyDifficultyScaleForMode ve GetDifficultyTargets birbirinden bağımsız iki ayrı
+    // switch/hardcoded tablo tutuyordu — biri güncellenip diğeri unutulursa (ör. ORTA'ya yeni bir
+    // alan eklenip diğer tabloya yansıtılmazsa) sessizce birbirinden sapabiliyordu. Artık ikisi de
+    // aynı DifficultySpecs sözlüğünden okuyor.
+    private struct AIDifficultySpec
+    {
+        public float baseTime;
+        public float baseTarget;
+        public float prefillPercentage;
+        public float icePercentage;
+        public int minPieceSize;
+        public int maxPieceSize;
+        // Solver tabanlı strateji seçiminde kullanılan hedefler (bkz. SelectBestStrategy).
+        public float solverTargetScore; // LevelSolver 0.0-1.0 zorluk skalası
+        public int idealPieceCount;
+        public int minMoves;
+        public int maxMoves;
+    }
+
+    private static readonly Dictionary<AILevelDifficulty, AIDifficultySpec> DifficultySpecs = new Dictionary<AILevelDifficulty, AIDifficultySpec>
+    {
+        { AILevelDifficulty.Kolay, new AIDifficultySpec {
+            baseTime = 90f, baseTarget = 80f, prefillPercentage = 0f, icePercentage = 0f,
+            minPieceSize = 1, maxPieceSize = 3, // 4 yasaklandı
+            solverTargetScore = 0.15f, idealPieceCount = 3, minMoves = 2, maxMoves = 6 } },
+
+        { AILevelDifficulty.Orta, new AIDifficultySpec {
+            baseTime = 75f, baseTarget = 180f,
+            // Prefilled (hazır renkli engel) hücreler kapalı: LevelManager.GetDominantMaterialOnActiveLayer
+            // prefilled hücreleri bilerek dominant renk hesabına katmıyor (bkz. o metodun içindeki yorum) —
+            // bu da bir katmanda SADECE prefilled hücre varken sonraki parçaların rastgele (prefilled ile
+            // eşleşmeyen) bir renk alıp katmanı kalıcı olarak temizlenemez bırakabilmesi riskini taşıyor.
+            // Buz (ice) aynı riski taşımıyor (rengi yok, sadece bitişik parça erittiriyor) — o yüzden ice
+            // açık kalıyor, prefill kapalı.
+            prefillPercentage = 0f, icePercentage = 0.10f,
+            minPieceSize = 2, maxPieceSize = 3, // 4 yasaklandı
+            solverTargetScore = 0.40f, idealPieceCount = 5, minMoves = 4, maxMoves = 10 } },
+
+        { AILevelDifficulty.Zor, new AIDifficultySpec {
+            baseTime = 60f, baseTarget = 420f, prefillPercentage = 0.20f, icePercentage = 0.20f,
+            minPieceSize = 2, maxPieceSize = 5,
+            solverTargetScore = 0.65f, idealPieceCount = 7, minMoves = 6, maxMoves = 16 } },
+
+        { AILevelDifficulty.Uzman, new AIDifficultySpec {
+            baseTime = 45f, baseTarget = 870f, prefillPercentage = 0.30f, icePercentage = 0.30f,
+            minPieceSize = 3, maxPieceSize = 6, // 4 olmasın
+            solverTargetScore = 0.85f, idealPieceCount = 10, minMoves = 8, maxMoves = 24 } },
+    };
+
+    private static AIDifficultySpec GetDifficultySpec(AILevelDifficulty mode)
+    {
+        return DifficultySpecs.TryGetValue(mode, out var spec) ? spec : DifficultySpecs[AILevelDifficulty.Orta];
+    }
+
     // Seçilen zorluk moduna göre hedef zorluk skoru (LevelSolver 0.0-1.0 skalasında çalışır),
     // ideal parça sayısı ve ideal hamle aralığı. SelectBestStrategy bu hedeflere göre puanlar;
     // aksi halde (eskiden olduğu gibi) sabit "orta zorluk" hedefi Zor/Uzman modlarında bile
     // en kolay/az parçalı sonucu seçmeye devam eder.
     private (float targetScore, int idealPieceCount, int minMoves, int maxMoves) GetDifficultyTargets(AILevelDifficulty mode)
     {
-        switch (mode)
-        {
-            case AILevelDifficulty.Kolay: return (0.15f, 3, 2, 6);
-            case AILevelDifficulty.Orta:  return (0.40f, 5, 4, 10);
-            case AILevelDifficulty.Zor:   return (0.65f, 7, 6, 16);
-            case AILevelDifficulty.Uzman: return (0.85f, 10, 8, 24);
-            default: return (0.40f, 5, 4, 10);
-        }
+        var spec = GetDifficultySpec(mode);
+        return (spec.solverTargetScore, spec.idealPieceCount, spec.minMoves, spec.maxMoves);
     }
 
     private (List<List<Vector3Int>> pieces, SolverResult result, string strategyName)
@@ -2388,61 +2444,22 @@ public class AILevelDesignerWindow : EditorWindow
     {
         selectedDifficulty = mode;
         levelDifficultyModeSuggestion = mode.ToString();
-        
-        float baseTime = 75f;
-        float baseTarget = 150f;
-        
-        switch (mode)
-        {
-            case AILevelDifficulty.Kolay:
-                baseTime = 90f; 
-                baseTarget = 80f;
-                prefillPercentage = 0f;
-                icePercentage = 0f;
-                minPieceSize = 1;
-                maxPieceSize = 3; // 4 yasaklandı
-                break;
-            case AILevelDifficulty.Orta:
-                baseTime = 75f;
-                baseTarget = 180f;
-                // Prefilled (hazır renkli engel) hücreler kapalı: LevelManager.GetDominantMaterialOnActiveLayer
-                // prefilled hücreleri bilerek dominant renk hesabına katmıyor (bkz. o metodun içindeki
-                // yorum) — bu da bir katmanda SADECE prefilled hücre varken sonraki parçaların rastgele
-                // (prefilled ile eşleşmeyen) bir renk alıp katmanı kalıcı olarak temizlenemez bırakabilmesi
-                // riskini taşıyor. Buz (ice) aynı riski taşımıyor (rengi yok, sadece bitişik parça erittiriyor)
-                // — o yüzden ice açık kalıyor, prefill kapalı.
-                prefillPercentage = 0f;
-                icePercentage = 0.10f;
-                minPieceSize = 2;
-                maxPieceSize = 3; // 4 yasaklandı
-                break;
-            case AILevelDifficulty.Zor:
-                baseTime = 60f; 
-                baseTarget = 420f;
-                prefillPercentage = 0.20f;
-                icePercentage = 0.20f;
-                minPieceSize = 2;
-                maxPieceSize = 5;
-                break;
-            case AILevelDifficulty.Uzman:
-                baseTime = 45f;
-                baseTarget = 870f;
-                prefillPercentage = 0.30f;
-                icePercentage = 0.30f;
-                minPieceSize = 3; // 4 olmasın
-                maxPieceSize = 6;
-                break;
-        }
+
+        var spec = GetDifficultySpec(mode);
+        prefillPercentage = spec.prefillPercentage;
+        icePercentage = spec.icePercentage;
+        minPieceSize = spec.minPieceSize;
+        maxPieceSize = spec.maxPieceSize;
 
         if (selectedTemplate != null)
         {
-            levelTime = Mathf.Round(selectedTemplate.recommendedTimeLimit * (baseTime / 75f));
-            levelTarget = Mathf.RoundToInt(selectedTemplate.recommendedTargetScore * (baseTarget / 150f));
+            levelTime = Mathf.Round(selectedTemplate.recommendedTimeLimit * (spec.baseTime / 75f));
+            levelTarget = Mathf.RoundToInt(selectedTemplate.recommendedTargetScore * (spec.baseTarget / 150f));
         }
         else
         {
-            levelTime = Mathf.Round(baseTime);
-            levelTarget = Mathf.RoundToInt(baseTarget);
+            levelTime = Mathf.Round(spec.baseTime);
+            levelTarget = Mathf.RoundToInt(spec.baseTarget);
         }
 
         prefillPercentage = Mathf.Round(prefillPercentage * 100f) / 100f;
@@ -2469,8 +2486,6 @@ public class AILevelDesignerWindow : EditorWindow
         float origLevelTime = levelTime;
         int origLevelTarget = levelTarget;
         Vector3Int origGridSize = gridSize;
-        GeneratorType origGenType = genType;
-        SymmetryMode origSymmetry = symmetry;
         float origFillDensity = fillDensity;
         float origPrefillPercentage = prefillPercentage;
         float origIcePercentage = icePercentage;
@@ -2503,8 +2518,6 @@ public class AILevelDesignerWindow : EditorWindow
             {
                 case 1: // İlk Adım — Temel sürükle-bırak
                     gridSize = new Vector3Int(3, 1, 3);         // Tek katman 3×3 = 9 küp
-                    genType = GeneratorType.Pyramid;            // Şekil önemsiz (tek katman)
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;                         // Tam dolu
                     prefillPercentage = 0.0f;                   // Prefilled yok
                     icePercentage = 0.0f;                       // Frozen yok
@@ -2516,8 +2529,6 @@ public class AILevelDesignerWindow : EditorWindow
 
                 case 2: // İki Katman — Katman geçişi
                     gridSize = new Vector3Int(3, 2, 3);         // Alt: 3×3 (9 küp), Üst: 1 küp = 10 toplam
-                    genType = GeneratorType.Pyramid;            // Piramit: yukarı daralan yapı
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.0f;
                     icePercentage = 0.0f;
@@ -2529,8 +2540,6 @@ public class AILevelDesignerWindow : EditorWindow
 
                 case 3: // Renk Farkındalığı — Renk kısıtı
                     gridSize = new Vector3Int(3, 1, 3);         // Tek katman
-                    genType = GeneratorType.Pyramid;
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.22f;                  // 2/9 ≈ 22%
                     icePercentage = 0.0f;
@@ -2542,8 +2551,6 @@ public class AILevelDesignerWindow : EditorWindow
 
                 case 4: // Buz Girişi — Frozen hücre
                     gridSize = new Vector3Int(3, 2, 3);         // 2 katman
-                    genType = GeneratorType.Pyramid;
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.0f;
                     icePercentage = 0.33f;                      // %33 frozen
@@ -2553,11 +2560,9 @@ public class AILevelDesignerWindow : EditorWindow
                     levelTarget = 120;
                     break;
 
-                case 5: // Küçük Piramit — 3D şekil
+                case 5: // Küçük Küp — 3 katmana geçiş
                     gridSize = new Vector3Int(5, 3, 5);         // 3 katman
-                    genType = GeneratorType.Pyramid;            // Piramit şekli
-                    symmetry = SymmetryMode.XZ_Axis;
-                    fillDensity = 1.0f;                         // Tam piramit
+                    fillDensity = 1.0f;                         // Tam dolu
                     prefillPercentage = 0.0f;
                     icePercentage = 0.0f;
                     minPieceSize = 4;
@@ -2568,8 +2573,6 @@ public class AILevelDesignerWindow : EditorWindow
 
                 case 6: // Karışık Renk Katmanı — Çoklu renk
                     gridSize = new Vector3Int(4, 2, 4);         // 2 katman
-                    genType = GeneratorType.Pyramid;
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.125f;                 // 4/32 ≈ 12.5%
                     icePercentage = 0.0f;
@@ -2581,8 +2584,6 @@ public class AILevelDesignerWindow : EditorWindow
 
                 case 7: // Buz + Çok Renk — Kombine mekanikler
                     gridSize = new Vector3Int(4, 3, 4);         // 3 katman
-                    genType = GeneratorType.Pyramid;
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.1f;                   // ~6 hücre
                     icePercentage = 0.25f;                      // %25 frozen
@@ -2592,12 +2593,10 @@ public class AILevelDesignerWindow : EditorWindow
                     levelTarget = 220;
                     break;
 
-                case 8: // Kale Yapısı — Karmaşık şekil
+                case 8: // Büyük Küp — Daha fazla hazır renkli blok
                     gridSize = new Vector3Int(6, 3, 6);         // 3 katman
-                    genType = GeneratorType.Castle;             // Kale şekli
-                    symmetry = SymmetryMode.XZ_Axis;
                     fillDensity = 1.0f;
-                    prefillPercentage = 0.08f;                  // Köşelerde
+                    prefillPercentage = 0.08f;
                     icePercentage = 0.20f;                      // %20 frozen
                     minPieceSize = 4;
                     maxPieceSize = 7;                           // ~14 parça hedefi
@@ -2605,10 +2604,8 @@ public class AILevelDesignerWindow : EditorWindow
                     levelTarget = 260;
                     break;
 
-                case 9: // Spiral Zorluk — Yüksek katman
+                case 9: // Yüksek Küp — 5 katmana çıkış
                     gridSize = new Vector3Int(5, 5, 5);         // 5 katman
-                    genType = GeneratorType.HelixSpiral;        // Spiral şekli
-                    symmetry = SymmetryMode.None;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.15f;                  // %15
                     icePercentage = 0.20f;                      // %20 frozen
@@ -2618,11 +2615,9 @@ public class AILevelDesignerWindow : EditorWindow
                     levelTarget = 300;
                     break;
 
-                case 10: // Usta Seviyesi — Tüm mekanikler
+                case 10: // Usta Seviyesi — En büyük küp, en yüksek buz/prefilled oranı
                 default:
                     gridSize = new Vector3Int(6, 4, 6);         // 4 katman
-                    genType = GeneratorType.SphereDome;         // Küre şekli
-                    symmetry = SymmetryMode.XZ_Axis;
                     fillDensity = 1.0f;
                     prefillPercentage = 0.20f;                  // %20
                     icePercentage = 0.25f;                      // %25 frozen
@@ -2633,8 +2628,17 @@ public class AILevelDesignerWindow : EditorWindow
                     break;
             }
 
-            // Seviyeyi algoritmik olarak oluştur
-            GenerateLevelProcedurally();
+            // Seviyeyi oluştur: bu toplu üretim bir şablona bağlı değildir (kullanıcı UI'de
+            // şablon seçmemiş olabilir), her zaman doğrudan case'in kendi gridSize'ından tam
+            // dolu bir kutu inşa eder — GenerateLevelProcedurally'nin şablon zorunluluğuna takılmaz.
+            occupiedCells.Clear();
+            prefilledCells.Clear();
+            prefilledMatIdx.Clear();
+            frozenCells.Clear();
+            pieceSplitList.Clear();
+            highlightedPieceIndex = -1;
+            BuildSolidBoxShape(gridSize.x, gridSize.y, gridSize.z);
+            ApplyObstaclesAndSplitPieces(gridSize.x, gridSize.y, gridSize.z);
 
             // Kaydet
             LevelData levelAsset = ExportProceduralLevelCore(levelName, levelTime, levelTarget);
@@ -2647,7 +2651,7 @@ public class AILevelDesignerWindow : EditorWindow
             AIDatasetEntry entry = new AIDatasetEntry();
             entry.levelName = levelName;
             entry.difficultyIndex = i;
-            entry.shapeType = genType.ToString();
+            entry.shapeType = "SolidBox"; // Bu toplu üretim her zaman düz dolu kutu üretir (bkz. yukarısı)
             entry.gridSize = new SerializableCell(gridSize);
             entry.occupiedCells = occupiedCells.Select(c => new SerializableCell(c)).ToList();
             entry.prefilledCells = prefilledCells.Select(c => new SerializableCell(c)).ToList();
@@ -2705,8 +2709,6 @@ public class AILevelDesignerWindow : EditorWindow
         levelTime = origLevelTime;
         levelTarget = origLevelTarget;
         gridSize = origGridSize;
-        genType = origGenType;
-        symmetry = origSymmetry;
         fillDensity = origFillDensity;
         prefillPercentage = origPrefillPercentage;
         icePercentage = origIcePercentage;
