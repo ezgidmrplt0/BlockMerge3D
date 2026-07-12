@@ -68,6 +68,30 @@ public class CanvasSetupWindow : EditorWindow
         if (GUILayout.Button("3. Işık ve Gölgeleri Optimize Et", GUILayout.Height(50)))
             BuildLightingAndEnvironment();
         GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.Space(10);
+
+        GUI.backgroundColor = new Color(1f, 0.5f, 0.75f, 0.9f);
+        if (GUILayout.Button("4. Retry Butonunu Ekle (Mevcut Canvas'ı Bozmadan)", GUILayout.Height(50)))
+            AddRetryButtonOnly();
+        GUI.backgroundColor = Color.white;
+    }
+
+    private void AddRetryButtonOnly()
+    {
+        var canvasGO = GameObject.Find("UICanvas");
+        if (canvasGO == null)
+        {
+            EditorUtility.DisplayDialog("UICanvas Bulunamadı", "Sahnede 'UICanvas' bulunamadı. Önce \"1. UICanvas ve Arayüzü Oluştur\" butonunu kullanın.", "Tamam");
+            return;
+        }
+
+        var gm = FindObjectOfType<GameManager>();
+        BuildRetryButton(canvasGO.transform, gm);
+
+        EditorUtility.SetDirty(canvasGO);
+        Selection.activeGameObject = canvasGO.transform.Find("RetryBtn")?.gameObject;
+        Debug.Log("[CanvasSetup] Retry butonu mevcut UICanvas'a eklendi.");
     }
 
     private void BuildCanvas()
@@ -144,6 +168,9 @@ public class CanvasSetupWindow : EditorWindow
         barFillImg.fillMethod = Image.FillMethod.Horizontal;
         barFillImg.fillAmount = 0.5f;
         ui.scoreProgressBar = barFillImg;
+
+        // ── Retry Butonu (Sağ Üst Köşe) ──
+        BuildRetryButton(canvasGO.transform, gm);
 
         // ── Win Overlay ──
         var winOv = MakeImg("WinOverlay", canvasGO.transform, new Color(0, 0, 0, 0.85f));
@@ -393,6 +420,61 @@ public class CanvasSetupWindow : EditorWindow
         // TMPro Native SDF Outline (Buton yazısının arka plandan mükemmel ayrışması için)
         tmp.outlineColor = new Color32(20, 20, 20, 255);
         tmp.outlineWidth = 0.2f;
+
+        if (gm != null)
+        {
+            var method = gm.GetType().GetMethod(methodName);
+            if (method != null)
+            {
+                var action = (UnityEngine.Events.UnityAction)System.Delegate.CreateDelegate(typeof(UnityEngine.Events.UnityAction), gm, method);
+                UnityEventTools.AddPersistentListener(btn.onClick, action);
+            }
+        }
+    }
+
+    private void BuildRetryButton(Transform canvasTransform, GameManager gm)
+    {
+        var existing = canvasTransform.Find("RetryBtn");
+        if (existing != null) Undo.DestroyObjectImmediate(existing.gameObject);
+
+        MakeIconBtn("RetryBtn", canvasTransform, new Vector2(-30, -30), 120, GetSprite("GUI_7"), GetSprite("GUI_35"), textColor, gm, nameof(GameManager.RetryLevel));
+    }
+
+    private void MakeIconBtn(string name, Transform parent, Vector2 topRightOffset, int size, Sprite bgSprite, Sprite iconSprite, Color iconColor, GameManager gm, string methodName)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        Undo.RegisterCreatedObjectUndo(go, "Create " + name);
+        go.transform.SetParent(parent, false);
+        Anc(go.GetComponent<RectTransform>(), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), topRightOffset, new Vector2(size, size));
+
+        var img = go.AddComponent<Image>();
+        img.color = Color.white;
+        if (bgSprite != null) img.sprite = bgSprite;
+
+        var shadow = go.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0, 0, 0, 0.4f);
+        shadow.effectDistance = new Vector2(0, -4);
+
+        var btn = go.AddComponent<Button>();
+        var cs = btn.colors;
+        cs.normalColor = Color.white;
+        cs.highlightedColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+        cs.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f);
+        btn.colors = cs;
+
+        go.AddComponent<ButtonAnimator>();
+
+        var iconGO = new GameObject("Icon", typeof(RectTransform));
+        iconGO.transform.SetParent(go.transform, false);
+        var iconRT = iconGO.GetComponent<RectTransform>();
+        iconRT.anchorMin = new Vector2(0.22f, 0.22f);
+        iconRT.anchorMax = new Vector2(0.78f, 0.78f);
+        iconRT.sizeDelta = Vector2.zero;
+
+        var iconImg = iconGO.AddComponent<Image>();
+        iconImg.sprite = iconSprite;
+        iconImg.color = iconColor;
+        iconImg.preserveAspect = true;
 
         if (gm != null)
         {
