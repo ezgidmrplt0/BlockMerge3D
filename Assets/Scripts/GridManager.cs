@@ -222,11 +222,31 @@ public class GridManager : MonoBehaviour
             if (r != null)
             {
                 if (occupiedCells.Contains(cell)) 
+                {
                     r.enabled = false;
+                }
                 else if (isPanelMode)
-                    r.enabled = (cell.y == ActiveLayerY);
+                {
+                    if (cell.y == ActiveLayerY)
+                    {
+                        r.enabled = true;
+                        r.transform.localScale = Vector3.one * CellSize;
+                    }
+                    else if (cell.y < ActiveLayerY)
+                    {
+                        r.enabled = true;
+                        r.transform.localScale = Vector3.one * (CellSize * 0.4f);
+                    }
+                    else
+                    {
+                        r.enabled = false;
+                    }
+                }
                 else
+                {
                     r.enabled = true; // 3D modunda hepsi görünür
+                    r.transform.localScale = Vector3.one * CellSize;
+                }
 
                 if (r.enabled)
                 {
@@ -234,10 +254,11 @@ public class GridManager : MonoBehaviour
                     if (frozenCells.Contains(cell))
                     {
                         Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
+                        if (isPanelMode && cell.y < ActiveLayerY) iceColor.a = 0.15f; // Faded ice
                         PropBlock.SetColor("_BaseColor", iceColor);
                         PropBlock.SetColor("_Color", iceColor);
                         
-                        Color emissionColor = new Color(0.1f, 0.4f, 0.7f) * 1.8f;
+                        Color emissionColor = new Color(0.1f, 0.4f, 0.7f) * (isPanelMode && cell.y < ActiveLayerY ? 0.2f : 1.8f);
                         PropBlock.SetColor("_EmissionColor", emissionColor);
                     }
                     else
@@ -247,6 +268,7 @@ public class GridManager : MonoBehaviour
                         {
                             defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
                         }
+                        if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a = 0.1f; // Faded target
                         PropBlock.SetColor("_BaseColor", defaultColor);
                         PropBlock.SetColor("_Color", defaultColor);
                         PropBlock.SetColor("_EmissionColor", Color.clear);
@@ -264,9 +286,48 @@ public class GridManager : MonoBehaviour
             if (r != null)
             {
                 if (isPanelMode)
-                    r.enabled = (cell.y == ActiveLayerY);
+                {
+                    if (cell.y == ActiveLayerY)
+                    {
+                        r.enabled = true;
+                        r.transform.localScale = Vector3.one * CellSize;
+                        
+                        r.GetPropertyBlock(PropBlock);
+                        Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
+                        c.a = 1.0f;
+                        PropBlock.SetColor("_BaseColor", c);
+                        PropBlock.SetColor("_Color", c);
+                        r.SetPropertyBlock(PropBlock);
+                    }
+                    else if (cell.y < ActiveLayerY)
+                    {
+                        r.enabled = true;
+                        r.transform.localScale = Vector3.one * (CellSize * 0.4f);
+                        
+                        r.GetPropertyBlock(PropBlock);
+                        Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
+                        c.a = 0.25f; // faded
+                        PropBlock.SetColor("_BaseColor", c);
+                        PropBlock.SetColor("_Color", c);
+                        r.SetPropertyBlock(PropBlock);
+                    }
+                    else
+                    {
+                        r.enabled = false;
+                    }
+                }
                 else
+                {
                     r.enabled = true; // 3D modunda hepsi görünür
+                    r.transform.localScale = Vector3.one * CellSize;
+                    
+                    r.GetPropertyBlock(PropBlock);
+                    Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
+                    c.a = 1.0f;
+                    PropBlock.SetColor("_BaseColor", c);
+                    PropBlock.SetColor("_Color", c);
+                    r.SetPropertyBlock(PropBlock);
+                }
             }
         }
 
@@ -277,9 +338,60 @@ public class GridManager : MonoBehaviour
             if (cube != null)
             {
                 if (isPanelMode)
-                    cube.SetActive(cell.y == ActiveLayerY);
+                {
+                    if (cell.y == ActiveLayerY)
+                    {
+                        cube.SetActive(true);
+                        cube.transform.localScale = Vector3.one * CellSize;
+                        
+                        Renderer r = cube.GetComponentInChildren<Renderer>();
+                        if (r != null)
+                        {
+                            r.GetPropertyBlock(PropBlock);
+                            Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
+                            c.a = 1.0f;
+                            PropBlock.SetColor("_BaseColor", c);
+                            PropBlock.SetColor("_Color", c);
+                            r.SetPropertyBlock(PropBlock);
+                        }
+                    }
+                    else if (cell.y < ActiveLayerY)
+                    {
+                        cube.SetActive(true);
+                        cube.transform.localScale = Vector3.one * (CellSize * 0.4f);
+                        
+                        Renderer r = cube.GetComponentInChildren<Renderer>();
+                        if (r != null)
+                        {
+                            r.GetPropertyBlock(PropBlock);
+                            Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
+                            c.a = 0.25f; // faded
+                            PropBlock.SetColor("_BaseColor", c);
+                            PropBlock.SetColor("_Color", c);
+                            r.SetPropertyBlock(PropBlock);
+                        }
+                    }
+                    else
+                    {
+                        cube.SetActive(false);
+                    }
+                }
                 else
+                {
                     cube.SetActive(true);
+                    cube.transform.localScale = Vector3.one * CellSize;
+                    
+                    Renderer r = cube.GetComponentInChildren<Renderer>();
+                    if (r != null)
+                    {
+                        r.GetPropertyBlock(PropBlock);
+                        Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
+                        c.a = 1.0f;
+                        PropBlock.SetColor("_BaseColor", c);
+                        PropBlock.SetColor("_Color", c);
+                        r.SetPropertyBlock(PropBlock);
+                    }
+                }
             }
         }
     }

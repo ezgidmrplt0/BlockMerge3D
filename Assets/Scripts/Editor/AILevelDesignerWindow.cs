@@ -19,8 +19,8 @@ public class AILevelDesignerWindow : EditorWindow
     private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
     private const string PREFILLED_MATERIALS_PATH = "Assets/Materials/Premium";
 
-    private static readonly Color COL_BG         = new Color(0.09f, 0.09f, 0.12f);
-    private static readonly Color COL_GRID        = new Color(0.24f, 0.26f, 0.35f);
+    private static readonly Color COL_BG         = new Color(0.047f, 0.047f, 0.07f); // #0c0c12
+    private static readonly Color COL_GRID        = new Color(0.30f, 0.32f, 0.40f); // #4d5266
     private static readonly Color COL_OCCUPIED    = new Color(0.35f, 0.78f, 1.00f); // Açık Mavi
     private static readonly Color COL_PREFILLED   = new Color(1.00f, 0.75f, 0.20f); // Warm Gold
     private static readonly Color COL_ICE         = new Color(0.50f, 0.88f, 1.00f); // Buz Mavisi
@@ -87,7 +87,32 @@ public class AILevelDesignerWindow : EditorWindow
     private Vector2 leftScroll, rightScroll;
     private GameObject cubePrefab;
     private Material[] prefilledMaterials; // Engel (prefilled) küplerin gerçek rengini oynatan materyal paleti — pieceMaterials (LevelManager) ile aynı sırada olmalı
-    private int activeTab = 0; // 0: AI Jeneratör, 1: AI Eğitim Paneli
+    private int activeTab = 0; // 0: AI Jeneratör, 1: AI Eğitim Paneli, 2: AI Parça Jeneratörü
+
+    // ── AI Parça Yapıcı Ayarları ──────────────────────────────────
+    private string pmPiecePrefix = "AI_Piece_";
+    private int pmPieceCount = 4;
+    private int pmMinSize = 2;
+    private int pmMaxSize = 5;
+    private enum PMPieceType { BFS_Free, Geometric_Rect, Symmetrical, PromptBased, ClassicTetris }
+    private PMPieceType pmPieceType = PMPieceType.BFS_Free;
+    private enum PMPieceDifficulty { Kolay, Orta, Zor, Uzman }
+    private PMPieceDifficulty pmDifficulty = PMPieceDifficulty.Orta;
+    private string pmPrompt = "L-shaped blocks";
+    private int pmSelectedPieceIndex = -1;
+    private List<List<Vector3Int>> pmGeneratedPieces = new List<List<Vector3Int>>();
+    private List<int> pmPieceColors = new List<int>();
+    private Vector2 pmLeftScroll, pmRightScroll;
+    private Vector3Int pmGridSize = new Vector3Int(6, 1, 6);
+    private List<AIPieceDatasetEntry> pmTaughtPieces = new List<AIPieceDatasetEntry>();
+    private string pmManualPieceLabel = "my_custom_shape";
+    private Vector2 pmManualScroll;
+    private List<List<Vector3Int>> pmManualPiecesList = new List<List<Vector3Int>>();
+    private List<string> pmManualPieceNames = new List<string>();
+    private Vector2 pmManualPiecesScroll;
+    private int pmRightTab = 0; // 0: AI Üretilenler, 1: Manuel Tasarımlar
+    private int pmSelectedManualIndex = -1;
+
 
     // ── Stil ─────────────────────────────────────────────────────
     private GUIStyle styleHeader, styleBox, styleTabActive, styleTabInactive, styleInstructionBox;
@@ -112,7 +137,11 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         LoadPrefilledMaterialsPalette();
+        LoadManualPieceDataset();
+        LoadManualLibraryFromJson();
     }
+
+
 
     // Prefilled (engel) küpler için Assets/Materials/Premium altındaki PremiumMaterial_N.mat
     // dosyalarını index sırasına göre yükler. Bu sıra, LevelManager.pieceMaterials ile aynı
@@ -138,6 +167,10 @@ public class AILevelDesignerWindow : EditorWindow
         {
             activeTab = 0;
         }
+        if (GUILayout.Button("🧩 AI PARÇA YAPICI", activeTab == 2 ? styleTabActive : styleTabInactive, GUILayout.Height(30)))
+        {
+            activeTab = 2;
+        }
         if (GUILayout.Button("📚 AI EĞİTİM & BİLGİ MERKEZİ", activeTab == 1 ? styleTabActive : styleTabInactive, GUILayout.Height(30)))
         {
             activeTab = 1;
@@ -155,11 +188,21 @@ public class AILevelDesignerWindow : EditorWindow
             EditorGUILayout.EndHorizontal();
             DrawStatusBar();
         }
+        else if (activeTab == 2)
+        {
+            EditorGUILayout.BeginHorizontal();
+            DrawPieceMakerLeftPanel();
+            DrawPieceMakerCenterGrid();
+            DrawPieceMakerRightPanel();
+            EditorGUILayout.EndHorizontal();
+            DrawPieceMakerStatusBar();
+        }
         else
         {
             DrawEducationPanel();
         }
     }
+
 
     // ── Sol Panel (Parametreler) ──────────────────────────────────
     private void DrawLeftPanel()
@@ -874,6 +917,41 @@ public class AILevelDesignerWindow : EditorWindow
                       " 2. Komşularını tarayarak (6-yönlü 3D komşuluk) parçayı hedef boyuta (örneğin 4 blok) ulaşana kadar büyütür.\n" +
                       " 3. İşlemi tüm bloklar atanana kadar tekrarlar.\n" +
                       " 4. Kenarda tek kalan veya küçük parçaları, en yakınındaki büyük parçaya ekleyerek bütünlüğü korur.", EditorStyles.wordWrappedLabel);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        EditorGUILayout.BeginVertical(styleInstructionBox);
+        GUILayout.Label("🤖 YAPAY ZEKA PARÇA EĞİTİM MODU (PIECE DATASET GENERATOR)", styleHeader);
+        GUILayout.Label("Bu mod, yapay zekanın eğitimi için 50 adet farklı geometride, zorluklarda ve promptlara uygun puzzle parçasını tek tıkla üretir. " +
+                      "Bu parçalar kaydedilecek ve ayrıca dışa aktarılan JSON dosyası sayesinde yapay zekanın parça yapılarını, geometrik özelliklerini (kompaktlık, simetri, köşe sayısı vb.) öğrenmesini sağlayacaktır.", EditorStyles.wordWrappedLabel);
+        
+        GUILayout.Space(8);
+        GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // AI Magenta
+        if (GUILayout.Button("⚡ 50 ADET BENZERSİZ PARÇA ÜRET & JSON EĞİTİM VERİSİ YAZ", GUILayout.Height(40)))
+        {
+            GenerateAndExportPieceDataset();
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        EditorGUILayout.BeginVertical(styleInstructionBox);
+        GUILayout.Label("5. PARÇA GEOMETRİSİ VE ANALİZ NOTLARI (COMPACTNESS & SYMMETRY)", EditorStyles.boldLabel);
+        GUILayout.Label("Yapay zeka parça oluştururken geometrik özelliklerini şu kriterlere göre ölçer:\n" +
+                      " • Yoğunluk (Compactness): Parça hücre sayısının kapladığı çevreleyen kutunun (bounding box) alanına oranıdır. %100 oranındaki şekiller tam dolu kutudur. Düşük oranlar daha karmaşık/delikli şekillerdir.\n" +
+                      " • Simetri: Parçanın X veya Z eksenine göre yansıtıldığında kendisiyle birebir çakışma durumudur. Simetrik parçaların çözülmesi genelde daha öngörülebilirdir.\n" +
+                      " • Sınıflandırma: Şeklin morfolojisine göre L-Şekli, T-Şekli, Düz Çubuk, Kompakt Kutu veya Karmaşık olarak kategorize edilmesidir.", EditorStyles.wordWrappedLabel);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        EditorGUILayout.BeginVertical(styleInstructionBox);
+        GUILayout.Label("6. PROMPT TABANLI ŞEKİL ÜRETİM MODELİ (PROMPT-BASED GENERATOR)", EditorStyles.boldLabel);
+        GUILayout.Label("Yapay Zeka prompt içindeki 'l-shaped', 'flat line', 't-shaped plus', 'stair step zigzag', 'compact box' gibi anahtar kelimeleri algılar:\n" +
+                      " • Algılanan kelimeye göre ilgili geometrik algoritma tetiklenir (örn. L-şeklinde 90 derecelik köşe dönüşü ekleme).\n" +
+                      " • Boyutlar ve hücre yerleşimleri bu kısıtlamalar dahilinde rastgeleleştirilerek kurallara uyan benzersiz varyasyonlar üretilir.", EditorStyles.wordWrappedLabel);
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndScrollView();
@@ -2731,6 +2809,1454 @@ public class AILevelDesignerWindow : EditorWindow
             $"Level 9-10: Usta seviyesi (çoklu mekanik + süre limiti)\n\n" +
             $"Oyunu test edebilir veya bu dataseti AI modeline öğretebilirsiniz!", "Harika! 🚀");
     }
+
+    // ═════════════════════════════════════════════════════════════
+    // AI PARÇA YAPICI YARDIMCI VE GUI METODLARI
+    // ═════════════════════════════════════════════════════════════
+
+    private void ApplyPieceDifficultyScale(PMPieceDifficulty mode)
+    {
+        pmDifficulty = mode;
+        switch (mode)
+        {
+            case PMPieceDifficulty.Kolay:
+                pmMinSize = 2;
+                pmMaxSize = 3;
+                pmPieceType = PMPieceType.Geometric_Rect;
+                break;
+            case PMPieceDifficulty.Orta:
+                pmMinSize = 3;
+                pmMaxSize = 4;
+                pmPieceType = PMPieceType.BFS_Free;
+                break;
+            case PMPieceDifficulty.Zor:
+                pmMinSize = 4;
+                pmMaxSize = 6;
+                pmPieceType = PMPieceType.Symmetrical;
+                break;
+            case PMPieceDifficulty.Uzman:
+                pmMinSize = 5;
+                pmMaxSize = 8;
+                pmPieceType = PMPieceType.PromptBased;
+                pmPrompt = "complex jagged shapes";
+                break;
+        }
+    }
+
+    private void GeneratePiecesProcedurally()
+    {
+        pmGeneratedPieces.Clear();
+        pmPieceColors.Clear();
+        pmSelectedPieceIndex = -1;
+
+        for (int i = 0; i < pmPieceCount; i++)
+        {
+            List<Vector3Int> piece = GenerateSinglePiece(pmPieceType, pmMinSize, pmMaxSize, pmPrompt, i);
+            if (piece != null && piece.Count > 0)
+            {
+                // Normalize et
+                int minX = piece.Min(c => c.x);
+                int minY = piece.Min(c => c.y);
+                int minZ = piece.Min(c => c.z);
+                var shift = new Vector3Int(minX, minY, minZ);
+                var normPiece = piece.Select(c => c - shift).ToList();
+
+                pmGeneratedPieces.Add(normPiece);
+                pmPieceColors.Add(i % PIECE_COLORS.Length);
+            }
+        }
+
+        if (pmGeneratedPieces.Count > 0)
+        {
+            pmSelectedPieceIndex = 0;
+        }
+        Repaint();
+        Debug.Log($"🤖 AI Piece Maker: Generated {pmGeneratedPieces.Count} pieces using strategy {pmPieceType}");
+    }
+
+    private List<Vector3Int> GenerateSinglePiece(PMPieceType type, int minSize, int maxSize, string prompt, int seedOffset)
+    {
+        Random.InitState(System.DateTime.Now.Millisecond + seedOffset * 313 + seedOffset);
+        int targetSize = Random.Range(minSize, maxSize + 1);
+        List<Vector3Int> piece = new List<Vector3Int>();
+
+        if (type == PMPieceType.ClassicTetris)
+        {
+            var shapes = TETROMINO_BASE_SHAPES;
+            var chosen = shapes[Random.Range(0, shapes.Length)];
+            foreach (var c in chosen)
+            {
+                piece.Add(new Vector3Int(c.x, 0, c.y));
+            }
+            return piece;
+        }
+
+        if (type == PMPieceType.Geometric_Rect)
+        {
+            int w = 1, d = 1;
+            if (targetSize == 2) { w = 2; d = 1; }
+            else if (targetSize == 3) { w = 3; d = 1; }
+            else if (targetSize == 4) { if (Random.value < 0.5f) { w = 4; d = 1; } else { w = 2; d = 2; } }
+            else if (targetSize == 6) { if (Random.value < 0.5f) { w = 3; d = 2; } else { w = 6; d = 1; } }
+            else
+            {
+                w = Random.Range(1, targetSize);
+                d = Mathf.Max(1, targetSize / w);
+            }
+            for (int x = 0; x < w; x++)
+            {
+                for (int z = 0; z < d; z++)
+                {
+                    piece.Add(new Vector3Int(x, 0, z));
+                }
+            }
+            while (piece.Count < targetSize)
+            {
+                var neighbors = GetHorizontalNeighborsOfPiece(piece);
+                if (neighbors.Count == 0) break;
+                piece.Add(neighbors[Random.Range(0, neighbors.Count)]);
+            }
+            return piece;
+        }
+
+        if (type == PMPieceType.BFS_Free)
+        {
+            piece.Add(Vector3Int.zero);
+            while (piece.Count < targetSize)
+            {
+                var neighbors = GetHorizontalNeighborsOfPiece(piece);
+                if (neighbors.Count == 0) break;
+                piece.Add(neighbors[Random.Range(0, neighbors.Count)]);
+            }
+            return piece;
+        }
+
+        if (type == PMPieceType.Symmetrical)
+        {
+            int halfSize = Mathf.Max(1, targetSize / 2);
+            var halfPiece = new List<Vector3Int> { Vector3Int.zero };
+            while (halfPiece.Count < halfSize)
+            {
+                var neighbors = GetHorizontalNeighborsOfPiece(halfPiece);
+                if (neighbors.Count == 0) break;
+                var filtered = neighbors.Where(n => n.x >= 0).ToList();
+                var listToUse = filtered.Count > 0 ? filtered : neighbors;
+                halfPiece.Add(listToUse[Random.Range(0, listToUse.Count)]);
+            }
+
+            piece = new List<Vector3Int>(halfPiece);
+            foreach (var c in halfPiece)
+            {
+                if (c.x != 0)
+                {
+                    piece.Add(new Vector3Int(-c.x, 0, c.z));
+                }
+            }
+
+            if (piece.Count > targetSize)
+            {
+                piece = piece.Take(targetSize).ToList();
+            }
+            else if (piece.Count < targetSize)
+            {
+                while (piece.Count < targetSize)
+                {
+                    var neighbors = GetHorizontalNeighborsOfPiece(piece);
+                    if (neighbors.Count == 0) break;
+                    piece.Add(neighbors[Random.Range(0, neighbors.Count)]);
+                }
+            }
+            return piece;
+        }
+
+        if (type == PMPieceType.PromptBased)
+        {
+            string p = prompt.ToLower();
+            if (p.Contains("l-shaped") || p.Contains("corner") || p.Contains("l ") || p.Contains("köşe"))
+            {
+                int length1 = Random.Range(2, Mathf.Max(3, targetSize - 1));
+                int length2 = targetSize - length1;
+                for (int x = 0; x < length1; x++) piece.Add(new Vector3Int(x, 0, 0));
+                for (int z = 1; z <= length2; z++) piece.Add(new Vector3Int(0, 0, z));
+                return piece;
+            }
+            else if (p.Contains("flat") || p.Contains("plate") || p.Contains("düz") || p.Contains("line"))
+            {
+                for (int x = 0; x < targetSize; x++) piece.Add(new Vector3Int(x, 0, 0));
+                return piece;
+            }
+            else if (p.Contains("t-shaped") || p.Contains("plus") || p.Contains("artı") || p.Contains("t "))
+            {
+                int crossLen = Random.Range(3, Mathf.Max(4, targetSize));
+                int stemLen = targetSize - crossLen;
+                for (int x = 0; x < crossLen; x++) piece.Add(new Vector3Int(x, 0, 1));
+                int midX = crossLen / 2;
+                for (int z = 0; z < stemLen; z++) piece.Add(new Vector3Int(midX, 0, -z));
+                return piece;
+            }
+            else if (p.Contains("stair") || p.Contains("basamak") || p.Contains("diagonal") || p.Contains("zigzag"))
+            {
+                int currX = 0, currZ = 0;
+                piece.Add(new Vector3Int(currX, 0, currZ));
+                while (piece.Count < targetSize)
+                {
+                    if (Random.value < 0.5f) currX++; else currZ++;
+                    piece.Add(new Vector3Int(currX, 0, currZ));
+                }
+                return piece;
+            }
+            else if (p.Contains("compact") || p.Contains("box") || p.Contains("kutu"))
+            {
+                int side = Mathf.RoundToInt(Mathf.Sqrt(targetSize));
+                for (int x = 0; x < side; x++)
+                {
+                    for (int z = 0; z < side; z++)
+                    {
+                        if (piece.Count < targetSize) piece.Add(new Vector3Int(x, 0, z));
+                    }
+                }
+                while (piece.Count < targetSize)
+                {
+                    var neighbors = GetHorizontalNeighborsOfPiece(piece);
+                    if (neighbors.Count == 0) break;
+                    piece.Add(neighbors[Random.Range(0, neighbors.Count)]);
+                }
+                return piece;
+            }
+            else
+            {
+                piece.Add(Vector3Int.zero);
+                while (piece.Count < targetSize)
+                {
+                    var neighbors = GetHorizontalNeighborsOfPiece(piece);
+                    if (neighbors.Count == 0) break;
+                    piece.Add(neighbors[Random.Range(0, neighbors.Count)]);
+                }
+                return piece;
+            }
+        }
+
+        return piece;
+    }
+
+    private List<Vector3Int> GetHorizontalNeighborsOfPiece(List<Vector3Int> piece)
+    {
+        var neighbors = new List<Vector3Int>();
+        var dirs = new Vector3Int[] { Vector3Int.right, Vector3Int.left, new Vector3Int(0,0,1), new Vector3Int(0,0,-1) };
+        foreach (var c in piece)
+        {
+            foreach (var dir in dirs)
+            {
+                Vector3Int n = c + dir;
+                if (!piece.Contains(n) && !neighbors.Contains(n))
+                {
+                    neighbors.Add(n);
+                }
+            }
+        }
+        return neighbors;
+    }
+
+    private void DrawPieceMakerLeftPanel()
+    {
+        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(420), GUILayout.ExpandHeight(true));
+        pmLeftScroll = EditorGUILayout.BeginScrollView(pmLeftScroll);
+
+        GUILayout.Label("🤖 YAPAY ZEKA PARÇA ÜRETİM AYARLARI", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.HelpBox("Yapay Zeka geometrik kurallar ve promptunuza göre benzersiz parçalar tasarlar.", MessageType.Info);
+        
+        pmPiecePrefix = EditorGUILayout.TextField("Parça Adı Öneki", pmPiecePrefix);
+        pmPieceCount = EditorGUILayout.IntSlider("Üretilecek Parça Sayısı", pmPieceCount, 1, 12);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        GUILayout.Label("🏆 ZORLUK VE KURAL SETLERİ", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.LabelField("Zorluk Seviyesi Seçimi (Hızlı Ayar):", EditorStyles.miniBoldLabel);
+        
+        EditorGUILayout.BeginHorizontal();
+        
+        // Kolay
+        GUI.backgroundColor = pmDifficulty == PMPieceDifficulty.Kolay ? Color.green : new Color(0.7f, 1f, 0.7f, 0.4f);
+        if (GUILayout.Button("KOLAY", EditorStyles.miniButtonLeft, GUILayout.Height(22)))
+        {
+            ApplyPieceDifficultyScale(PMPieceDifficulty.Kolay);
+        }
+        
+        // Orta
+        GUI.backgroundColor = pmDifficulty == PMPieceDifficulty.Orta ? new Color(1.0f, 0.6f, 0.0f) : new Color(1f, 0.8f, 0.5f, 0.4f);
+        if (GUILayout.Button("ORTA", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        {
+            ApplyPieceDifficultyScale(PMPieceDifficulty.Orta);
+        }
+        
+        // Zor
+        GUI.backgroundColor = pmDifficulty == PMPieceDifficulty.Zor ? new Color(0.9f, 0.2f, 0.2f) : new Color(1f, 0.6f, 0.6f, 0.4f);
+        if (GUILayout.Button("ZOR", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        {
+            ApplyPieceDifficultyScale(PMPieceDifficulty.Zor);
+        }
+        
+        // Uzman
+        GUI.backgroundColor = pmDifficulty == PMPieceDifficulty.Uzman ? new Color(0.7f, 0.1f, 0.8f) : new Color(0.85f, 0.6f, 0.9f, 0.4f);
+        if (GUILayout.Button("UZMAN", EditorStyles.miniButtonRight, GUILayout.Height(22)))
+        {
+            ApplyPieceDifficultyScale(PMPieceDifficulty.Uzman);
+        }
+        
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        GUILayout.Label("🧩 GEOMETRİK PARÇA PARAMETRELERİ", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        pmPieceType = (PMPieceType)EditorGUILayout.EnumPopup("Parça Üretim Modu", pmPieceType);
+        
+        bool isClassic = pmPieceType == PMPieceType.ClassicTetris;
+        EditorGUI.BeginDisabledGroup(isClassic);
+        
+        EditorGUILayout.BeginHorizontal();
+        pmMinSize = EditorGUILayout.IntSlider("Min Hücre Sayısı", pmMinSize, 1, 10);
+        pmMaxSize = EditorGUILayout.IntSlider("Max Hücre Sayısı", pmMaxSize, pmMinSize, 18);
+        EditorGUILayout.EndHorizontal();
+        
+        EditorGUI.EndDisabledGroup();
+
+        if (isClassic)
+        {
+            EditorGUILayout.HelpBox("🧩 Klasik Tetris modu: 7 temel Tetromino şeklini (I, O, T, S, Z, J, L) rastgele üretir. Hücre sayıları 4'e sabitlenir.", MessageType.Info);
+        }
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        GUILayout.Label("💬 YAPAY ZEKA PROMPT GİRİŞİ", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        bool isPromptMode = pmPieceType == PMPieceType.PromptBased;
+        EditorGUI.BeginDisabledGroup(!isPromptMode);
+        pmPrompt = EditorGUILayout.TextField("AI Prompt", pmPrompt);
+        EditorGUI.EndDisabledGroup();
+        
+        EditorGUILayout.LabelField("💡 Prompt Önerileri: 'l-shaped', 'flat line', 't-shaped plus', 'stair step zigzag', 'compact box'", EditorStyles.miniLabel);
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(12);
+        GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // AI Magenta
+        if (GUILayout.Button("⚡ PARÇALARI YAPAY ZEKA İLE OLUŞTUR", GUILayout.Height(40)))
+        {
+            GeneratePiecesProcedurally();
+        }
+        GUI.backgroundColor = Color.white;
+
+        GUILayout.Space(15);
+        GUILayout.Label("✍️ MANUEL TASARIM VE ÖĞRETİM MERKEZİ", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.HelpBox("Önce boş tuval oluşturun, sağdaki grid üzerinde istediğiniz şekli boyayın, ardından yapay zekaya öğretmek için aşağıdaki butonu kullanın.", MessageType.Info);
+        
+        if (GUILayout.Button("🆕 BOŞ TASARIM TUVALİ AÇ", GUILayout.Height(30)))
+        {
+            pmGeneratedPieces.Clear();
+            pmGeneratedPieces.Add(new List<Vector3Int>());
+            pmPieceColors.Clear();
+            pmPieceColors.Add(0);
+            pmSelectedPieceIndex = 0;
+            Repaint();
+        }
+
+        GUILayout.Space(8);
+        pmManualPieceLabel = EditorGUILayout.TextField("Tasarım Etiketi (Prompt/Tag)", pmManualPieceLabel);
+
+        GUI.backgroundColor = new Color(0.2f, 0.6f, 1f, 1f); // Mavi
+        if (GUILayout.Button("🎓 BU TASARIMI EĞİTİM VERİSETİNE EKLE", GUILayout.Height(35)))
+        {
+            TeachCurrentPieceToAI();
+        }
+        GUI.backgroundColor = Color.white;
+
+
+        GUILayout.Space(5);
+        GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // AI Pink
+        if (GUILayout.Button("📥 BU TASARIMI KÜTÜPHANEYE EKLE (LİSTELE)", GUILayout.Height(35)))
+        {
+            AddCurrentPieceToManualLibrary();
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndVertical();
+
+
+        // Hafızadaki eğitilmiş parçaları göster
+        if (pmTaughtPieces.Count > 0)
+        {
+            GUILayout.Space(15);
+            GUILayout.Label($"📚 ÖĞRETİLEN MANUEL PARÇALAR ({pmTaughtPieces.Count})", styleHeader);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            
+            pmManualScroll = EditorGUILayout.BeginScrollView(pmManualScroll, GUILayout.Height(120));
+            for (int i = 0; i < pmTaughtPieces.Count; i++)
+            {
+                var taught = pmTaughtPieces[i];
+                EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+                
+                EditorGUILayout.LabelField($"#{i + 1}: {taught.prompt} ({taught.cubeCount} Küp - {taught.shapeClassification})", EditorStyles.miniLabel);
+                
+                GUI.backgroundColor = Color.red;
+                if (GUILayout.Button("Sil", GUILayout.Width(40), GUILayout.Height(15)))
+                {
+                    pmTaughtPieces.RemoveAt(i);
+                    Repaint();
+                }
+                GUI.backgroundColor = Color.white;
+                
+                EditorGUILayout.EndHorizontal();
+            }
+            EditorGUILayout.EndScrollView();
+
+            GUILayout.Space(5);
+            GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Yeşil
+            if (GUILayout.Button("💾 EĞİTİM VERİSİNİ JSON OLARAK KAYDET", GUILayout.Height(35)))
+            {
+                SaveManualDatasetToJson();
+            }
+            GUI.backgroundColor = Color.white;
+            
+            if (GUILayout.Button("🗑 TÜM EĞİTİLENLERİ TEMİZLE", GUILayout.Height(20)))
+            {
+                if (EditorUtility.DisplayDialog("Emin misiniz?", "Tüm eğitilen manuel parçaları hafızadan temizlemek istiyor musunuz?", "Evet", "Hayır"))
+                {
+                    pmTaughtPieces.Clear();
+                    Repaint();
+                }
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        EditorGUILayout.EndScrollView();
+        EditorGUILayout.EndVertical();
+    }
+
+
+    private void DrawPieceMakerCenterGrid()
+    {
+        EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        GUILayout.Label("📍 SEÇİLİ PARÇAYI DÜZENLE / ÖNİZLE", styleHeader);
+        EditorGUILayout.BeginHorizontal();
+        if (pmGeneratedPieces == null || pmGeneratedPieces.Count == 0)
+        {
+            GUILayout.Label("Henüz parça üretilmedi.", EditorStyles.miniBoldLabel);
+        }
+        else
+        {
+            for (int i = 0; i < pmGeneratedPieces.Count; i++)
+            {
+                bool isActive = (i == pmSelectedPieceIndex);
+                GUI.backgroundColor = isActive ? COL_HEADER : new Color(0.85f, 0.85f, 0.85f);
+                string lbl = $"Parça {i + 1}\n({pmGeneratedPieces[i].Count} Blok)";
+                if (GUILayout.Button(lbl, GUILayout.Height(32), GUILayout.Width(90)))
+                {
+                    pmSelectedPieceIndex = i;
+                    Repaint();
+                }
+            }
+            GUI.backgroundColor = Color.white;
+        }
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+
+        Rect area = GUILayoutUtility.GetRect(100, 100, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+        
+        if (pmSelectedPieceIndex >= 0 && pmSelectedPieceIndex < pmGeneratedPieces.Count)
+        {
+            DrawPieceMakerGrid2D(area);
+        }
+        else
+        {
+            EditorGUI.DrawRect(area, COL_BG);
+            var centerStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter };
+            centerStyle.normal.textColor = Color.gray;
+            GUI.Label(area, "Lütfen soldan 'Yapay Zeka ile Oluştur' butonuna basarak parça üretin.", centerStyle);
+        }
+
+        EditorGUILayout.EndVertical();
+    }
+
+    private void DrawPieceMakerGrid2D(Rect area)
+    {
+        Color COL_HOVER_ASSIGN = new Color(0.2f, 0.8f, 0.2f, 0.4f);
+        Color COL_HOVER_REMOVE = new Color(0.8f, 0.2f, 0.2f, 0.4f);
+
+        var cells = pmGeneratedPieces[pmSelectedPieceIndex];
+        int maxPieceX = cells.Count > 0 ? cells.Max(c => c.x) : 0;
+        int maxPieceZ = cells.Count > 0 ? cells.Max(c => c.z) : 0;
+        
+        int W = Mathf.Max(5, maxPieceX + 1);
+        int D = Mathf.Max(5, maxPieceZ + 1);
+
+        float tw = cellPx * W, th = cellPx * D;
+        float ox = area.x + (area.width - tw) * 0.5f;
+        float oy = area.y + (area.height - th) * 0.5f;
+
+        EditorGUI.DrawRect(area, COL_BG);
+
+        // Lines
+        for (int x = 0; x <= W; x++)
+            EditorGUI.DrawRect(new Rect(ox + x * cellPx, oy, 1, th), COL_GRID);
+        for (int z = 0; z <= D; z++)
+            EditorGUI.DrawRect(new Rect(ox, oy + z * cellPx, tw, 1), COL_GRID);
+
+        // Draw cells
+        Color fill = PIECE_COLORS[pmSelectedPieceIndex % PIECE_COLORS.Length];
+        foreach (var cell in cells)
+        {
+            if (cell.x >= W || cell.z >= D) continue;
+            Rect cellRect = new Rect(ox + cell.x * cellPx + 1.5f, oy + cell.z * cellPx + 1.5f, cellPx - 3, cellPx - 3);
+            EditorGUI.DrawRect(cellRect, fill);
+        }
+
+        // Draw hover cell and handle clicks
+
+        Event e = Event.current;
+        Vector2 mousePos = e.mousePosition;
+        if (area.Contains(mousePos))
+        {
+            int hx = Mathf.FloorToInt((mousePos.x - ox) / cellPx);
+            int hz = Mathf.FloorToInt((mousePos.y - oy) / cellPx);
+
+            if (hx >= 0 && hx < W && hz >= 0 && hz < D)
+            {
+                Rect hoverRect = new Rect(ox + hx * cellPx + 1.5f, oy + hz * cellPx + 1.5f, cellPx - 3, cellPx - 3);
+                bool hasCell = cells.Any(c => c.x == hx && c.z == hz);
+
+                if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag)
+                {
+                    if (e.button == 0) // Left click: Add
+                    {
+                        if (!hasCell)
+                        {
+                            cells.Add(new Vector3Int(hx, 0, hz));
+                            NormalizeSelectedPMPiece();
+                            Repaint();
+                        }
+                        e.Use();
+                    }
+                    else if (e.button == 1) // Right click: Remove
+                    {
+                        if (hasCell)
+                        {
+                            cells.RemoveAll(c => c.x == hx && c.z == hz);
+                            NormalizeSelectedPMPiece();
+                            Repaint();
+                        }
+                        e.Use();
+                    }
+                }
+
+                EditorGUI.DrawRect(hoverRect, hasCell ? COL_HOVER_REMOVE : COL_HOVER_ASSIGN);
+                Repaint();
+            }
+        }
+
+        // Labels
+        var lbl = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { normal = { textColor = new Color(1,1,1,0.32f) } };
+        for (int x = 0; x < W; x++) GUI.Label(new Rect(ox + x * cellPx, oy - 14, cellPx, 14), x.ToString(), lbl);
+        for (int z = 0; z < D; z++) GUI.Label(new Rect(ox - 18, oy + z * cellPx, 18, cellPx), z.ToString(), lbl);
+        GUI.Label(new Rect(ox - 18, oy - 14, 18, 14), "Z\\x", lbl);
+    }
+
+    private void NormalizeSelectedPMPiece()
+    {
+        if (pmSelectedPieceIndex < 0 || pmSelectedPieceIndex >= pmGeneratedPieces.Count) return;
+        var cells = pmGeneratedPieces[pmSelectedPieceIndex];
+        if (cells.Count == 0) return;
+
+        int minX = cells.Min(c => c.x);
+        int minY = cells.Min(c => c.y);
+        int minZ = cells.Min(c => c.z);
+        
+        for (int i = 0; i < cells.Count; i++)
+        {
+            cells[i] = new Vector3Int(cells[i].x - minX, cells[i].y - minY, cells[i].z - minZ);
+        }
+    }
+
+    private void DrawPieceMakerRightPanel()
+    {
+        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(220), GUILayout.ExpandHeight(true));
+
+        // Tab selection bar
+        int nextTab = GUILayout.Toolbar(pmRightTab, new string[] { "🤖 AI LİSTE", "✍️ MANUEL LİSTE" }, GUILayout.Height(25));
+        if (nextTab != pmRightTab)
+        {
+            pmRightTab = nextTab;
+            Repaint();
+        }
+
+        pmRightScroll = EditorGUILayout.BeginScrollView(pmRightScroll);
+
+        if (pmRightTab == 0) // AI Generated Pieces
+        {
+            GUILayout.Label("🤖 YAPAY ZEKA PARÇALARI", styleHeader);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            
+            if (pmGeneratedPieces == null || pmGeneratedPieces.Count == 0)
+            {
+                EditorGUILayout.LabelField("Henüz parça üretilmedi.\n\nSoldaki 'PARÇALARI OLUŞTUR' butonuna basarak yapay zekayla parça üretebilirsiniz.", EditorStyles.wordWrappedMiniLabel);
+            }
+            else
+            {
+                for (int i = 0; i < pmGeneratedPieces.Count; i++)
+                {
+                    var piece = pmGeneratedPieces[i];
+                    if (piece == null || piece.Count == 0) continue;
+
+                    Color col = PIECE_COLORS[i % PIECE_COLORS.Length];
+                    Color prevBG = GUI.backgroundColor;
+                    if (pmSelectedPieceIndex == i)
+                    {
+                        GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 0.6f);
+                    }
+                    
+                    Rect pieceClickRect = EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUI.backgroundColor = prevBG;
+
+                    EditorGUILayout.BeginHorizontal();
+                    Rect colorRect = GUILayoutUtility.GetRect(12, 12, GUILayout.Width(12), GUILayout.Height(12));
+                    colorRect.y += 2;
+                    EditorGUI.DrawRect(colorRect, col);
+                    GUILayout.Space(4);
+                    
+                    var itemLabelStyle = new GUIStyle(EditorStyles.miniBoldLabel);
+                    if (pmSelectedPieceIndex == i) itemLabelStyle.normal.textColor = Color.white;
+                    EditorGUILayout.LabelField($"Parça {i + 1} ({piece.Count} Blok)", itemLabelStyle);
+                    EditorGUILayout.EndHorizontal();
+
+                    // Draw miniature 2D preview
+                    int minX = piece.Min(c => c.x);
+                    int maxX = piece.Max(c => c.x);
+                    int minZ = piece.Min(c => c.z);
+                    int maxZ = piece.Max(c => c.z);
+
+                    int w = maxX - minX + 1;
+                    int h = maxZ - minZ + 1;
+
+                    float previewBlockSize = 14f;
+                    float previewWidth = w * previewBlockSize;
+                    float previewHeight = h * previewBlockSize;
+
+                    EditorGUILayout.BeginHorizontal();
+                    GUILayout.Space(18);
+                    Rect previewRect = GUILayoutUtility.GetRect(previewWidth, previewHeight, GUILayout.Width(previewWidth), GUILayout.Height(previewHeight));
+                    EditorGUI.DrawRect(previewRect, new Color(0.12f, 0.12f, 0.15f));
+
+                    foreach (var cell in piece)
+                    {
+                        int rx = cell.x - minX;
+                        int rz = cell.z - minZ;
+                        Rect blockRect = new Rect(
+                            previewRect.x + rx * previewBlockSize + 0.5f,
+                            previewRect.y + rz * previewBlockSize + 0.5f,
+                            previewBlockSize - 1f,
+                            previewBlockSize - 1f
+                        );
+                        EditorGUI.DrawRect(blockRect, col);
+                    }
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
+
+                    if (Event.current.type == EventType.MouseDown && pieceClickRect.Contains(Event.current.mousePosition))
+                    {
+                        pmSelectedPieceIndex = i;
+                        Repaint();
+                        Event.current.Use();
+                    }
+
+                    GUILayout.Space(4);
+                }
+            }
+            EditorGUILayout.EndVertical();
+
+            if (pmSelectedPieceIndex >= 0 && pmSelectedPieceIndex < pmGeneratedPieces.Count)
+            {
+                var piece = pmGeneratedPieces[pmSelectedPieceIndex];
+                if (piece != null && piece.Count > 0)
+                {
+                    int minX = piece.Min(c => c.x);
+                    int maxX = piece.Max(c => c.x);
+                    int minZ = piece.Min(c => c.z);
+                    int maxZ = piece.Max(c => c.z);
+                    int w = maxX - minX + 1;
+                    int h = maxZ - minZ + 1;
+                    float compactness = (float)piece.Count / (w * h);
+                    
+                    bool isSym = CheckPieceSymmetry(piece);
+                    string classification = ClassifyPieceShape(piece);
+
+                    GUILayout.Space(10);
+                    GUILayout.Label("📊 PARÇA GEOMETRİK ANALİZİ", styleHeader);
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.LabelField($"• Toplam Küp: {piece.Count}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Boyutlar (GxD): {w} x {h}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Yoğunluk (Compact): %{compactness * 100f:F0}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Simetri: {(isSym ? "Simetrik" : "Asimetrik")}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Şekil Tipi: {classification}", EditorStyles.miniLabel);
+                    EditorGUILayout.EndVertical();
+                }
+            }
+
+            GUILayout.Space(12);
+            GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
+            if (GUILayout.Button("💾 TÜMÜNÜ DIŞA AKTAR\n(PREFAB & ASSET YAP)", GUILayout.Height(50)))
+            {
+                ExportGeneratedPieces();
+            }
+            GUI.backgroundColor = Color.white;
+        }
+        else // Manual Designs Library
+        {
+            GUILayout.Label("✍️ MANUEL TASARIMLARINIZ", styleHeader);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            if (pmManualPiecesList.Count == 0)
+            {
+                EditorGUILayout.LabelField("Kütüphanede henüz manuel tasarımınız yok.\n\nSoldaki tuvali boyayıp 'Kütüphaneye Ekle' butonuna basarak ekleyebilirsiniz.", EditorStyles.wordWrappedMiniLabel);
+            }
+            else
+            {
+                for (int i = 0; i < pmManualPiecesList.Count; i++)
+                {
+                    var piece = pmManualPiecesList[i];
+                    if (piece == null || piece.Count == 0) continue;
+
+                    Color col = PIECE_COLORS[i % PIECE_COLORS.Length];
+                    Color prevBG = GUI.backgroundColor;
+                    if (pmSelectedManualIndex == i)
+                    {
+                        GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 0.6f);
+                    }
+
+                    Rect pieceClickRect = EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUI.backgroundColor = prevBG;
+
+                    EditorGUILayout.BeginHorizontal();
+                    Rect colorRect = GUILayoutUtility.GetRect(12, 12, GUILayout.Width(12), GUILayout.Height(12));
+                    colorRect.y += 2;
+                    EditorGUI.DrawRect(colorRect, col);
+                    GUILayout.Space(4);
+
+                    var itemLabelStyle = new GUIStyle(EditorStyles.miniBoldLabel);
+                    if (pmSelectedManualIndex == i) itemLabelStyle.normal.textColor = Color.white;
+                    EditorGUILayout.LabelField($"{pmManualPieceNames[i]} ({piece.Count} Küp)", itemLabelStyle);
+                    EditorGUILayout.EndHorizontal();
+
+                    // Draw miniature 2D preview
+                    int minX = piece.Min(c => c.x);
+                    int maxX = piece.Max(c => c.x);
+                    int minZ = piece.Min(c => c.z);
+                    int maxZ = piece.Max(c => c.z);
+
+                    int w = maxX - minX + 1;
+                    int h = maxZ - minZ + 1;
+
+                    float previewBlockSize = 14f;
+                    float previewWidth = w * previewBlockSize;
+                    float previewHeight = h * previewBlockSize;
+
+                    EditorGUILayout.BeginHorizontal();
+                    GUILayout.Space(18);
+                    Rect previewRect = GUILayoutUtility.GetRect(previewWidth, previewHeight, GUILayout.Width(previewWidth), GUILayout.Height(previewHeight));
+                    EditorGUI.DrawRect(previewRect, new Color(0.12f, 0.12f, 0.15f));
+
+                    foreach (var cell in piece)
+                    {
+                        int rx = cell.x - minX;
+                        int rz = cell.z - minZ;
+                        Rect blockRect = new Rect(
+                            previewRect.x + rx * previewBlockSize + 0.5f,
+                            previewRect.y + rz * previewBlockSize + 0.5f,
+                            previewBlockSize - 1f,
+                            previewBlockSize - 1f
+                        );
+                        EditorGUI.DrawRect(blockRect, col);
+                    }
+                    EditorGUILayout.EndHorizontal();
+
+                    GUILayout.Space(6);
+                    EditorGUILayout.BeginHorizontal();
+                    
+                    // Düzenle
+                    if (GUILayout.Button("Düzenle", EditorStyles.miniButtonLeft))
+                    {
+                        // Load into paint canvas
+                        pmGeneratedPieces.Clear();
+                        pmGeneratedPieces.Add(new List<Vector3Int>(piece));
+                        pmPieceColors.Clear();
+                        pmPieceColors.Add(i % PIECE_COLORS.Length);
+                        pmSelectedPieceIndex = 0;
+                        pmManualPieceLabel = pmManualPieceNames[i];
+                        Repaint();
+                    }
+
+                    // Prefab Yap
+                    if (GUILayout.Button("Prefab Yap", EditorStyles.miniButtonMid))
+                    {
+                        ExportSinglePieceToPrefab(piece, pmManualPieceNames[i]);
+                    }
+
+                    // Sil
+                    GUI.backgroundColor = Color.red;
+                    if (GUILayout.Button("Sil", EditorStyles.miniButtonRight))
+                    {
+                        if (EditorUtility.DisplayDialog("Emin misiniz?", $"'{pmManualPieceNames[i]}' parçasını kütüphaneden silmek istiyor musunuz?", "Evet", "Hayır"))
+                        {
+                            pmManualPiecesList.RemoveAt(i);
+                            pmManualPieceNames.RemoveAt(i);
+                            SaveManualLibraryToJson();
+                            pmSelectedManualIndex = -1;
+                            Repaint();
+                        }
+                    }
+                    GUI.backgroundColor = Color.white;
+
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
+
+                    if (Event.current.type == EventType.MouseDown && pieceClickRect.Contains(Event.current.mousePosition))
+                    {
+                        pmSelectedManualIndex = i;
+                        Repaint();
+                        Event.current.Use();
+                    }
+
+                    GUILayout.Space(4);
+                }
+            }
+            EditorGUILayout.EndVertical();
+
+            if (pmSelectedManualIndex >= 0 && pmSelectedManualIndex < pmManualPiecesList.Count)
+            {
+                var piece = pmManualPiecesList[pmSelectedManualIndex];
+                if (piece != null && piece.Count > 0)
+                {
+                    int minX = piece.Min(c => c.x);
+                    int maxX = piece.Max(c => c.x);
+                    int minZ = piece.Min(c => c.z);
+                    int maxZ = piece.Max(c => c.z);
+                    int w = maxX - minX + 1;
+                    int h = maxZ - minZ + 1;
+                    float compactness = (float)piece.Count / (w * h);
+                    
+                    bool isSym = CheckPieceSymmetry(piece);
+                    string classification = ClassifyPieceShape(piece);
+
+                    GUILayout.Space(10);
+                    GUILayout.Label("📊 PARÇA GEOMETRİK ANALİZİ", styleHeader);
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.LabelField($"• Toplam Küp: {piece.Count}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Boyutlar (GxD): {w} x {h}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Yoğunluk (Compact): %{compactness * 100f:F0}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Simetri: {(isSym ? "Simetrik" : "Asimetrik")}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"• Şekil Tipi: {classification}", EditorStyles.miniLabel);
+                    EditorGUILayout.EndVertical();
+                }
+            }
+
+            GUILayout.Space(12);
+            GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
+            if (GUILayout.Button("📦 TÜM MANUELLERİ DIŞA AKTAR\n(PREFAB & ASSET YAP)", GUILayout.Height(50)))
+            {
+                ExportAllManualPieces();
+            }
+            GUI.backgroundColor = Color.white;
+        }
+
+        EditorGUILayout.EndScrollView();
+        EditorGUILayout.EndVertical();
+    }
+
+
+    private bool CheckPieceSymmetry(List<Vector3Int> piece)
+    {
+        if (piece.Count <= 1) return true;
+        int minX = piece.Min(c => c.x);
+        int maxX = piece.Max(c => c.x);
+        int minZ = piece.Min(c => c.z);
+        int maxZ = piece.Max(c => c.z);
+        
+        bool symX = true;
+        foreach (var c in piece)
+        {
+            int mirroredX = maxX - (c.x - minX);
+            if (!piece.Any(p => p.x == mirroredX && p.z == c.z))
+            {
+                symX = false;
+                break;
+            }
+        }
+        
+        bool symZ = true;
+        foreach (var c in piece)
+        {
+            int mirroredZ = maxZ - (c.z - minZ);
+            if (!piece.Any(p => p.x == c.x && p.z == mirroredZ))
+            {
+                symZ = false;
+                break;
+            }
+        }
+        
+        return symX || symZ;
+    }
+
+    private string ClassifyPieceShape(List<Vector3Int> piece)
+    {
+        if (piece.Count == 0) return "Boş";
+        if (piece.Count == 1) return "Tekli Dolgu (Filler)";
+        
+        int minX = piece.Min(c => c.x);
+        int maxX = piece.Max(c => c.x);
+        int minZ = piece.Min(c => c.z);
+        int maxZ = piece.Max(c => c.z);
+        int w = maxX - minX + 1;
+        int h = maxZ - minZ + 1;
+
+        if (w == 1 || h == 1) return "Düz Çubuk (Flat Line)";
+        if (w == 2 && h == 2 && piece.Count == 4) return "Kare Kutu (Classic O)";
+        
+        bool hasCorner = false;
+        foreach (var c in piece)
+        {
+            int neighborCount = 0;
+            if (piece.Any(p => p.x == c.x + 1 && p.z == c.z)) neighborCount++;
+            if (piece.Any(p => p.x == c.x - 1 && p.z == c.z)) neighborCount++;
+            if (piece.Any(p => p.x == c.x && p.z == c.z + 1)) neighborCount++;
+            if (piece.Any(p => p.x == c.x && p.z == c.z - 1)) neighborCount++;
+            
+            if (neighborCount >= 3) return "T-Şekli / Artı (T-Shape/Cross)";
+            if (neighborCount == 2)
+            {
+                bool xNeigh = piece.Any(p => p.x == c.x + 1 && p.z == c.z) || piece.Any(p => p.x == c.x - 1 && p.z == c.z);
+                bool zNeigh = piece.Any(p => p.x == c.x && p.z == c.z + 1) || piece.Any(p => p.x == c.x && p.z == c.z - 1);
+                if (xNeigh && zNeigh) hasCorner = true;
+            }
+        }
+        
+        float compactness = (float)piece.Count / (w * h);
+        if (compactness >= 0.8f) return "Kompakt Kutu (Box)";
+        if (hasCorner && piece.Count <= 5) return "L-Şekli (Corner)";
+        if (compactness <= 0.5f) return "Diagonal / Zigzag";
+        
+        return "Karmaşık / Serbest (Jagged)";
+    }
+
+    private void ExportGeneratedPieces()
+    {
+        if (pmGeneratedPieces.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Dışa aktarılacak parça yok. Önce parça üretin.", "Tamam");
+            return;
+        }
+
+        string folderPath = PieceTemplateLibrary.FOLDER;
+        if (!Directory.Exists(folderPath))
+        {
+            Directory.CreateDirectory(folderPath);
+        }
+
+        int successCount = 0;
+        float step = cellSize + spacing;
+
+        for (int i = 0; i < pmGeneratedPieces.Count; i++)
+        {
+            var piece = pmGeneratedPieces[i];
+            if (piece.Count == 0) continue;
+
+            string name = $"{pmPiecePrefix}{i + 1}";
+            string prefabPath = $"{folderPath}/{name}.prefab";
+            string assetPath = $"{folderPath}/{name}.asset";
+
+            // 1. Create ScriptableObject (CubeShapeData)
+            CubeShapeData data = AssetDatabase.LoadAssetAtPath<CubeShapeData>(assetPath);
+            bool isNewAsset = data == null;
+            if (isNewAsset) data = ScriptableObject.CreateInstance<CubeShapeData>();
+
+            data.shapeName = name;
+            data.gridSize = new Vector3Int(piece.Max(c => c.x) + 1, 1, piece.Max(c => c.z) + 1);
+            data.cellSize = cellSize;
+            data.spacing = spacing;
+            data.occupiedCells = new List<Vector3Int>(piece);
+
+            if (isNewAsset) AssetDatabase.CreateAsset(data, assetPath);
+            else EditorUtility.SetDirty(data);
+
+            // 2. Create Prefab
+            GameObject pRoot = new GameObject(name);
+            var ph = pRoot.AddComponent<CubeShapeDataHolder>();
+            ph.shapeName = name;
+            ph.gridSize = data.gridSize;
+            ph.cellSize = cellSize;
+            ph.spacing = spacing;
+            ph.occupiedCells = new List<Vector3Int>(piece);
+
+            foreach (var cell in piece)
+            {
+                GameObject cube = cubePrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.transform.SetParent(pRoot.transform);
+                cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+                cube.transform.localScale = Vector3.one * cellSize;
+                cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+            }
+
+            PrefabUtility.SaveAsPrefabAsset(pRoot, prefabPath);
+            DestroyImmediate(pRoot);
+
+            successCount++;
+        }
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+
+        EditorUtility.DisplayDialog("AI Parça Export Başarılı!",
+            $"🤖 Yapay Zeka Parça Yapıcı Başarıyla Kaydetti:\n" +
+            $"✅ {successCount} Adet CubeShapeData ScriptableObject\n" +
+            $"✅ {successCount} Adet Parça Prefabı\n\nHedef Dizin: {folderPath}/", "Harika!");
+    }
+
+    private void DrawPieceMakerStatusBar()
+    {
+        EditorGUILayout.BeginHorizontal(EditorStyles.helpBox, GUILayout.Height(22));
+        EditorGUILayout.LabelField($"BlockMerge3D  •  AI Parça Jeneratörü  •  Durum: {(pmGeneratedPieces.Count > 0 ? "Parçalar Hazır" : "Hazır")}", EditorStyles.miniLabel);
+        EditorGUILayout.EndHorizontal();
+    }
+
+    private void GenerateAndExportPieceDataset()
+    {
+        string origPrefix = pmPiecePrefix;
+        int origCount = pmPieceCount;
+        int origMin = pmMinSize;
+        int origMax = pmMaxSize;
+        PMPieceType origType = pmPieceType;
+        PMPieceDifficulty origDiff = pmDifficulty;
+        string origPrompt = pmPrompt;
+
+        AIPieceDatasetWrapper datasetWrapper = new AIPieceDatasetWrapper();
+
+        for (int i = 0; i < 50; i++)
+        {
+            EditorUtility.DisplayProgressBar("Parça Veriseti Üretimi", $"Parça {i + 1}/50 üretiliyor...", (i + 1) / 50f);
+
+            PMPieceType type = (PMPieceType)(i / 10);
+            int minSize = 2;
+            int maxSize = 4;
+            string prompt = "";
+
+            if (type == PMPieceType.ClassicTetris)
+            {
+                minSize = 4; maxSize = 4;
+            }
+            else if (type == PMPieceType.Geometric_Rect)
+            {
+                minSize = 2; maxSize = 6;
+            }
+            else if (type == PMPieceType.BFS_Free)
+            {
+                minSize = 3; maxSize = 6;
+            }
+            else if (type == PMPieceType.Symmetrical)
+            {
+                minSize = 4; maxSize = 8;
+            }
+            else // PromptBased
+            {
+                minSize = 3; maxSize = 7;
+                string[] prompts = { "L-shaped blocks", "flat plate lines", "T-shaped plus cross", "stair steps diagonal", "compact box shapes" };
+                prompt = prompts[i % prompts.Length];
+            }
+
+            List<Vector3Int> piece = GenerateSinglePiece(type, minSize, maxSize, prompt, i);
+            if (piece == null || piece.Count == 0) continue;
+
+            int minX = piece.Min(c => c.x);
+            int minY = piece.Min(c => c.y);
+            int minZ = piece.Min(c => c.z);
+            var shift = new Vector3Int(minX, minY, minZ);
+            var normPiece = piece.Select(c => c - shift).ToList();
+
+            int w = normPiece.Max(c => c.x) + 1;
+            int h = normPiece.Max(c => c.z) + 1;
+            float compactness = (float)normPiece.Count / (w * h);
+            bool isSym = CheckPieceSymmetry(normPiece);
+            string classification = ClassifyPieceShape(normPiece);
+
+            AIPieceDatasetEntry entry = new AIPieceDatasetEntry
+            {
+                pieceIndex = i,
+                generationMode = type.ToString(),
+                prompt = prompt,
+                cubeCount = normPiece.Count,
+                dimensions = new SerializableCell(new Vector3Int(w, 1, h)),
+                compactness = compactness,
+                isSymmetrical = isSym,
+                shapeClassification = classification,
+                cells = normPiece.Select(c => new SerializableCell(c)).ToList()
+            };
+
+            datasetWrapper.dataset.Add(entry);
+        }
+
+        EditorUtility.ClearProgressBar();
+
+        string jsonPath = $"{LEVELS_PATH}/ai_pieces_training_dataset.json";
+        string jsonContent = JsonUtility.ToJson(datasetWrapper, true);
+        File.WriteAllText(jsonPath, jsonContent);
+
+        pmPiecePrefix = origPrefix;
+        pmPieceCount = origCount;
+        pmMinSize = origMin;
+        pmMaxSize = origMax;
+        pmPieceType = origType;
+        pmDifficulty = origDiff;
+        pmPrompt = origPrompt;
+
+        AssetDatabase.Refresh();
+
+        EditorUtility.DisplayDialog("🎮 Parça Veriseti Başarıyla Oluşturuldu!",
+            $"✅ Yapay Zeka Parça Veriseti Devrede:\n\n" +
+            $"📊 {datasetWrapper.dataset.Count} Benzersiz Parça Oluşturuldu\n" +
+            $"💾 Veriseti Kaydedildi:\n\t{jsonPath}\n\n" +
+            $"Veriseti içerisinde her parçanın:\n" +
+            $" - Hücre koordinatları\n" +
+            $" - Kompaktlık oranı (compactness)\n" +
+            $" - Simetri bilgisi\n" +
+            $" - Şekil sınıflandırması (L-Shape, T-Shape, Line, Box, vb.)\n\n" +
+            $"Yapay zekaya bu verileri öğreterek parça tanıma ve yerleştirme modelleri eğitebilirsiniz!", "Harika! 🚀");
+    }
+
+    private void TeachCurrentPieceToAI()
+    {
+        if (pmSelectedPieceIndex < 0 || pmSelectedPieceIndex >= pmGeneratedPieces.Count)
+        {
+            EditorUtility.DisplayDialog("Hata", "Seçili bir parça bulunamadı. Önce bir tasarım tuvali açın veya boyayın.", "Tamam");
+            return;
+        }
+
+        var cells = pmGeneratedPieces[pmSelectedPieceIndex];
+        if (cells == null || cells.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Tuval üzerinde en az 1 blok boyanmış olmalıdır.", "Tamam");
+            return;
+        }
+
+        // Normalize the piece first
+        NormalizeSelectedPMPiece();
+
+        int w = cells.Max(c => c.x) + 1;
+        int h = cells.Max(c => c.z) + 1;
+        float compactness = (float)cells.Count / (w * h);
+        bool isSym = CheckPieceSymmetry(cells);
+        string classification = ClassifyPieceShape(cells);
+
+        AIPieceDatasetEntry entry = new AIPieceDatasetEntry
+        {
+            pieceIndex = pmTaughtPieces.Count,
+            generationMode = "Manuel_Tasarim",
+            prompt = string.IsNullOrEmpty(pmManualPieceLabel) ? "custom_shape" : pmManualPieceLabel,
+            cubeCount = cells.Count,
+            dimensions = new SerializableCell(new Vector3Int(w, 1, h)),
+            compactness = compactness,
+            isSymmetrical = isSym,
+            shapeClassification = classification,
+            cells = cells.Select(c => new SerializableCell(c)).ToList()
+        };
+
+        pmTaughtPieces.Add(entry);
+        Repaint();
+
+        EditorUtility.DisplayDialog("Tasarım Hafızaya Alındı! 🎓",
+            $"✅ Şekil Başarıyla Hafızaya Eklendi!\n\n" +
+            $"• Boyut: {w}x{h}\n" +
+            $"• Küp Sayısı: {cells.Count}\n" +
+            $"• Sınıflandırma: {classification}\n" +
+            $"• Etiket (Prompt): {entry.prompt}\n\n" +
+            $"Farklı şekiller boyayıp eklemeye devam edebilir veya alttaki butonla JSON verisetine kaydedebilirsiniz.", "Tamam");
+    }
+
+    private void SaveManualDatasetToJson()
+    {
+        if (pmTaughtPieces.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Kaydedilecek eğitilmiş parça yok.", "Tamam");
+            return;
+        }
+
+        string jsonPath = $"{LEVELS_PATH}/ai_pieces_manual_training_dataset.json";
+        AIPieceDatasetWrapper wrapper = new AIPieceDatasetWrapper();
+        wrapper.dataset = new List<AIPieceDatasetEntry>(pmTaughtPieces);
+
+        string jsonContent = JsonUtility.ToJson(wrapper, true);
+        File.WriteAllText(jsonPath, jsonContent);
+
+        AssetDatabase.Refresh();
+
+        EditorUtility.DisplayDialog("Manuel Eğitim Veriseti Kaydedildi! 💾",
+            $"✅ {pmTaughtPieces.Count} Adet Manuel Parça Verisi Kaydedildi!\n\n" +
+            $"Dosya Konumu:\n{jsonPath}\n\n" +
+            $"Bu JSON dosyası, yapay zekanın sizin elinizle çizdiğiniz özel tasarımları, prompt etiketleriyle birlikte birebir öğrenmesi için eğitim verisi olarak kullanılacaktır.", "Harika!");
+    }
+
+    private void LoadManualPieceDataset()
+    {
+        string jsonPath = $"{LEVELS_PATH}/ai_pieces_manual_training_dataset.json";
+        if (File.Exists(jsonPath))
+        {
+            try
+            {
+                string jsonContent = File.ReadAllText(jsonPath);
+                AIPieceDatasetWrapper wrapper = JsonUtility.FromJson<AIPieceDatasetWrapper>(jsonContent);
+                if (wrapper != null && wrapper.dataset != null)
+                {
+                    pmTaughtPieces = new List<AIPieceDatasetEntry>(wrapper.dataset);
+                    Debug.Log($"📚 {pmTaughtPieces.Count} adet eğitilmiş parça verisi {jsonPath} dosyasından yüklendi.");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"Manuel parça dataseti yüklenirken hata oluştu: {ex.Message}");
+            }
+        }
+    }
+
+    private void AddCurrentPieceToManualLibrary()
+    {
+        if (pmSelectedPieceIndex < 0 || pmSelectedPieceIndex >= pmGeneratedPieces.Count)
+        {
+            EditorUtility.DisplayDialog("Hata", "Seçili bir parça bulunamadı. Önce bir tasarım tuvali açın veya boyayın.", "Tamam");
+            return;
+        }
+
+        var cells = pmGeneratedPieces[pmSelectedPieceIndex];
+        if (cells == null || cells.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Tuval üzerinde en az 1 blok boyanmış olmalıdır.", "Tamam");
+            return;
+        }
+
+        // Normalize the piece first
+        NormalizeSelectedPMPiece();
+
+        string name = string.IsNullOrEmpty(pmManualPieceLabel) ? $"Manual_Piece_{pmManualPiecesList.Count + 1}" : pmManualPieceLabel;
+        
+        // Prevent duplicate names in manual list
+        if (pmManualPieceNames.Contains(name))
+        {
+            name = $"{name}_{pmManualPiecesList.Count + 1}";
+        }
+
+        pmManualPiecesList.Add(new List<Vector3Int>(cells));
+        pmManualPieceNames.Add(name);
+        SaveManualLibraryToJson();
+
+        pmRightTab = 1; // Switch right panel to Manual designs tab!
+        pmSelectedManualIndex = pmManualPiecesList.Count - 1;
+        Repaint();
+
+        EditorUtility.DisplayDialog("Kütüphaneye Eklendi! 📥",
+            $"✅ '{name}' başarıyla Manuel Tasarım Kütüphanesine eklendi!\n\n" +
+            $"Sağ taraftaki 'MANUEL LİSTE' sekmesinden bu şekli görebilir, düzenleyebilir ve prefab olarak dışa aktarabilirsiniz.", "Tamam");
+    }
+
+    private void ExportSinglePieceToPrefab(List<Vector3Int> cells, string name)
+    {
+        if (cells == null || cells.Count == 0) return;
+
+        string folderPath = "Assets/Pieces";
+        if (!AssetDatabase.IsValidFolder(folderPath))
+        {
+            AssetDatabase.CreateFolder("Assets", "Pieces");
+        }
+
+        string prefabPath = $"{folderPath}/{name}.prefab";
+        string assetPath = $"{folderPath}/{name}.asset";
+
+        // 1. Create ScriptableObject (CubeShapeData)
+        CubeShapeData data = AssetDatabase.LoadAssetAtPath<CubeShapeData>(assetPath);
+        bool isNewAsset = data == null;
+        if (isNewAsset) data = ScriptableObject.CreateInstance<CubeShapeData>();
+
+        data.shapeName = name;
+        data.gridSize = new Vector3Int(cells.Max(c => c.x) + 1, 1, cells.Max(c => c.z) + 1);
+        data.cellSize = cellSize;
+        data.spacing = spacing;
+        data.occupiedCells = new List<Vector3Int>(cells);
+
+        if (isNewAsset) AssetDatabase.CreateAsset(data, assetPath);
+        else EditorUtility.SetDirty(data);
+
+        // 2. Create Prefab
+        GameObject pRoot = new GameObject(name);
+        var ph = pRoot.AddComponent<CubeShapeDataHolder>();
+        ph.shapeName = name;
+        ph.gridSize = data.gridSize;
+        ph.cellSize = cellSize;
+        ph.spacing = spacing;
+        ph.occupiedCells = new List<Vector3Int>(cells);
+
+        float step = cellSize + spacing;
+        foreach (var cell in cells)
+        {
+            GameObject cube = cubePrefab != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.SetParent(pRoot.transform);
+            cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+            cube.transform.localScale = Vector3.one * cellSize;
+            cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+        }
+
+        PrefabUtility.SaveAsPrefabAsset(pRoot, prefabPath);
+        DestroyImmediate(pRoot);
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+
+        EditorUtility.DisplayDialog("Başarılı! 💾",
+            $"✅ Parça Prefab ve ScriptableObject olarak dışa aktarıldı!\n\n" +
+            $"• Prefab: {prefabPath}\n" +
+            $"• Asset: {assetPath}", "Tamam");
+    }
+
+    private void ExportAllManualPieces()
+    {
+        if (pmManualPiecesList.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Dışa aktarılacak manuel parça yok.", "Tamam");
+            return;
+        }
+
+        string folderPath = "Assets/Pieces";
+        if (!AssetDatabase.IsValidFolder(folderPath))
+        {
+            AssetDatabase.CreateFolder("Assets", "Pieces");
+        }
+
+        int count = 0;
+        float step = cellSize + spacing;
+
+        for (int i = 0; i < pmManualPiecesList.Count; i++)
+        {
+            string name = pmManualPieceNames[i];
+            var cells = pmManualPiecesList[i];
+            if (cells.Count == 0) continue;
+
+            string prefabPath = $"{folderPath}/{name}.prefab";
+            string assetPath = $"{folderPath}/{name}.asset";
+
+            // ScriptableObject
+            CubeShapeData data = AssetDatabase.LoadAssetAtPath<CubeShapeData>(assetPath);
+            bool isNewAsset = data == null;
+            if (isNewAsset) data = ScriptableObject.CreateInstance<CubeShapeData>();
+
+            data.shapeName = name;
+            data.gridSize = new Vector3Int(cells.Max(c => c.x) + 1, 1, cells.Max(c => c.z) + 1);
+            data.cellSize = cellSize;
+            data.spacing = spacing;
+            data.occupiedCells = new List<Vector3Int>(cells);
+
+            if (isNewAsset) AssetDatabase.CreateAsset(data, assetPath);
+            else EditorUtility.SetDirty(data);
+
+            // Prefab
+            GameObject pRoot = new GameObject(name);
+            var ph = pRoot.AddComponent<CubeShapeDataHolder>();
+            ph.shapeName = name;
+            ph.gridSize = data.gridSize;
+            ph.cellSize = cellSize;
+            ph.spacing = spacing;
+            ph.occupiedCells = new List<Vector3Int>(cells);
+
+            foreach (var cell in cells)
+            {
+                GameObject cube = cubePrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.transform.SetParent(pRoot.transform);
+                cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+                cube.transform.localScale = Vector3.one * cellSize;
+                cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+            }
+
+            PrefabUtility.SaveAsPrefabAsset(pRoot, prefabPath);
+            DestroyImmediate(pRoot);
+            count++;
+        }
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+
+        EditorUtility.DisplayDialog("Toplu Dışa Aktarma Başarılı! 📦",
+            $"✅ {count} adet manuel parça '{folderPath}/' klasörüne prefab ve asset olarak kaydedildi.", "Harika!");
+    }
+
+    private void SaveManualLibraryToJson()
+    {
+        string jsonPath = $"{LEVELS_PATH}/ai_pieces_manual_library.json";
+        AIPieceListWrapper wrapper = new AIPieceListWrapper();
+        for (int i = 0; i < pmManualPiecesList.Count; i++)
+        {
+            wrapper.names.Add(pmManualPieceNames[i]);
+            var cells = pmManualPiecesList[i];
+            AIPieceDatasetEntry entry = new AIPieceDatasetEntry
+            {
+                pieceIndex = i,
+                prompt = pmManualPieceNames[i],
+                cubeCount = cells.Count,
+                cells = cells.Select(c => new SerializableCell(c)).ToList()
+            };
+            wrapper.pieces.Add(entry);
+        }
+
+        string jsonContent = JsonUtility.ToJson(wrapper, true);
+        File.WriteAllText(jsonPath, jsonContent);
+        AssetDatabase.Refresh();
+    }
+
+    private void LoadManualLibraryFromJson()
+    {
+        string jsonPath = $"{LEVELS_PATH}/ai_pieces_manual_library.json";
+        if (File.Exists(jsonPath))
+        {
+            try
+            {
+                string jsonContent = File.ReadAllText(jsonPath);
+                AIPieceListWrapper wrapper = JsonUtility.FromJson<AIPieceListWrapper>(jsonContent);
+                if (wrapper != null && wrapper.pieces != null)
+                {
+                    pmManualPiecesList.Clear();
+                    pmManualPieceNames.Clear();
+                    for (int i = 0; i < wrapper.pieces.Count; i++)
+                    {
+                        var name = (i < wrapper.names.Count) ? wrapper.names[i] : $"Manual_Piece_{i + 1}";
+                        var cells = wrapper.pieces[i].cells.Select(c => new Vector3Int(c.x, c.y, c.z)).ToList();
+                        pmManualPiecesList.Add(cells);
+                        pmManualPieceNames.Add(name);
+                    }
+                    Debug.Log($"📚 Manuel Kütüphaneden {pmManualPiecesList.Count} adet parça yüklendi.");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"Manuel kütüphane yüklenirken hata: {ex.Message}");
+            }
+        }
+    }
 }
 
 [System.Serializable]
@@ -2776,3 +4302,31 @@ public class AIDatasetWrapper
 {
     public List<AIDatasetEntry> dataset = new List<AIDatasetEntry>();
 }
+
+[System.Serializable]
+public class AIPieceDatasetEntry
+{
+    public int pieceIndex;
+    public string generationMode;
+    public string prompt;
+    public int cubeCount;
+    public SerializableCell dimensions;
+    public float compactness;
+    public bool isSymmetrical;
+    public string shapeClassification;
+    public List<SerializableCell> cells;
+}
+
+[System.Serializable]
+public class AIPieceDatasetWrapper
+{
+    public List<AIPieceDatasetEntry> dataset = new List<AIPieceDatasetEntry>();
+}
+
+[System.Serializable]
+public class AIPieceListWrapper
+{
+    public List<string> names = new List<string>();
+    public List<AIPieceDatasetEntry> pieces = new List<AIPieceDatasetEntry>();
+}
+

@@ -9,6 +9,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         PieceDesigner,
         PieceSplitter,
         AILevelDesigner,
+        ManualVoxelBuilder,
         CanvasSetup,
         Aesthetics,
         LegacyCubeShapeEditor
@@ -23,6 +24,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         "2. 🧩 Parça Tasarımcısı",
         "✂ Parça Bölücü",
         "🤖 AI Seviye Tasarımcısı",
+        "🧱 3D Sahne Yapıcı",
         "📺 Arayüz Kurulumu",
         "🎨 Görsel & Kurulum",
         "⚙ Eski Yapıcı"
@@ -33,6 +35,7 @@ public class BlockMerge3DHubWindow : EditorWindow
     private PieceDesignerWindow pieceDesigner;
     private PieceSplitterWindow pieceSplitter;
     private AILevelDesignerWindow aiLevelDesigner;
+    private ManualVoxelPieceBuilderWindow manualVoxelBuilder;
     private CanvasSetupWindow canvasSetup;
     private AestheticSetupTool aestheticSetup;
     private CubeShapeEditorWindow legacyCubeShape;
@@ -85,6 +88,11 @@ public class BlockMerge3DHubWindow : EditorWindow
             aiLevelDesigner = CreateInstance<AILevelDesignerWindow>();
             aiLevelDesigner.onRepaintRequested = Repaint;
         }
+        if (manualVoxelBuilder == null)
+        {
+            manualVoxelBuilder = CreateInstance<ManualVoxelPieceBuilderWindow>();
+            // Since it shares repaint, we can set up an action if needed, or simply let Unity handle standard repaints
+        }
         if (canvasSetup == null)
         {
             canvasSetup = CreateInstance<CanvasSetupWindow>();
@@ -108,6 +116,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         if (pieceDesigner != null) DestroyImmediate(pieceDesigner);
         if (pieceSplitter != null) DestroyImmediate(pieceSplitter);
         if (aiLevelDesigner != null) DestroyImmediate(aiLevelDesigner);
+        if (manualVoxelBuilder != null) DestroyImmediate(manualVoxelBuilder);
         if (canvasSetup != null) DestroyImmediate(canvasSetup);
         if (aestheticSetup != null) DestroyImmediate(aestheticSetup);
         if (legacyCubeShape != null) DestroyImmediate(legacyCubeShape);
@@ -123,6 +132,12 @@ public class BlockMerge3DHubWindow : EditorWindow
         {
             legacyCubeShape.OnDisable();
         }
+        else if (tab == Tab.ManualVoxelBuilder && manualVoxelBuilder != null)
+        {
+            // We can call its OnDisable manually to unsubscribe from SceneView
+            var method = manualVoxelBuilder.GetType().GetMethod("OnDisable", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (method != null) method.Invoke(manualVoxelBuilder, null);
+        }
     }
 
     private void EnableActiveTab(Tab tab)
@@ -134,6 +149,12 @@ public class BlockMerge3DHubWindow : EditorWindow
         else if (tab == Tab.LegacyCubeShapeEditor && legacyCubeShape != null)
         {
             legacyCubeShape.OnEnable();
+        }
+        else if (tab == Tab.ManualVoxelBuilder && manualVoxelBuilder != null)
+        {
+            // We can call its OnEnable manually to subscribe to SceneView
+            var method = manualVoxelBuilder.GetType().GetMethod("OnEnable", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (method != null) method.Invoke(manualVoxelBuilder, null);
         }
     }
 
@@ -229,6 +250,9 @@ public class BlockMerge3DHubWindow : EditorWindow
                 break;
             case Tab.AILevelDesigner:
                 if (aiLevelDesigner != null) aiLevelDesigner.OnGUI();
+                break;
+            case Tab.ManualVoxelBuilder:
+                if (manualVoxelBuilder != null) manualVoxelBuilder.OnGUI();
                 break;
             case Tab.CanvasSetup:
                 if (canvasSetup != null) canvasSetup.OnGUI();

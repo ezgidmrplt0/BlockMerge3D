@@ -168,7 +168,7 @@ public class LayerPanelController : MonoBehaviour
     public void OpenPanel(int layerY)
     {
         if (isTransitioning || cam == null || grid == null) return;
-        if (cam.IsInPanelMode) return;
+        if (cam.IsInPanelMode && grid.ActiveLayerY == layerY) return;
 
         isTransitioning = true;
 
@@ -190,7 +190,7 @@ public class LayerPanelController : MonoBehaviour
         grid.SetActiveLayer(layerY);
         RefreshButtonColors();
 
-        SetButtonsVisible(false);
+        SetButtonsVisible(true);
         if (backButton != null) backButton.gameObject.SetActive(true);
         SetBottomPanelVisible(true);
     }

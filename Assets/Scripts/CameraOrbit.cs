@@ -198,11 +198,14 @@ public class CameraOrbit : MonoBehaviour
 
     public void ZoomToLayer(Vector3 layerWorldCenter, System.Action onComplete = null)
     {
+        if (!IsInPanelMode)
+        {
+            savedCamPos = transform.position;
+            savedCamRot = transform.rotation;
+        }
+
         IsInPanelMode = true;
         IsLocked = true;
-
-        savedCamPos = transform.position;
-        savedCamRot = transform.rotation;
 
         // Target: straight above the layer center
         Camera cam = GetComponent<Camera>() ?? Camera.main;

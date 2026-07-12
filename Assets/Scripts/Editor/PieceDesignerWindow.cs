@@ -5,62 +5,34 @@ using System.IO;
 using System.Linq;
 
 // ═══════════════════════════════════════════════════════════════════
-//  PIECE DESIGNER  —  Level Parçalama Editörü
-//  BlockMerge3D  •  BlockMerge3D / 🧩 Piece Designer
-//
-//  İş akışı:
-//    1. LevelData seç  →  Ana şekil 2D grid'e yüklenir
-//    2. Aktif parçayı sol panelden seç
-//    3. Hücreleri fareyle boya  →  Sol tık ata, Sağ tık çıkar
-//    4. "Parçaları Kaydet" ile LevelData güncellenir
+//  PIECE DESIGNER  —  Bağımsız Parça Oluşturucu & Editörü
+//  BlockMerge3D  •  Level Bağımsız Voxel Çizim Tuvali
 // ═══════════════════════════════════════════════════════════════════
 public class PieceDesignerWindow : EditorWindow
 {
     // ── Sabitler ─────────────────────────────────────────────────
-    private const string LEVELS_PATH = "Assets/Levels";
+    private const string PIECES_PATH = "Assets/Pieces";
+    private const string AI_LIBRARY_PATH = "Assets/Levels/ai_pieces_manual_library.json";
     private const float  MIN_CELL_PX = 18f;
     private const float  MAX_CELL_PX = 66f;
-    private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
 
-    private static readonly Color COL_BG           = new Color(0.10f, 0.10f, 0.13f);
-    private static readonly Color COL_GRID          = new Color(0.20f, 0.20f, 0.26f);
-    private static readonly Color COL_SHAPE_EMPTY   = new Color(0.22f, 0.24f, 0.30f); // şekil içi, atanmamış
-    private static readonly Color COL_SHAPE_BORDER  = new Color(0.34f, 0.36f, 0.44f);
-    private static readonly Color COL_UNASSIGNED    = new Color(0.28f, 0.30f, 0.38f);
+    private static readonly Color COL_BG           = new Color(0.047f, 0.047f, 0.07f);
+    private static readonly Color COL_GRID          = new Color(0.30f, 0.32f, 0.40f);
+    private static readonly Color COL_UNASSIGNED    = new Color(0.07f, 0.07f, 0.10f);
     private static readonly Color COL_HOVER_ASSIGN  = new Color(1.00f, 1.00f, 1.00f, 0.18f);
     private static readonly Color COL_HOVER_REMOVE  = new Color(1.00f, 0.28f, 0.20f, 0.45f);
     private static readonly Color COL_GHOST         = new Color(0.24f, 0.26f, 0.32f, 0.28f);
-    private static readonly Color COL_HEADER        = new Color(0.95f, 0.65f, 0.25f);
-    private static readonly Color COL_HEADER_DARK   = new Color(0.75f, 0.48f, 0.15f);
+    private static readonly Color COL_HEADER        = new Color(0.35f, 0.78f, 1.00f);
+    private static readonly Color COL_PIECE         = new Color(0.20f, 0.44f, 0.70f); // #3371b2 (blue)
 
-    private static readonly Color[] PIECE_COLORS = new Color[]
-    {
-        new Color(0.95f, 0.30f, 0.30f),
-        new Color(0.28f, 0.65f, 0.95f),
-        new Color(0.25f, 0.88f, 0.42f),
-        new Color(0.95f, 0.80f, 0.15f),
-        new Color(0.72f, 0.22f, 0.92f),
-        new Color(0.95f, 0.55f, 0.15f),
-        new Color(0.20f, 0.88f, 0.88f),
-        new Color(0.95f, 0.40f, 0.70f),
-    };
+    // ── Editör Durumu ─────────────────────────────────────────────
+    private string               pieceName    = "Yeni_Parca";
+    private Vector3Int           gridSize     = new Vector3Int(5, 1, 5);
+    private HashSet<Vector3Int>  paintedCells = new HashSet<Vector3Int>();
 
-    // ── Yüklü Level ───────────────────────────────────────────────
-    private LevelData    loadedLevel;
-    private string       loadedLevelPath = "";
-    private string       levelName       = "";
-
-    // Ana şeklin hücreleri (read-only — sadece bunlar boyanabilir)
-    private HashSet<Vector3Int> shapeCells = new HashSet<Vector3Int>();
-    private Vector3Int          shapeGridSize;
-    private float               shapeCellSize = 1f;
-    private float               shapeSpacing  = 0.1f;
-    private GameObject          shapeCubePrefab;
-
-    // ── Parça Ataması ─────────────────────────────────────────────
-    private List<HashSet<Vector3Int>> pieceCells = new List<HashSet<Vector3Int>>();
-    private int pieceCount  = 2;
-    private int activePiece = 0;
+    private float               cellSize      = 1f;
+    private float               spacing       = 0.1f;
+    private GameObject          cubePrefab;
 
     // ── UI Durumu ─────────────────────────────────────────────────
     private int      activeLayer     = 0;
@@ -69,16 +41,15 @@ public class PieceDesignerWindow : EditorWindow
     private bool     showGhostLayers = true;
     private Vector2  leftScroll, rightScroll;
     private Vector2? hoverCell;
-    private bool     levelLoaded     = false;
     private bool     isLeftMouseDown  = false;
     private bool     isRightMouseDown = false;
+
+    // ── Kayıtlı Parçalar Listesi ───────────────────────────────────
+    private List<string> savedPieceNames = new List<string>();
 
     // ── Stil ─────────────────────────────────────────────────────
     private GUIStyle styleHeader, styleBox, styleWarn;
     private bool     stylesBuilt;
-
-    // Ertelenmiş level yükleme (GUILayout state bozulmasını önler)
-    private LevelData pendingLevelToLoad = null;
 
     public System.Action onRepaintRequested;
 
@@ -89,75 +60,33 @@ public class PieceDesignerWindow : EditorWindow
             onRepaintRequested();
     }
 
-    // [MenuItem("BlockMerge3D/🧩  Piece Designer")]
-    // public static void Open()
-    // {
-    //     var w = GetWindow<PieceDesignerWindow>("Piece Designer");
-    //     w.minSize = new Vector2(860, 540);
-    // }
+    public void OnEnable()
+    {
+        RefreshSavedPiecesList();
+        BuildStyles();
+        
+        // Default cube prefab bul
+        if (cubePrefab == null)
+        {
+            string defaultPath = EditorPrefs.GetString("BlockMerge3D_DefaultCubePrefab", "");
+            if (!string.IsNullOrEmpty(defaultPath))
+            {
+                cubePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(defaultPath);
+            }
+        }
+    }
 
-    // ══ OnGUI ══════════════════════════════════════════════════
+    // ── OnGUI ══════════════════════════════════════════════════
     public void OnGUI()
     {
-        // Global default cube prefab'ı yükle (henüz yoksa)
-        if (shapeCubePrefab == null)
-        {
-            string prefabPath = EditorPrefs.GetString(PREF_DEFAULT_CUBE, "");
-            if (!string.IsNullOrEmpty(prefabPath))
-            {
-                shapeCubePrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-            }
-        }
-
-        // Handle keyboard shortcuts for switching layers
-        Event e = Event.current;
-        if (levelLoaded && e.type == EventType.KeyDown)
-        {
-            if (e.keyCode == KeyCode.UpArrow || e.keyCode == KeyCode.PageUp)
-            {
-                if (activeLayer < shapeGridSize.y - 1)
-                {
-                    activeLayer++;
-                    Repaint();
-                    e.Use();
-                }
-            }
-            else if (e.keyCode == KeyCode.DownArrow || e.keyCode == KeyCode.PageDown)
-            {
-                if (activeLayer > 0)
-                {
-                    activeLayer--;
-                    Repaint();
-                    e.Use();
-                }
-            }
-            else if (e.keyCode == KeyCode.Delete || e.keyCode == KeyCode.Backspace)
-            {
-                if (EditorUtility.DisplayDialog("Katmanı Temizle", $"Y={activeLayer} katmanındaki tüm parça atamalarını temizlemek istiyor musunuz?", "Evet", "Hayır"))
-                {
-                    ClearLayer(activeLayer);
-                    e.Use();
-                }
-            }
-        }
-
-        // Layout pass başlamadan önce bekleyen level yükleme varsa işle
-        if (pendingLevelToLoad != null && Event.current.type == EventType.Layout)
-        {
-            var toLoad = pendingLevelToLoad;
-            pendingLevelToLoad = null;
-            LoadLevel(toLoad);
-            return; // Bu frame'i iptal et, bir sonraki frame temiz gelir
-        }
-
         BuildStyles();
         DrawToolbar();
+
         EditorGUILayout.BeginHorizontal();
-        DrawLeftPanel();
-        if (levelLoaded) DrawCenterGrid();
-        else             DrawEmptyCenter();
+        DrawCenterGrid();
         DrawRightPanel();
         EditorGUILayout.EndHorizontal();
+
         DrawStatusBar();
     }
 
@@ -166,194 +95,60 @@ public class PieceDesignerWindow : EditorWindow
     {
         EditorGUILayout.BeginHorizontal(EditorStyles.toolbar, GUILayout.Height(30));
 
-        // LevelData seçici
-        GUILayout.Label("Level:", EditorStyles.toolbarButton, GUILayout.Width(42));
+        // Parça İsmi
+        GUILayout.Label("Parça İsmi:", EditorStyles.toolbarButton, GUILayout.Width(80));
+        pieceName = EditorGUILayout.TextField(pieceName, GUILayout.Width(150));
+        
+        GUILayout.Space(10);
+
+        // Grid Ebatları
+        GUILayout.Label("Grid Boyutu:", EditorStyles.toolbarButton, GUILayout.Width(80));
         EditorGUI.BeginChangeCheck();
-        var newLevel = (LevelData)EditorGUILayout.ObjectField(loadedLevel, typeof(LevelData), false, GUILayout.Width(180));
-        if (EditorGUI.EndChangeCheck() && newLevel != null && newLevel != loadedLevel)
-            pendingLevelToLoad = newLevel; // Ertelenmiş yükleme
+        int newX = EditorGUILayout.IntField(gridSize.x, GUILayout.Width(35));
+        GUILayout.Label("×", EditorStyles.centeredGreyMiniLabel, GUILayout.Width(10));
+        int newZ = EditorGUILayout.IntField(gridSize.z, GUILayout.Width(35));
+        if (EditorGUI.EndChangeCheck())
+        {
+            gridSize.x = Mathf.Clamp(newX, 1, 12);
+            gridSize.y = 1; // Sabit 2D
+            gridSize.z = Mathf.Clamp(newZ, 1, 12);
+            activeLayer = 0;
+            CleanOutOfBoundsCells();
+        }
+
+        GUILayout.Space(15);
+
+        // Çiz/Sil Modu
+        GUI.backgroundColor = eraseMode ? new Color(1f, 0.38f, 0.28f) : new Color(0.28f, 0.92f, 0.52f);
+        if (GUILayout.Button(eraseMode ? "✕  Sil Modu" : "✏  Çiz Modu", EditorStyles.toolbarButton, GUILayout.Width(90)))
+            eraseMode = !eraseMode;
         GUI.backgroundColor = Color.white;
+
+        GUILayout.FlexibleSpace();
+
+        // Zoom
+        GUILayout.Label("Zoom:", EditorStyles.toolbarButton, GUILayout.Width(42));
+        cellPx = GUILayout.HorizontalSlider(cellPx, MIN_CELL_PX, MAX_CELL_PX, GUILayout.Width(90));
 
         GUILayout.Space(10);
 
-        if (levelLoaded)
+        // Aksiyonlar
+        GUI.backgroundColor = new Color(0.35f, 0.78f, 1f, 0.9f);
+        if (GUILayout.Button("💾 Parçayı Kaydet", EditorStyles.toolbarButton, GUILayout.Width(120)))
         {
-            // Katman
-            GUILayout.Label("Katman:", EditorStyles.toolbarButton, GUILayout.Width(52));
-            GUI.enabled = activeLayer > 0;
-            if (GUILayout.Button("◀", EditorStyles.toolbarButton, GUILayout.Width(22))) { activeLayer--; Repaint(); }
-            GUI.enabled = true;
-
-            GUI.backgroundColor = new Color(1f, 0.65f, 0.25f, 0.85f);
-            GUILayout.Label($"  Y = {activeLayer}  ", EditorStyles.toolbarButton, GUILayout.Width(56));
-            GUI.backgroundColor = Color.white;
-
-            GUI.enabled = activeLayer < shapeGridSize.y - 1;
-            if (GUILayout.Button("▶", EditorStyles.toolbarButton, GUILayout.Width(22))) { activeLayer++; Repaint(); }
-            GUI.enabled = true;
-
-            GUILayout.Space(8);
-
-            // Mod
-            GUI.backgroundColor = eraseMode ? new Color(1f, 0.38f, 0.28f) : new Color(0.28f, 0.92f, 0.52f);
-            if (GUILayout.Button(eraseMode ? "✕  Çıkar" : "✏  Ata", EditorStyles.toolbarButton, GUILayout.Width(80)))
-                eraseMode = !eraseMode;
-            GUI.backgroundColor = Color.white;
-
-            showGhostLayers = GUILayout.Toggle(showGhostLayers, "Diğer Katmanlar", EditorStyles.toolbarButton);
+            SavePiece();
         }
+        GUI.backgroundColor = Color.white;
 
-        GUILayout.FlexibleSpace();
-
-        if (levelLoaded)
+        if (GUILayout.Button("🧹 Temizle", EditorStyles.toolbarButton, GUILayout.Width(75)))
         {
-            GUILayout.Label("Zoom:", EditorStyles.toolbarButton, GUILayout.Width(42));
-            cellPx = EditorGUILayout.Slider(cellPx, MIN_CELL_PX, MAX_CELL_PX, GUILayout.Width(110));
-            GUILayout.Space(8);
-
-            bool canSave = pieceCells.Count > 0;
-            GUI.backgroundColor = canSave ? new Color(0.95f, 0.65f, 0.25f, 0.9f) : Color.white;
-            GUI.enabled = canSave;
-            if (GUILayout.Button("💾  Parçaları Kaydet", EditorStyles.toolbarButton, GUILayout.Width(150)))
-                SavePieces();
-            GUI.enabled = true;
-            GUI.backgroundColor = Color.white;
+            if (EditorUtility.DisplayDialog("Temizle", "Tuvali tamamen temizlemek istiyor musunuz?", "Evet", "Hayır"))
+            {
+                ClearCanvas();
+            }
         }
 
         EditorGUILayout.EndHorizontal();
-    }
-
-    // ── Sol Panel ─────────────────────────────────────────────────
-    private void DrawLeftPanel()
-    {
-        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(270), GUILayout.ExpandHeight(true));
-        leftScroll = EditorGUILayout.BeginScrollView(leftScroll);
-
-        if (!levelLoaded)
-        {
-            GUILayout.Space(20);
-            EditorGUILayout.HelpBox("Yukarıdan bir LevelData seç ya da sağ panelden tıkla.", MessageType.Info);
-        }
-        else
-        {
-            // Parça Listesi
-            GUILayout.Label("PARÇALAR", styleHeader);
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            EnsurePieceLists();
-            for (int i = 0; i < pieceCount; i++)
-            {
-                Color pc  = PIECE_COLORS[i % PIECE_COLORS.Length];
-                int   cnt = pieceCells[i].Count;
-                bool  isActive = (activePiece == i);
-
-                EditorGUILayout.BeginHorizontal();
-                GUI.backgroundColor = isActive ? pc : pc * 0.50f;
-                var btn = new GUIStyle(GUI.skin.button) { alignment = TextAnchor.MiddleLeft, fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal };
-                if (GUILayout.Button($"  Parça {i + 1}  [{cnt} küp]", btn))
-                {
-                    activePiece = i;
-                    eraseMode   = false;
-                }
-                GUI.backgroundColor = Color.white;
-                if (pieceCount > 2 && GUILayout.Button("✕", GUILayout.Width(22)))
-                {
-                    if (pieceCells.Count > i) pieceCells.RemoveAt(i);
-                    pieceCount--;
-                    activePiece = Mathf.Clamp(activePiece, 0, pieceCount - 1);
-                    break;
-                }
-                EditorGUILayout.EndHorizontal();
-
-                // Mini 2D önizleme (tüm katmanlar süper üst üste)
-                Rect mini = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(36), GUILayout.ExpandWidth(true));
-                if (Event.current.type == EventType.Repaint) DrawMiniPiece(mini, i);
-                GUILayout.Space(2);
-            }
-
-            GUI.backgroundColor = new Color(1f, 0.65f, 0.25f, 0.7f);
-            if (GUILayout.Button("+ Parça Ekle")) { pieceCount++; EnsurePieceLists(); activePiece = pieceCount - 1; eraseMode = false; }
-            GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndVertical();
-
-            GUILayout.Space(10);
-
-            // Katman listesi
-            GUILayout.Label("KATMANLAR", styleHeader);
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            for (int y = 0; y < shapeGridSize.y; y++)
-            {
-                bool isActive = (y == activeLayer);
-                int  inLayer  = shapeCells.Count(c => c.y == y);
-                int  assigned = pieceCells.Sum(s => s.Count(c => c.y == y));
-
-                GUI.backgroundColor = isActive ? new Color(1f, 0.65f, 0.25f, 0.8f) : Color.white;
-                if (GUILayout.Button($"Y={y}  {assigned}/{inLayer} atanmış", isActive ? EditorStyles.boldLabel : EditorStyles.label))
-                    { activeLayer = y; Repaint(); }
-                GUI.backgroundColor = Color.white;
-
-                Rect mini = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(24), GUILayout.ExpandWidth(true));
-                if (Event.current.type == EventType.Repaint) DrawMiniLayer(mini, y);
-                if (Event.current.type == EventType.MouseDown && mini.Contains(Event.current.mousePosition))
-                {
-                    activeLayer = y;
-                    Repaint();
-                    Event.current.Use();
-                }
-                GUILayout.Space(2);
-            }
-            EditorGUILayout.EndVertical();
-
-            GUILayout.Space(10);
-
-            // Aksiyonlar
-            GUILayout.Label("AKSİYONLAR", styleHeader);
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Katmanı Ata (P{activePiece + 1})"))   AssignLayerToPiece(activeLayer, activePiece);
-            if (GUILayout.Button("Katmanı Temizle")) ClearLayer(activeLayer);
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Tümünü Ata (P{activePiece + 1})"))    AssignAllToPiece(activePiece);
-            if (GUILayout.Button("Tümünü Temizle")) ClearAll();
-            EditorGUILayout.EndHorizontal();
-
-            // Özet: atanmamış hücreler
-            int totalAssigned = pieceCells.Sum(s => s.Count);
-            int unassigned = shapeCells.Count - totalAssigned;
-            if (unassigned > 0)
-            {
-                EditorGUILayout.Space(4);
-                EditorGUILayout.HelpBox($"⚠ {unassigned} küp henüz atanmamış!", MessageType.Warning);
-            }
-            EditorGUILayout.EndVertical();
-        }
-
-        EditorGUILayout.EndScrollView();
-        EditorGUILayout.EndVertical();
-    }
-
-    // ── Boş Merkez ───────────────────────────────────────────────
-    private void DrawEmptyCenter()
-    {
-        EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
-        GUILayout.FlexibleSpace();
-        EditorGUILayout.BeginHorizontal();
-        GUILayout.FlexibleSpace();
-        EditorGUILayout.BeginVertical();
-        var big = new GUIStyle(EditorStyles.boldLabel) { fontSize = 28, alignment = TextAnchor.MiddleCenter };
-        big.normal.textColor = new Color(1f, 0.65f, 0.25f, 0.5f);
-        GUILayout.Label("🧩", big);
-        var sub = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { fontSize = 13 };
-        GUILayout.Label("Sağ panelden bir LevelData seç", sub);
-        GUILayout.Label("ya da toolbar'daki ObjectField'ı kullan.", sub);
-        EditorGUILayout.EndVertical();
-        GUILayout.FlexibleSpace();
-        EditorGUILayout.EndHorizontal();
-        GUILayout.FlexibleSpace();
-        EditorGUILayout.EndVertical();
     }
 
     // ── Merkez 2D Grid ───────────────────────────────────────────
@@ -361,16 +156,12 @@ public class PieceDesignerWindow : EditorWindow
     {
         EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
 
-        // Başlık şeridi
         EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-        Color pc = PIECE_COLORS[activePiece % PIECE_COLORS.Length];
-        GUI.backgroundColor = pc * 0.7f;
-        string modeStr = eraseMode ? "✕  Çıkar Modu" : $"✏  Parça {activePiece + 1} Ata";
-        GUILayout.Label($"  Y = {activeLayer}   •   {modeStr}",
-            new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = Color.white } });
-        GUI.backgroundColor = Color.white;
+        string modeStr = eraseMode ? "✕  Sil Modu (Sağ Tık / Sürükle)" : "✏  Çiz Modu (Sol Tık / Sürükle)";
+        GUILayout.Label($"  {modeStr}",
+            new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = COL_HEADER } });
         GUILayout.FlexibleSpace();
-        GUILayout.Label($"Şekil: {shapeGridSize.x}×{shapeGridSize.z}", EditorStyles.miniLabel);
+        GUILayout.Label($"Boyut: {gridSize.x}×{gridSize.z}", EditorStyles.miniLabel);
         EditorGUILayout.EndHorizontal();
 
         Rect area = GUILayoutUtility.GetRect(100, 100, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
@@ -383,17 +174,17 @@ public class PieceDesignerWindow : EditorWindow
     private void DrawGrid2D(Rect area)
     {
         if (Event.current.type != EventType.Repaint) return;
-        int W = shapeGridSize.x, D = shapeGridSize.z;
+        int W = gridSize.x, D = gridSize.z;
         float tw = cellPx * W, th = cellPx * D;
         float ox = area.x + (area.width  - tw) * 0.5f;
         float oy = area.y + (area.height - th) * 0.5f;
 
         EditorGUI.DrawRect(area, COL_BG);
 
-        // Ghost katmanlar
+        // Ghost katmanlar (Alttaki/Üstteki çizilmiş küpler)
         if (showGhostLayers)
         {
-            foreach (var cell in shapeCells)
+            foreach (var cell in paintedCells)
             {
                 if (cell.y == activeLayer) continue;
                 float a = Mathf.Clamp(1f - Mathf.Abs(cell.y - activeLayer) * 0.28f, 0.04f, 0.24f);
@@ -402,38 +193,20 @@ public class PieceDesignerWindow : EditorWindow
             }
         }
 
-        // Grid çizgileri (sadece şekil alanı içinde)
+        // Grid çizgileri
         for (int x = 0; x <= W; x++)
             EditorGUI.DrawRect(new Rect(ox + x * cellPx, oy, 1, th), COL_GRID);
         for (int z = 0; z <= D; z++)
             EditorGUI.DrawRect(new Rect(ox, oy + z * cellPx, tw, 1), COL_GRID);
 
-        // Şekil hücreleri
-        // Kural: sadece aktif parçanın hücreleri renkli gösterilir.
-        // Diğer parçalara atanmış hücreler → base (unassigned) renk.
-        // Böylece parçalar birbirini "görsel olarak" silmez.
-        Color activePieceColor = PIECE_COLORS[activePiece % PIECE_COLORS.Length];
-        foreach (var cell in shapeCells)
+        // Boyanmış Küpler
+        foreach (var cell in paintedCells)
         {
             if (cell.y != activeLayer) continue;
             float cx = ox + cell.x * cellPx + 1.5f;
             float cz = oy + cell.z * cellPx + 1.5f;
 
-            bool inActive = activePiece < pieceCells.Count && pieceCells[activePiece].Contains(cell);
-            Color fill = inActive ? activePieceColor * 0.82f : COL_UNASSIGNED;
-            EditorGUI.DrawRect(new Rect(cx, cz, cellPx - 3, cellPx - 3), fill);
-
-            // Parça numarası sadece aktif parçada göster
-            if (cellPx >= 28 && inActive)
-            {
-                var numStyle = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
-                {
-                    fontSize   = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.38f), 9, 18),
-                    fontStyle  = FontStyle.Bold,
-                };
-                numStyle.normal.textColor = new Color(0f, 0f, 0f, 0.55f);
-                GUI.Label(new Rect(cx, cz, cellPx - 3, cellPx - 3), (activePiece + 1).ToString(), numStyle);
-            }
+            EditorGUI.DrawRect(new Rect(cx, cz, cellPx - 3, cellPx - 3), COL_PIECE);
         }
 
         // Hover
@@ -442,26 +215,23 @@ public class PieceDesignerWindow : EditorWindow
             int hx = Mathf.RoundToInt(hoverCell.Value.x);
             int hz = Mathf.RoundToInt(hoverCell.Value.y);
             var hCoord = new Vector3Int(hx, activeLayer, hz);
-            if (shapeCells.Contains(hCoord))
-            {
-                bool assigned = GetPieceIndex(hCoord) >= 0;
-                Color hc = (eraseMode && assigned) ? COL_HOVER_REMOVE : COL_HOVER_ASSIGN;
-                EditorGUI.DrawRect(new Rect(ox + hx * cellPx + 1, oy + hz * cellPx + 1, cellPx - 2, cellPx - 2), hc);
-            }
+            bool isPainted = paintedCells.Contains(hCoord);
+            Color hc = (eraseMode && isPainted) ? COL_HOVER_REMOVE : COL_HOVER_ASSIGN;
+            EditorGUI.DrawRect(new Rect(ox + hx * cellPx + 1, oy + hz * cellPx + 1, cellPx - 2, cellPx - 2), hc);
         }
 
         // Eksen etiketleri
         var lbl = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { normal = { textColor = new Color(1,1,1,0.32f) } };
         for (int x = 0; x < W; x++) GUI.Label(new Rect(ox + x * cellPx, oy - 14, cellPx, 14), x.ToString(), lbl);
         for (int z = 0; z < D; z++) GUI.Label(new Rect(ox - 18, oy + z * cellPx, 18, cellPx), z.ToString(), lbl);
-        GUI.Label(new Rect(ox - 18, oy - 14, 18, 14), "Z\\X", lbl);
+        GUI.Label(new Rect(ox - 18, oy - 14, 18, 14), "Z\\x", lbl);
     }
 
     // ── Grid Input ────────────────────────────────────────────────
     private void HandleGridInput(Rect area)
     {
         Event e = Event.current;
-        int W = shapeGridSize.x, D = shapeGridSize.z;
+        int W = gridSize.x, D = gridSize.z;
         float tw = cellPx * W, th = cellPx * D;
         float ox = area.x + (area.width  - tw) * 0.5f;
         float oy = area.y + (area.height - th) * 0.5f;
@@ -472,9 +242,7 @@ public class PieceDesignerWindow : EditorWindow
         {
             int gx = Mathf.FloorToInt((e.mousePosition.x - ox) / cellPx);
             int gz = Mathf.FloorToInt((e.mousePosition.y - oy) / cellPx);
-            var candidate = new Vector3Int(gx, activeLayer, gz);
-            hoverCell = (gx >= 0 && gx < W && gz >= 0 && gz < D && shapeCells.Contains(candidate))
-                ? new Vector2(gx, gz) : (Vector2?)null;
+            hoverCell = (gx >= 0 && gx < W && gz >= 0 && gz < D) ? new Vector2(gx, gz) : (Vector2?)null;
         }
         else hoverCell = null;
 
@@ -497,158 +265,106 @@ public class PieceDesignerWindow : EditorWindow
         if (inside && hoverCell.HasValue)
         {
             var coord = new Vector3Int(Mathf.RoundToInt(hoverCell.Value.x), activeLayer, Mathf.RoundToInt(hoverCell.Value.y));
-            if (shapeCells.Contains(coord))
+            if (isLeftMouseDown)
             {
-                if (isLeftMouseDown)
-                {
-                    if (eraseMode) UnassignCell(coord);
-                    else           AssignCell(coord, activePiece);
-                    if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
-                    Repaint();
-                }
-                else if (isRightMouseDown)
-                {
-                    UnassignCell(coord);
-                    if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
-                    Repaint();
-                }
+                if (eraseMode) paintedCells.Remove(coord);
+                else           paintedCells.Add(coord);
+                if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
+                Repaint();
+            }
+            else if (isRightMouseDown)
+            {
+                paintedCells.Remove(coord);
+                if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag) e.Use();
+                Repaint();
             }
         }
+
+        // Scroll wheel ile katman geçişi
         if (e.type == EventType.ScrollWheel && inside)
         {
-            if (e.delta.y < 0)
+            if (e.delta.y < 0 && activeLayer < gridSize.y - 1)
             {
-                if (activeLayer < shapeGridSize.y - 1)
-                {
-                    activeLayer++;
-                    Repaint();
-                    e.Use();
-                }
+                activeLayer++;
+                Repaint();
+                e.Use();
             }
-            else if (e.delta.y > 0)
+            else if (e.delta.y > 0 && activeLayer > 0)
             {
-                if (activeLayer > 0)
-                {
-                    activeLayer--;
-                    Repaint();
-                    e.Use();
-                }
+                activeLayer--;
+                Repaint();
+                e.Use();
             }
         }
+
         if (e.type == EventType.MouseMove || e.type == EventType.MouseDrag) Repaint();
     }
 
-    private void AssignCell(Vector3Int c, int piece)
-    {
-        EnsurePieceLists();
-        // Diğer parçalara dokunma — her parça kendi verisini bağımsız tutar.
-        // Aynı hücre birden fazla parçada olabilir (görsel olarak aktif parça önceliklidir).
-        pieceCells[piece].Add(c);
-    }
-
-    private void UnassignCell(Vector3Int c)
-    {
-        foreach (var s in pieceCells) s.Remove(c);
-    }
-
-    private int GetPieceIndex(Vector3Int c)
-    {
-        for (int i = 0; i < pieceCells.Count; i++)
-            if (pieceCells[i].Contains(c)) return i;
-        return -1;
-    }
-
-    // ── Mini Çizimler ─────────────────────────────────────────────
-    private void DrawMiniLayer(Rect rect, int y)
-    {
-        EditorGUI.DrawRect(rect, new Color(0.08f, 0.08f, 0.10f));
-        int W = shapeGridSize.x, D = shapeGridSize.z;
-        if (W == 0 || D == 0) return;
-        float cpx = Mathf.Min((rect.width - 4) / W, (rect.height - 4) / D);
-        float ox = rect.x + (rect.width  - cpx * W) * 0.5f;
-        float oy = rect.y + (rect.height - cpx * D) * 0.5f;
-        foreach (var cell in shapeCells)
-        {
-            if (cell.y != y) continue;
-            int pi = GetPieceIndex(cell);
-            Color col = pi >= 0 ? PIECE_COLORS[pi % PIECE_COLORS.Length] : COL_UNASSIGNED;
-            EditorGUI.DrawRect(new Rect(ox + cell.x * cpx + 0.5f, oy + cell.z * cpx + 0.5f, cpx - 1, cpx - 1), col);
-        }
-        if (y == activeLayer) DrawOutline(rect, new Color(1f, 0.65f, 0.25f, 0.8f), 2);
-    }
-
-    private void DrawMiniPiece(Rect rect, int pieceIdx)
-    {
-        EditorGUI.DrawRect(rect, new Color(0.08f, 0.08f, 0.10f));
-        if (shapeCells.Count == 0) return;
-        int W = shapeGridSize.x, D = shapeGridSize.z;
-        float cpx = Mathf.Min((rect.width - 4) / W, (rect.height - 4) / D);
-        float ox = rect.x + (rect.width  - cpx * W) * 0.5f;
-        float oy = rect.y + (rect.height - cpx * D) * 0.5f;
-        Color pc = PIECE_COLORS[pieceIdx % PIECE_COLORS.Length] * 0.75f;
-        Color bg = new Color(0.18f, 0.19f, 0.23f);
-        foreach (var cell in shapeCells)
-        {
-            bool assigned = pieceIdx < pieceCells.Count && pieceCells[pieceIdx].Contains(cell);
-            EditorGUI.DrawRect(new Rect(ox + cell.x * cpx + 0.5f, oy + cell.z * cpx + 0.5f, cpx - 1, cpx - 1), assigned ? pc : bg);
-        }
-        DrawOutline(rect, PIECE_COLORS[pieceIdx % PIECE_COLORS.Length] * 0.6f, 1.5f);
-    }
-
-    // ── Sağ Panel — Level Listesi ─────────────────────────────────
+    // ── Sağ Panel — Parçalar Kütüphanesi ─────────────────────────────
     private void DrawRightPanel()
     {
-        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(230), GUILayout.ExpandHeight(true));
-        GUILayout.Label("LEVELLAR", styleHeader);
+        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(250), GUILayout.ExpandHeight(true));
+        
+        // Küp Prefabı Seçici
+        GUILayout.Label("KÜP PREFABI", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUI.BeginChangeCheck();
+        cubePrefab = (GameObject)EditorGUILayout.ObjectField(cubePrefab, typeof(GameObject), false);
+        if (EditorGUI.EndChangeCheck() && cubePrefab != null)
+        {
+            string path = AssetDatabase.GetAssetPath(cubePrefab);
+            EditorPrefs.SetString("BlockMerge3D_DefaultCubePrefab", path);
+        }
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(12);
+
+        GUILayout.Label("KAYITLI PARÇALAR", styleHeader);
+        EditorGUILayout.LabelField("Assets/Pieces klasöründekiler:", EditorStyles.miniLabel);
+        
         rightScroll = EditorGUILayout.BeginScrollView(rightScroll);
 
-        if (Directory.Exists(LEVELS_PATH))
+        if (savedPieceNames.Count == 0)
         {
-            foreach (var dir in Directory.GetDirectories(LEVELS_PATH))
+            GUILayout.Space(20);
+            GUILayout.Label("Kayıtlı parça yok.\nYeni bir parça çizip kaydedin.", EditorStyles.centeredGreyMiniLabel);
+        }
+        else
+        {
+            for (int i = 0; i < savedPieceNames.Count; i++)
             {
-                string dname = Path.GetFileName(dir);
-                string ldPath = $"{LEVELS_PATH}/{dname}/{dname}_LevelData.asset";
-                bool isLoaded = (levelLoaded && levelName == dname);
+                string name = savedPieceNames[i];
+                bool isEditing = (pieceName == name);
 
-                GUI.backgroundColor = isLoaded ? new Color(1f, 0.65f, 0.25f, 0.8f) : Color.white;
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button(isLoaded ? $"● {dname}" : dname, isLoaded ? EditorStyles.boldLabel : EditorStyles.label))
+                EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+                GUI.backgroundColor = isEditing ? COL_HEADER * 0.85f : Color.white;
+                
+                var btnStyle = new GUIStyle(GUI.skin.button) { alignment = TextAnchor.MiddleLeft, fontStyle = isEditing ? FontStyle.Bold : FontStyle.Normal };
+                if (GUILayout.Button(isEditing ? $"● {name}" : name, btnStyle))
                 {
-                    var ld = AssetDatabase.LoadAssetAtPath<LevelData>(ldPath);
-                    if (ld != null) pendingLevelToLoad = ld; // Ertelenmiş yükleme
-                    else EditorUtility.DisplayDialog("Hata", $"{ldPath} bulunamadı.", "Tamam");
+                    LoadPiece(name);
                 }
-                EditorGUILayout.EndHorizontal();
                 GUI.backgroundColor = Color.white;
+
+                // Silme butonu
+                GUI.backgroundColor = new Color(1f, 0.3f, 0.3f, 0.8f);
+                if (GUILayout.Button("✕", GUILayout.Width(22)))
+                {
+                    DeletePiece(name);
+                }
+                GUI.backgroundColor = Color.white;
+
+                EditorGUILayout.EndHorizontal();
                 GUILayout.Space(2);
             }
         }
-        else GUILayout.Label("Henüz level yok.\nÖnce Level Builder ile\nbir level oluştur.", EditorStyles.centeredGreyMiniLabel);
 
         EditorGUILayout.EndScrollView();
-
-        // Kayıtlı parça durumu
-        if (levelLoaded)
-        {
-            GUILayout.Space(8);
-            GUILayout.Label("KAYITLI PARÇALAR", styleHeader);
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            int existing = loadedLevel?.complementaryPieces?.Count ?? 0;
-            if (existing == 0)
-                GUILayout.Label("Henüz parça yok.", EditorStyles.centeredGreyMiniLabel);
-            else
-            {
-                for (int i = 0; i < existing; i++)
-                {
-                    var gobj = loadedLevel.complementaryPieces[i];
-                    Color pc = PIECE_COLORS[i % PIECE_COLORS.Length];
-                    var s = new GUIStyle(EditorStyles.miniLabel);
-                    s.normal.textColor = pc;
-                    GUILayout.Label($"  Parça {i + 1}: {(gobj != null ? gobj.name : "null")}", s);
-                }
-            }
-            EditorGUILayout.EndVertical();
-        }
+        
+        // Açıklama Notu
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.HelpBox("💡 Kaydettiğiniz parçalar otomatik olarak AI Seviye Tasarımcısı kütüphanesine (✍️ MANUEL LİSTE) eklenir.", MessageType.Info);
+        EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndVertical();
     }
@@ -657,161 +373,274 @@ public class PieceDesignerWindow : EditorWindow
     private void DrawStatusBar()
     {
         EditorGUILayout.BeginHorizontal(EditorStyles.helpBox, GUILayout.Height(22));
-        if (levelLoaded)
-        {
-            int totalAssigned = pieceCells.Sum(s => s.Count);
-            int unassigned    = shapeCells.Count - totalAssigned;
-            EditorGUILayout.LabelField(
-                $"Level: {levelName}  •  Y={activeLayer}  •  {shapeCells.Count} küp  •  {totalAssigned} atanmış  •  {unassigned} atanmamış",
-                EditorStyles.miniLabel);
-        }
-        else EditorGUILayout.LabelField("Parçalamak için bir LevelData yükle.", EditorStyles.miniLabel);
+        
+        int totalCubes = paintedCells.Count;
+        string hoverStr = hoverCell.HasValue ? $"X:{hoverCell.Value.x} Z:{hoverCell.Value.y}" : "---";
+        EditorGUILayout.LabelField($"Aktif Parça: {pieceName}  •  Küp Sayısı: {totalCubes}  •  İşaretçi: {hoverStr}", EditorStyles.miniLabel);
+        
         GUILayout.FlexibleSpace();
-        EditorGUILayout.LabelField("BlockMerge3D  •  Piece Designer", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField("BlockMerge3D  •  Voxel Piece Creator", EditorStyles.miniLabel);
         EditorGUILayout.EndHorizontal();
     }
 
-    // ── Level Yükle ───────────────────────────────────────────────
-    private void LoadLevel(LevelData ld)
+    // ── Editör Aksiyonları ─────────────────────────────────────────
+    private void ClearCanvas()
     {
-        loadedLevel     = ld;
-        loadedLevelPath = AssetDatabase.GetAssetPath(ld);
-        levelName       = ld.levelName;
+        paintedCells.Clear();
+        Repaint();
+    }
 
-        shapeCells.Clear();
-        pieceCells.Clear();
+    private void CleanOutOfBoundsCells()
+    {
+        paintedCells.RemoveWhere(c => c.x >= gridSize.x || c.z >= gridSize.z || c.y >= gridSize.y);
+    }
 
-        if (ld.mainShapePrefab != null)
+    private void RefreshSavedPiecesList()
+    {
+        savedPieceNames.Clear();
+        if (Directory.Exists(PIECES_PATH))
         {
-            var h = ld.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
-            if (h != null)
+            var files = Directory.GetFiles(PIECES_PATH, "*.prefab");
+            foreach (var f in files)
             {
-                shapeGridSize = h.gridSize;
-                shapeCellSize = h.cellSize;
-                shapeSpacing  = h.spacing;
-                foreach (var c in h.occupiedCells) shapeCells.Add(c);
-            }
-
-            // FullShape prefabının ilk çocuğundan cube prefabını al
-            shapeCubePrefab = null;
-            if (ld.mainShapePrefab.transform.childCount > 0)
-            {
-                var firstChild = ld.mainShapePrefab.transform.GetChild(0).gameObject;
-                shapeCubePrefab = PrefabUtility.GetCorrespondingObjectFromSource(firstChild);
+                savedPieceNames.Add(Path.GetFileNameWithoutExtension(f));
             }
         }
+    }
 
-        // Mevcut parça atamalarını yükle — Unity null check ile güvenli kontrol
-        pieceCount = Mathf.Max(2, ld.complementaryPieces?.Count ?? 2);
-        if (ld.complementaryPieces != null)
+    private void LoadPiece(string name)
+    {
+        string pPath = $"{PIECES_PATH}/{name}.prefab";
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(pPath);
+        if (prefab == null)
         {
-            for (int i = 0; i < ld.complementaryPieces.Count; i++)
-            {
-                var set = new HashSet<Vector3Int>();
-                GameObject pieceGo = ld.complementaryPieces[i];
-                if (pieceGo != null) // Unity'nin sahte-null kontrolü (MissingReference'a karşı)
-                {
-                    var ph = pieceGo.GetComponent<CubeShapeDataHolder>();
-                    if (ph != null)
-                        foreach (var c in ph.occupiedCells) set.Add(c);
-                }
-                pieceCells.Add(set);
-            }
+            EditorUtility.DisplayDialog("Hata", $"{name} prefabı yüklenemedi.", "Tamam");
+            return;
         }
-        EnsurePieceLists();
 
-        levelLoaded = true;
+        var holder = prefab.GetComponent<CubeShapeDataHolder>();
+        if (holder == null)
+        {
+            EditorUtility.DisplayDialog("Hata", $"{name} prefabında CubeShapeDataHolder bulunamadı.", "Tamam");
+            return;
+        }
+
+        pieceName = name;
+        gridSize = new Vector3Int(holder.gridSize.x, 1, holder.gridSize.z);
         activeLayer = 0;
-        activePiece = 0;
-        eraseMode   = false;
-        Repaint();
-    }
-
-    // ── Aksiyonlar ────────────────────────────────────────────────
-    private void AssignLayerToPiece(int y, int piece)
-    {
-        EnsurePieceLists();
-        foreach (var cell in shapeCells.Where(c => c.y == y).ToList())
-            AssignCell(cell, piece);
-        Repaint();
-    }
-
-    private void AssignAllToPiece(int piece)
-    {
-        EnsurePieceLists();
-        foreach (var cell in shapeCells.ToList())
-            AssignCell(cell, piece);
-        Repaint();
-    }
-
-    private void ClearLayer(int y)
-    {
-        foreach (var cell in shapeCells.Where(c => c.y == y).ToList())
-            UnassignCell(cell);
-        Repaint();
-    }
-
-    private void ClearAll() { foreach (var s in pieceCells) s.Clear(); Repaint(); }
-
-    private void EnsurePieceLists()
-    {
-        while (pieceCells.Count < pieceCount) pieceCells.Add(new HashSet<Vector3Int>());
-    }
-
-    // ── Parçaları Kaydet ──────────────────────────────────────────
-    private void SavePieces()
-    {
-        if (loadedLevel == null) { EditorUtility.DisplayDialog("Hata", "LevelData yüklü değil!", "Tamam"); return; }
-
-        string levelDir = Path.GetDirectoryName(loadedLevelPath).Replace('\\', '/');
-        float  step     = shapeCellSize + shapeSpacing;
-
-        var piecePrefabs = new List<GameObject>();
-        EnsurePieceLists();
-
-        for (int i = 0; i < pieceCount; i++)
+        
+        paintedCells.Clear();
+        foreach (var cell in holder.occupiedCells)
         {
-            var cells = pieceCells[i].ToList();
-            List<Vector3Int> normCells = new List<Vector3Int>();
-            if (cells.Count > 0)
-            {
-                // Normalize: en küçük koordinatı origin'e taşı
-                int minX = cells.Min(c => c.x), minY = cells.Min(c => c.y), minZ = cells.Min(c => c.z);
-                var shift = new Vector3Int(minX, minY, minZ);
-                normCells = cells.Select(c => c - shift).ToList();
-            }
+            paintedCells.Add(new Vector3Int(cell.x, 0, cell.z));
+        }
+        Repaint();
+    }
 
-            string pPath = $"{levelDir}/{levelName}_Piece_{i + 1}.prefab";
-            GameObject pRoot = new GameObject($"{levelName}_Piece_{i + 1}");
-            var ph = pRoot.AddComponent<CubeShapeDataHolder>();
-            ph.shapeName     = $"{levelName}_Piece_{i + 1}";
-            ph.gridSize      = shapeGridSize;
-            ph.cellSize      = shapeCellSize;
-            ph.spacing       = shapeSpacing;
-            ph.occupiedCells = new List<Vector3Int>(normCells);
-
-            foreach (var cell in normCells)
-            {
-                GameObject cube = shapeCubePrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(shapeCubePrefab)
-                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
-                cube.transform.SetParent(pRoot.transform);
-                cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (shapeCellSize * 0.5f);
-                cube.transform.localScale    = Vector3.one * shapeCellSize;
-                cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
-            }
-            piecePrefabs.Add(PrefabUtility.SaveAsPrefabAsset(pRoot, pPath));
-            DestroyImmediate(pRoot);
+    private void SavePiece()
+    {
+        if (string.IsNullOrEmpty(pieceName))
+        {
+            EditorUtility.DisplayDialog("Hata", "Lütfen geçerli bir parça ismi girin!", "Tamam");
+            return;
         }
 
-        // LevelData'yı güncelle
-        loadedLevel.complementaryPieces = piecePrefabs;
-        EditorUtility.SetDirty(loadedLevel);
+        if (paintedCells.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Boş parça kaydedilemez! Lütfen grid üzerinde çizim yapın.", "Tamam");
+            return;
+        }
+
+        if (!Directory.Exists(PIECES_PATH))
+        {
+            Directory.CreateDirectory(PIECES_PATH);
+        }
+
+        // Normalize: en küçük koordinatı origin'e (0,0,0) taşı
+        var cells = paintedCells.ToList();
+        int minX = cells.Min(c => c.x);
+        int minY = cells.Min(c => c.y);
+        int minZ = cells.Min(c => c.z);
+        var shift = new Vector3Int(minX, minY, minZ);
+        var normCells = cells.Select(c => c - shift).ToList();
+
+        // Parçanın gerçek sınırlarını hesapla
+        int w = normCells.Max(c => c.x) + 1;
+        int h = normCells.Max(c => c.y) + 1;
+        int d = normCells.Max(c => c.z) + 1;
+        Vector3Int finalSize = new Vector3Int(w, h, d);
+
+        string pPath = $"{PIECES_PATH}/{pieceName}.prefab";
+        string aPath = $"{PIECES_PATH}/{pieceName}.asset";
+
+        // 1. ScriptableObject
+        CubeShapeData data = AssetDatabase.LoadAssetAtPath<CubeShapeData>(aPath);
+        bool isNew = data == null;
+        if (isNew) data = CreateInstance<CubeShapeData>();
+
+        data.shapeName = pieceName;
+        data.gridSize = finalSize;
+        data.cellSize = cellSize;
+        data.spacing = spacing;
+        data.occupiedCells = new List<Vector3Int>(normCells);
+
+        if (isNew) AssetDatabase.CreateAsset(data, aPath);
+        else EditorUtility.SetDirty(data);
+
+        // 2. Prefab
+        GameObject pRoot = new GameObject(pieceName);
+        var ph = pRoot.AddComponent<CubeShapeDataHolder>();
+        ph.shapeName = pieceName;
+        ph.gridSize = finalSize;
+        ph.cellSize = cellSize;
+        ph.spacing = spacing;
+        ph.occupiedCells = new List<Vector3Int>(normCells);
+
+        float step = cellSize + spacing;
+        foreach (var cell in normCells)
+        {
+            GameObject cube = cubePrefab != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.SetParent(pRoot.transform);
+            cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
+            cube.transform.localScale = Vector3.one * cellSize;
+            cube.name = $"Cube_{cell.x}_{cell.y}_{cell.z}";
+
+            var r = cube.GetComponent<Renderer>();
+            if (r != null)
+            {
+                r.sharedMaterial = new Material(Shader.Find("Standard"));
+                r.sharedMaterial.color = COL_PIECE;
+            }
+        }
+
+        PrefabUtility.SaveAsPrefabAsset(pRoot, pPath);
+        DestroyImmediate(pRoot);
+
+        // 3. AI Kütüphanesine (JSON) Ekle
+        AddPieceToAILibraryJSON(pieceName, normCells);
+
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
+        RefreshSavedPiecesList();
 
-        EditorUtility.DisplayDialog("Kaydedildi!",
-            $"✅  {pieceCount} parça  →  {levelDir}/\n\nLevelData.complementaryPieces güncellendi.", "Tamam");
+        EditorUtility.DisplayDialog("Başarılı 💾", 
+            $"'{pieceName}' parçası kaydedildi!\n\n" +
+            $"• Prefab: {pPath}\n" +
+            $"• Asset: {aPath}\n" +
+            "AI eğitim kütüphanesi güncellendi.", "Harika");
+    }
+
+    private void DeletePiece(string name)
+    {
+        if (EditorUtility.DisplayDialog("Silmeyi Onayla", 
+            $"'{name}' parçasını tamamen silmek istediğinizden emin misiniz?", 
+            "Evet, Sil", "İptal"))
+        {
+            string pPath = $"{PIECES_PATH}/{name}.prefab";
+            string aPath = $"{PIECES_PATH}/{name}.asset";
+
+            AssetDatabase.DeleteAsset(pPath);
+            AssetDatabase.DeleteAsset(aPath);
+
+            RemovePieceFromAILibraryJSON(name);
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            
+            RefreshSavedPiecesList();
+
+            if (pieceName == name)
+            {
+                pieceName = "Yeni_Parca";
+                paintedCells.Clear();
+            }
+            Repaint();
+        }
+    }
+
+    private void AddPieceToAILibraryJSON(string name, List<Vector3Int> normalizedCells)
+    {
+        // Levels klasörünün varlığından emin ol
+        if (!Directory.Exists("Assets/Levels"))
+        {
+            Directory.CreateDirectory("Assets/Levels");
+        }
+
+        AIPieceListWrapper wrapper = new AIPieceListWrapper();
+        if (File.Exists(AI_LIBRARY_PATH))
+        {
+            try
+            {
+                string jsonContent = File.ReadAllText(AI_LIBRARY_PATH);
+                wrapper = JsonUtility.FromJson<AIPieceListWrapper>(jsonContent);
+                if (wrapper == null) wrapper = new AIPieceListWrapper();
+            }
+            catch {}
+        }
+
+        if (!wrapper.names.Contains(name))
+        {
+            wrapper.names.Add(name);
+        }
+
+        int index = wrapper.pieces.FindIndex(p => p.prompt == name);
+        AIPieceDatasetEntry entry = new AIPieceDatasetEntry
+        {
+            pieceIndex = index >= 0 ? index : wrapper.pieces.Count,
+            generationMode = "2D_Grid_PieceDesigner",
+            prompt = name,
+            cubeCount = normalizedCells.Count,
+            cells = normalizedCells.Select(c => new SerializableCell(c)).ToList()
+        };
+
+        if (index >= 0)
+        {
+            wrapper.pieces[index] = entry;
+        }
+        else
+        {
+            wrapper.pieces.Add(entry);
+        }
+
+        string saveJson = JsonUtility.ToJson(wrapper, true);
+        File.WriteAllText(AI_LIBRARY_PATH, saveJson);
+    }
+
+    private void RemovePieceFromAILibraryJSON(string name)
+    {
+        if (!File.Exists(AI_LIBRARY_PATH)) return;
+
+        try
+        {
+            string jsonContent = File.ReadAllText(AI_LIBRARY_PATH);
+            AIPieceListWrapper wrapper = JsonUtility.FromJson<AIPieceListWrapper>(jsonContent);
+            if (wrapper == null) return;
+
+            if (wrapper.names.Contains(name))
+            {
+                wrapper.names.Remove(name);
+            }
+
+            int index = wrapper.pieces.FindIndex(p => p.prompt == name);
+            if (index >= 0)
+            {
+                wrapper.pieces.RemoveAt(index);
+                // Indisleri yeniden düzenle
+                for (int i = 0; i < wrapper.pieces.Count; i++)
+                {
+                    wrapper.pieces[i].pieceIndex = i;
+                }
+            }
+
+            string saveJson = JsonUtility.ToJson(wrapper, true);
+            File.WriteAllText(AI_LIBRARY_PATH, saveJson);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("AI Kütüphanesinden silerken hata oluştu: " + ex.Message);
+        }
     }
 
     // ── Yardımcılar ───────────────────────────────────────────────
