@@ -57,7 +57,7 @@ public class AILevelDesignerWindow : EditorWindow
     private int minPieceSize         = 1;
     private int maxPieceSize         = 5;
     private enum PieceGenMode { Gelisiguzel_BFS, Puzzle_Geometrik, Tetromino_Klasik }
-    private PieceGenMode pieceGenMode = PieceGenMode.Puzzle_Geometrik;
+    private PieceGenMode pieceGenMode = PieceGenMode.Tetromino_Klasik;
 
     // Prompt tabanlı üretim
     private string aiPrompt          = "star with ice at base and golden corners";
@@ -1835,11 +1835,17 @@ public class AILevelDesignerWindow : EditorWindow
                 }
             }
 
-            // Tam bir tetrominoya sığmayan artık hücreler (kenarda kalan tek/ikili parçalar)
-            // en yakın komşu parçaya katılır — ayrı, tuhaf küçük parçalar kalmaz.
+            // Tam bir tetrominoya sığmayan artık hücreler ayrı, tek hücrelik "Filler" parçaları
+            // olarak eklenir (komşu parçaya KATILMAZ) — aksi halde o parça 5+ hücreye çıkar ve
+            // "parçalar her zaman I,O,T,S,Z,J,L, sabit 4 hücreli" garantisi bozulur. Bu, tek
+            // sayılı kare/dikdörtgen katmanlarda (3x3, 5x5 gibi — alanı 4'e bölünmeyen) beklenen
+            // ve gerekli bir durumdur; PieceTemplateLibrary.Filler ile aynı fikir.
             if (remaining.Count > 0)
             {
-                MergeCellsIntoNearestPieces(pieces, remaining);
+                foreach (var cell in remaining)
+                {
+                    pieces.Add(new List<Vector3Int> { cell });
+                }
             }
         }
 
@@ -2397,9 +2403,15 @@ public class AILevelDesignerWindow : EditorWindow
                 maxPieceSize = 3; // 4 yasaklandı
                 break;
             case AILevelDifficulty.Orta:
-                baseTime = 75f; 
+                baseTime = 75f;
                 baseTarget = 180f;
-                prefillPercentage = 0.10f;
+                // Prefilled (hazır renkli engel) hücreler kapalı: LevelManager.GetDominantMaterialOnActiveLayer
+                // prefilled hücreleri bilerek dominant renk hesabına katmıyor (bkz. o metodun içindeki
+                // yorum) — bu da bir katmanda SADECE prefilled hücre varken sonraki parçaların rastgele
+                // (prefilled ile eşleşmeyen) bir renk alıp katmanı kalıcı olarak temizlenemez bırakabilmesi
+                // riskini taşıyor. Buz (ice) aynı riski taşımıyor (rengi yok, sadece bitişik parça erittiriyor)
+                // — o yüzden ice açık kalıyor, prefill kapalı.
+                prefillPercentage = 0f;
                 icePercentage = 0.10f;
                 minPieceSize = 2;
                 maxPieceSize = 3; // 4 yasaklandı

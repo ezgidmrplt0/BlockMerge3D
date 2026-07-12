@@ -166,45 +166,16 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // Load frozen cells if defined on the prefab, otherwise fallback to random calculation
-        if (shapeHolder != null && shapeHolder.frozenCells != null && shapeHolder.frozenCells.Count > 0)
+        // Buz hücreleri yalnızca seviyenin kendi CubeShapeDataHolder.frozenCells listesinden
+        // yüklenir. Liste boşsa seviyede hiç buz yoktur — rastgele/otomatik buzlama YAPILMAZ
+        // (önceden burada boş listeyi "tanımlanmamış" sayıp katman başına rastgele %25 hücreyi
+        // buzlayan bir fallback vardı; bu, buzsuz tasarlanan seviyeleri de oynanamaz hale
+        // getirebiliyordu — özellikle tek parçanın tüm tahtayı kapladığı küçük seviyelerde).
+        if (shapeHolder != null && shapeHolder.frozenCells != null)
         {
             foreach (var cell in shapeHolder.frozenCells)
             {
                 frozenCells.Add(cell);
-            }
-        }
-        else
-        {
-            // Designate some target cells as frozen per layer (the old random fallback)
-            var layers = new Dictionary<int, List<Vector3Int>>();
-            foreach (var cell in targetCells)
-            {
-                if (!layers.ContainsKey(cell.y))
-                    layers[cell.y] = new List<Vector3Int>();
-                layers[cell.y].Add(cell);
-            }
-
-            foreach (var kvp in layers)
-            {
-                var layerCells = kvp.Value;
-                if (layerCells.Count >= 3)
-                {
-                    int numToFreeze = Mathf.Clamp(Mathf.RoundToInt(layerCells.Count * 0.25f), 1, 3);
-                    // Simple shuffle to pick random cells
-                    for (int i = 0; i < layerCells.Count; i++)
-                    {
-                        Vector3Int temp = layerCells[i];
-                        int randomIndex = Random.Range(i, layerCells.Count);
-                        layerCells[i] = layerCells[randomIndex];
-                        layerCells[randomIndex] = temp;
-                    }
-
-                    for (int i = 0; i < numToFreeze; i++)
-                    {
-                        frozenCells.Add(layerCells[i]);
-                    }
-                }
             }
         }
 
