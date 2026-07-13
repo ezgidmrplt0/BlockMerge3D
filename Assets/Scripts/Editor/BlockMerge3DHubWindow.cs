@@ -5,37 +5,43 @@ public class BlockMerge3DHubWindow : EditorWindow
 {
     private enum Tab
     {
+        Wizard,
         LevelBuilder,
         PieceDesigner,
         PieceSplitter,
         AILevelDesigner,
         ManualVoxelBuilder,
+        PieceLibrary,
         CanvasSetup,
         Aesthetics,
         LegacyCubeShapeEditor
     }
 
-    private Tab activeTab = Tab.LevelBuilder;
-    private Tab previousTab = Tab.LevelBuilder;
+    private Tab activeTab = Tab.Wizard;
+    private Tab previousTab = Tab.Wizard;
 
     private readonly string[] tabNames = new string[]
     {
+        "🧭 Sihirbaz",
         "1. 🗂 Seviye Tasarımcısı",
         "2. 🧩 Parça Tasarımcısı",
         "✂ Parça Bölücü",
         "🤖 AI Seviye Tasarımcısı",
         "🧱 3D Sahne Yapıcı",
+        "🧬 Parça Kütüphanesi",
         "📺 Arayüz Kurulumu",
         "🎨 Görsel & Kurulum",
         "⚙ Eski Yapıcı"
     };
 
     // Sub-window instances
+    private LevelCreationWizardWindow wizard;
     private LevelBuilderWindow levelBuilder;
     private PieceDesignerWindow pieceDesigner;
     private PieceSplitterWindow pieceSplitter;
     private AILevelDesignerWindow aiLevelDesigner;
     private ManualVoxelPieceBuilderWindow manualVoxelBuilder;
+    private PieceDefinitionMigrationWindow pieceLibrary;
     private CanvasSetupWindow canvasSetup;
     private AestheticSetupTool aestheticSetup;
     private CubeShapeEditorWindow legacyCubeShape;
@@ -68,6 +74,11 @@ public class BlockMerge3DHubWindow : EditorWindow
 
     private void InitializeSubWindows()
     {
+        if (wizard == null)
+        {
+            wizard = CreateInstance<LevelCreationWizardWindow>();
+            wizard.onRepaintRequested = Repaint;
+        }
         if (levelBuilder == null)
         {
             levelBuilder = CreateInstance<LevelBuilderWindow>();
@@ -93,6 +104,11 @@ public class BlockMerge3DHubWindow : EditorWindow
             manualVoxelBuilder = CreateInstance<ManualVoxelPieceBuilderWindow>();
             // Since it shares repaint, we can set up an action if needed, or simply let Unity handle standard repaints
         }
+        if (pieceLibrary == null)
+        {
+            pieceLibrary = CreateInstance<PieceDefinitionMigrationWindow>();
+            pieceLibrary.onRepaintRequested = Repaint;
+        }
         if (canvasSetup == null)
         {
             canvasSetup = CreateInstance<CanvasSetupWindow>();
@@ -112,11 +128,13 @@ public class BlockMerge3DHubWindow : EditorWindow
 
     private void DestroySubWindows()
     {
+        if (wizard != null) DestroyImmediate(wizard);
         if (levelBuilder != null) DestroyImmediate(levelBuilder);
         if (pieceDesigner != null) DestroyImmediate(pieceDesigner);
         if (pieceSplitter != null) DestroyImmediate(pieceSplitter);
         if (aiLevelDesigner != null) DestroyImmediate(aiLevelDesigner);
         if (manualVoxelBuilder != null) DestroyImmediate(manualVoxelBuilder);
+        if (pieceLibrary != null) DestroyImmediate(pieceLibrary);
         if (canvasSetup != null) DestroyImmediate(canvasSetup);
         if (aestheticSetup != null) DestroyImmediate(aestheticSetup);
         if (legacyCubeShape != null) DestroyImmediate(legacyCubeShape);
@@ -239,6 +257,9 @@ public class BlockMerge3DHubWindow : EditorWindow
         // --- Active Tab Draw Content ---
         switch (activeTab)
         {
+            case Tab.Wizard:
+                if (wizard != null) wizard.OnGUI();
+                break;
             case Tab.LevelBuilder:
                 if (levelBuilder != null) levelBuilder.OnGUI();
                 break;
@@ -253,6 +274,9 @@ public class BlockMerge3DHubWindow : EditorWindow
                 break;
             case Tab.ManualVoxelBuilder:
                 if (manualVoxelBuilder != null) manualVoxelBuilder.OnGUI();
+                break;
+            case Tab.PieceLibrary:
+                if (pieceLibrary != null) pieceLibrary.OnGUI();
                 break;
             case Tab.CanvasSetup:
                 if (canvasSetup != null) canvasSetup.OnGUI();

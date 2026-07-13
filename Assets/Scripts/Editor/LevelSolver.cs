@@ -203,6 +203,11 @@ public class LevelSolver
             return false;
         }
 
+        // Collapse-aware: oyuncu gerçek oyunda HER ZAMAN sadece en alttaki tamamlanmamış
+        // katmana yerleştirme yapabilir (bkz. GridManager.ActiveLayerY / CanPlace). Arama
+        // uzayını buna göre kısıtlıyoruz — üst katmana "erken" yerleştirme denemesi yapılmaz.
+        int activeLayer = GetLowestIncompleteLayer();
+
         // Kullanılmamış bir parça seç. Aynı şekle sahip (örn. Tetromino modunda birçok özdeş
         // parça) birden fazla parça varsa, bu dalda sadece BİRİNİ deneriz — diğerleri tamamen
         // aynı alt-ağacı tekrar keşfeder ve arama uzayını (N! kadar) gereksiz yere patlatır.
@@ -219,10 +224,10 @@ public class LevelSolver
             {
                 var rotatedCells = RotateCells(pieces[i].cells, rotation);
 
-                // Grid içindeki tüm olası pozisyonları dene
-                foreach (var offset in GetPossibleOffsets(rotatedCells))
+                // Sadece aktif (en alttaki tamamlanmamış) katmandaki olası pozisyonları dene
+                foreach (var offset in GetPossibleOffsets(rotatedCells, activeLayer))
                 {
-                    if (TryPlacePiece(pieces[i].index, rotatedCells, offset, rotation, out int materialIdx))
+                    if (TryPlacePiece(pieces[i].index, rotatedCells, offset, rotation, activeLayer, out int materialIdx))
                     {
                         // Özyinelemeli arama
                         if (BacktrackingSolve(pieceIdx + 1))
@@ -240,7 +245,35 @@ public class LevelSolver
         return false;
     }
 
-    private bool TryPlacePiece(int pieceIndex, List<Vector3Int> cells, Vector3Int offset, Quaternion rotation, out int materialIdx)
+    // GridManager.TryFindFirstIncompleteLayer (GridManager.cs) ile aynı mantık: en alttaki
+    // dolu-olmayan katmanı döndürür. Bir katman "dolu ama tek renk değilse" de tamamlanmamış
+    // sayılır — TryPlacePiece'in katman-içi renk kısıtı bunun pratikte oluşmasını zaten
+    // engelliyor, ama savunmacı olarak burada da kontrol ediyoruz.
+    private int GetLowestIncompleteLayer()
+    {
+        int minY = targetCells.Min(c => c.y);
+        int maxY = targetCells.Max(c => c.y);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            var cellsInLayer = targetCells.Where(c => c.y == y).ToList();
+            if (cellsInLayer.Count == 0) continue;
+
+            bool allFilled = cellsInLayer.All(c => currentOccupied.Contains(c));
+            if (!allFilled) return y;
+
+            var matsInLayer = cellsInLayer
+                .Where(c => currentMatIndex.ContainsKey(c))
+                .Select(c => currentMatIndex[c])
+                .Distinct()
+                .ToList();
+            if (matsInLayer.Count > 1) return y;
+        }
+
+        return maxY + 1; // tüm katmanlar tamamlandı
+    }
+
+    private bool TryPlacePiece(int pieceIndex, List<Vector3Int> cells, Vector3Int offset, Quaternion rotation, int activeLayerY, out int materialIdx)
     {
         materialIdx = -1;
         List<Vector3Int> worldCells = new List<Vector3Int>();
@@ -252,6 +285,12 @@ public class LevelSolver
 
             // Parçaların sadece tek bir katmanda olması zorunluluğu (katman-katman oynanış için)
             if (worldCell.y != offset.y + cells[0].y)
+                return false;
+
+            // Collapse-aware: gerçek oyunda sadece aktif (en alttaki tamamlanmamış) katmana
+            // yerleştirme yapılabilir. GetPossibleOffsets zaten sadece bu katmandaki offset'leri
+            // üretiyor — bu, o garantiyi doğrulayan savunmacı bir kontrol.
+            if (worldCell.y != activeLayerY)
                 return false;
 
             // Grid sınırları
@@ -541,36 +580,34 @@ public class LevelSolver
         return rotated.Select(c => new Vector3Int(c.x - minX, c.y - minY, c.z - minZ)).ToList();
     }
 
-    private IEnumerable<Vector3Int> GetPossibleOffsets(List<Vector3Int> cells)
+    // Collapse-aware: bir parçanın döndürülmüş hücreleri (RotateCells ile normalize edildiği
+    // için) her zaman TEK bir ortak Y değerini paylaşır — bu yüzden geçerli tek offset.y değeri
+    // "activeLayerY - cells[0].y" olur. Eskiden burada Y ekseni de taranıyordu (O(W·H·D)); artık
+    // sadece aktif katmanın X/Z düzlemi taranıyor (O(W·D)) — hem gerçek oyunla birebir eşleşiyor
+    // hem de arama uzayını katman sayısı kadar küçültüyor.
+    private IEnumerable<Vector3Int> GetPossibleOffsets(List<Vector3Int> cells, int activeLayerY)
     {
-        // Parçanın maksimum boyutunu hesapla
-        int maxX = cells.Max(c => c.x);
-        int maxY = cells.Max(c => c.y);
-        int maxZ = cells.Max(c => c.z);
+        int offsetY = activeLayerY - cells[0].y;
 
-        // Grid içinde parçanın sığabileceği tüm offset'leri üret
         for (int x = 0; x < gridSize.x; x++)
         {
-            for (int y = 0; y < gridSize.y; y++)
+            for (int z = 0; z < gridSize.z; z++)
             {
-                for (int z = 0; z < gridSize.z; z++)
+                // Bu offset ile parça grid içinde kalıyor mu?
+                bool fits = true;
+                foreach (var cell in cells)
                 {
-                    // Bu offset ile parça grid içinde kalıyor mu?
-                    bool fits = true;
-                    foreach (var cell in cells)
+                    Vector3Int worldCell = new Vector3Int(x + cell.x, offsetY + cell.y, z + cell.z);
+                    if (worldCell.x < 0 || worldCell.x >= gridSize.x ||
+                        worldCell.y < 0 || worldCell.y >= gridSize.y ||
+                        worldCell.z < 0 || worldCell.z >= gridSize.z)
                     {
-                        Vector3Int worldCell = new Vector3Int(x + cell.x, y + cell.y, z + cell.z);
-                        if (worldCell.x < 0 || worldCell.x >= gridSize.x ||
-                            worldCell.y < 0 || worldCell.y >= gridSize.y ||
-                            worldCell.z < 0 || worldCell.z >= gridSize.z)
-                        {
-                            fits = false;
-                            break;
-                        }
+                        fits = false;
+                        break;
                     }
-                    if (fits)
-                        yield return new Vector3Int(x, y, z);
                 }
+                if (fits)
+                    yield return new Vector3Int(x, offsetY, z);
             }
         }
     }
@@ -642,6 +679,9 @@ public class SolverResult
 {
     public bool isSolvable;
     public int minMoveCount;
+    // Collapse-aware arama (LevelSolver.BacktrackingSolve) sadece her an aktif olan (en alttaki
+    // tamamlanmamış) katmana yerleştirme yaptığı için, bu liste artık gerçek oyunda oynanacak
+    // sırayla birebir eşleşir: adımların cells[0].y değeri baştan sona hiç azalmaz (monoton artan).
     public List<PlacementStep> solutionSteps;
     public float difficultyScore;
     public string difficultyLabel;

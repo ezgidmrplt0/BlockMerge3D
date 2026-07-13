@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEditor;
 using System.Collections.Generic;
+using System.Linq;
 
 // ═══════════════════════════════════════════════════════════════════
 //  LEVEL SOLVER TESTS  —  Test ve Doğrulama Yardımcıları
@@ -71,7 +72,7 @@ public class LevelSolverTests
         holder.cellSize = 1f;
         holder.spacing = 0.1f;
         holder.occupiedCells = new List<Vector3Int>();
-        
+
         for (int x = 0; x < 3; x++)
             for (int z = 0; z < 3; z++)
                 holder.occupiedCells.Add(new Vector3Int(x, 0, z));
@@ -114,11 +115,17 @@ public class LevelSolverTests
                 for (int z = 0; z < 3; z++)
                     holder.occupiedCells.Add(new Vector3Int(x, y, z));
 
-        // 2 prefilled hücre (alt katman merkez)
+        // 2 prefilled hücre — her katmana 1 tane. Parçalar her zaman 4 hücrelik bloklar halinde
+        // TEK bir katmana yerleştiği için, bir katmanın "doldurulması gereken" hücre sayısı
+        // (9 - o katmandaki prefilled sayısı) 4'ün katı OLMAK ZORUNDA, yoksa hiçbir parça
+        // kombinasyonu o katmanı tam dolduramaz. 9-1=8 (2 parça) her iki katman için de tutarlı.
+        // KÖŞEYE yerleştirildi (merkeze DEĞİL): 3x3'lük bir katmanda 2x2'lik Kare parçasının
+        // olası 4 konumunun HEPSİ merkez hücreyi kapsar — merkez dolu/engelliyken Square hiçbir
+        // rotasyon/konumda yerleştirilemezdi. Köşede bu sorun yok.
         holder.prefilledCells = new List<Vector3Int>
         {
-            new Vector3Int(1, 0, 1), // Merkez
-            new Vector3Int(1, 0, 0)  // Ön
+            new Vector3Int(2, 0, 2), // Köşe (alt katman, Y=0)
+            new Vector3Int(2, 1, 2)  // Köşe (üst katman, Y=1)
         };
         holder.prefilledMaterialIndices = new List<int> { 0, 0 }; // Aynı renk
 
@@ -157,7 +164,11 @@ public class LevelSolverTests
         };
         pieces.Add(p2);
 
-        // Parça 3: Çizgi (4 hücre)
+        // Parça 3: Köşe (4 hücre) — DÜZELTİLDİ: 4. hücre eskiden (0,1,0) idi, yani parçanın
+        // kendi yerel şeklinde Y=1'e taşıyordu. Solver her parçanın TEK bir katmanda düz
+        // (aynı Y) olmasını zorunlu kılıyor (bkz. LevelSolver.TryPlacePiece) ve Y ekseni
+        // rotasyonu Y bileşenini asla değiştirmediği için bu parça hiçbir rotasyonla
+        // yerleştirilemiyordu — seviyeyi sessizce çözülemez kılan gizli bir hataydı.
         GameObject p3 = new GameObject("Piece_Line");
         var p3h = p3.AddComponent<CubeShapeDataHolder>();
         p3h.gridSize = holder.gridSize;
@@ -166,7 +177,7 @@ public class LevelSolverTests
         p3h.occupiedCells = new List<Vector3Int>
         {
             new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0),
-            new Vector3Int(2, 0, 0), new Vector3Int(0, 1, 0)
+            new Vector3Int(2, 0, 0), new Vector3Int(0, 0, 1)
         };
         pieces.Add(p3);
 
@@ -187,53 +198,119 @@ public class LevelSolverTests
     }
 
     /// <summary>
-    /// Test suite'i çalıştır
+    /// Test suite'i çalıştır (Console'a log basar)
     /// </summary>
     [MenuItem("BlockMerge3D/Test Solver")]
     public static void RunTests()
     {
+        Debug.Log("═══════════════════════════════════════");
+        Debug.Log("   LEVEL SOLVER TEST SUITE");
+        Debug.Log("═══════════════════════════════════════");
+
+        var results = RunAll();
+        foreach (var r in results)
+        {
+            if (r.passed) Debug.Log($"✅ [{r.name}] {r.message}");
+            else Debug.LogError($"❌ [{r.name}] {r.message}");
+        }
+
+        int passed = results.Count(r => r.passed);
+        Debug.Log("═══════════════════════════════════════");
+        Debug.Log(passed == results.Count
+            ? $"   TÜM TESTLER BAŞARILI ({passed}/{results.Count})"
+            : $"   {results.Count - passed} TEST BAŞARISIZ ({passed}/{results.Count} geçti)");
+        Debug.Log("═══════════════════════════════════════");
+    }
+
+    /// <summary>
+    /// Testleri çalıştırır ve yapılandırılmış sonuç listesi döndürür — hem yukarıdaki menü
+    /// öğesi (Console'a log) hem de Piece Library penceresinin "Solver Testleri" butonu
+    /// (sonucu doğrudan GUI'de gösterir) tarafından kullanılır.
+    /// </summary>
+    public static List<PieceTestResult> RunAll()
+    {
+        var results = new List<PieceTestResult>();
         var solver = new LevelSolver
         {
             maxSearchTimeMs = 10000,  // 10 saniye test için
             maxStatesExplored = 200000
         };
 
-        Debug.Log("═══════════════════════════════════════");
-        Debug.Log("   LEVEL SOLVER TEST SUITE");
-        Debug.Log("═══════════════════════════════════════");
-
-        // Test 1: Basit çözülebilir
-        Debug.Log("\n[TEST 1] Basit Çözülebilir Seviye");
+        // ── Test 1: Basit çözülebilir seviye ─────────────────────────
         var test1 = CreateSimpleSolvableLevel();
         var result1 = solver.SolveFromPrefabs(test1.mainShape, test1.pieces);
-        Debug.Log(result1.isSolvable
-            ? $"✅ BAŞARILI: Çözülebilir ({result1.minMoveCount} hamle, {result1.difficultyLabel})"
-            : $"❌ BAŞARISIZ: {result1.failureReason}");
+        results.Add(new PieceTestResult
+        {
+            name = "Basit çözülebilir seviye",
+            passed = result1.isSolvable,
+            message = result1.isSolvable
+                ? $"Çözülebilir ({result1.minMoveCount} hamle, {result1.difficultyLabel})"
+                : $"BAŞARISIZ: {result1.failureReason}"
+        });
+        if (result1.isSolvable) results.Add(CheckBottomUpOrder("Basit seviye — hamle sırası alttan üste", result1));
         Object.DestroyImmediate(test1.mainShape);
         foreach (var p in test1.pieces) Object.DestroyImmediate(p);
 
-        // Test 2: Yetersiz hücre
-        Debug.Log("\n[TEST 2] Yetersiz Hücre (Çözülemez)");
+        // ── Test 2: Yetersiz hücre (çözülemez olmalı) ────────────────
         var test2 = CreateUnsolvableLevel_InsufficientCells();
         var result2 = solver.SolveFromPrefabs(test2.mainShape, test2.pieces);
-        Debug.Log(!result2.isSolvable
-            ? $"✅ BAŞARILI: Doğru tespit edildi - {result2.failureReason}"
-            : $"❌ BAŞARISIZ: Çözülemez olması gerekirdi");
+        results.Add(new PieceTestResult
+        {
+            name = "Yetersiz hücre (çözülemez tespiti)",
+            passed = !result2.isSolvable,
+            message = !result2.isSolvable
+                ? $"Doğru tespit edildi: {result2.failureReason}"
+                : "BAŞARISIZ: çözülemez olması gerekirdi"
+        });
         Object.DestroyImmediate(test2.mainShape);
         foreach (var p in test2.pieces) Object.DestroyImmediate(p);
 
-        // Test 3: Orta zorluk
-        Debug.Log("\n[TEST 3] Orta Zorluk Seviye");
+        // ── Test 3: Orta zorluk seviye (prefilled + frozen içerir) ───
         var test3 = CreateMediumLevel();
         var result3 = solver.SolveFromPrefabs(test3.mainShape, test3.pieces);
-        Debug.Log(result3.isSolvable
-            ? $"✅ Çözülebilir: {result3.minMoveCount} hamle, Zorluk: {result3.difficultyLabel} ({result3.difficultyScore:F2})"
-            : $"⚠️ Çözülemedi: {result3.failureReason}");
+        results.Add(new PieceTestResult
+        {
+            name = "Orta zorluk seviye",
+            passed = result3.isSolvable,
+            message = result3.isSolvable
+                ? $"Çözülebilir: {result3.minMoveCount} hamle, Zorluk: {result3.difficultyLabel} ({result3.difficultyScore:F2})"
+                : $"Çözülemedi: {result3.failureReason}"
+        });
+        if (result3.isSolvable) results.Add(CheckBottomUpOrder("Orta seviye — hamle sırası alttan üste", result3));
         Object.DestroyImmediate(test3.mainShape);
         foreach (var p in test3.pieces) Object.DestroyImmediate(p);
 
-        Debug.Log("\n═══════════════════════════════════════");
-        Debug.Log("   TEST SUITE TAMAMLANDI");
-        Debug.Log("═══════════════════════════════════════\n");
+        return results;
+    }
+
+    /// <summary>
+    /// Collapse-aware solver'ın temel garantisi: bir çözümün adımları (solutionSteps), gerçek
+    /// oyunda oynanacak sırayla birebir eşleşmeli — yani her adımın katmanı (cells[0].y),
+    /// bir öncekinden asla küçük olmamalı (monoton artan/sabit).
+    /// </summary>
+    private static PieceTestResult CheckBottomUpOrder(string name, SolverResult result)
+    {
+        var steps = result.solutionSteps;
+        for (int i = 1; i < steps.Count; i++)
+        {
+            int prevY = steps[i - 1].cells[0].y;
+            int curY = steps[i].cells[0].y;
+            if (curY < prevY)
+            {
+                return new PieceTestResult
+                {
+                    name = name,
+                    passed = false,
+                    message = $"BAŞARISIZ: adım {i} katmanı ({curY}) önceki adımdan ({prevY}) düşük — alttan üste sıralama bozuk"
+                };
+            }
+        }
+
+        return new PieceTestResult
+        {
+            name = name,
+            passed = true,
+            message = $"{steps.Count} adımın tamamı katman sırasına göre monoton (alttan üste)"
+        };
     }
 }

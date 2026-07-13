@@ -39,11 +39,14 @@ public class AILevelDesignerWindow : EditorWindow
     };
 
     // ── AI Üretim Ayarları ─────────────────────────────────────────
-    private LevelTemplate selectedTemplate; // Şablon bazlı üretim
-    private string levelName         = "AI_Level_1";
-    private float levelTime          = 75f;
-    private int levelTarget          = 150;
-    private Vector3Int gridSize      = new Vector3Int(5, 5, 5);
+    // NOT: Aşağıdaki bazı alanlar/enumlar 'internal' — LevelCreationWizardWindow bu pencerenin
+    // arka planda tuttuğu bir instance'ı üzerinden bunlara doğrudan erişip mevcut üretim/export
+    // mantığını (kopyalamadan) yeniden kullanıyor. Davranış AYNI, sadece görünürlük değişti.
+    internal LevelTemplate selectedTemplate; // Şablon bazlı üretim
+    internal string levelName        = "AI_Level_1";
+    internal float levelTime         = 75f;
+    internal int levelTarget         = 150;
+    internal Vector3Int gridSize     = new Vector3Int(5, 5, 5);
     private float cellSize           = 1.0f;
     private float spacing            = 0.1f;
 
@@ -52,33 +55,37 @@ public class AILevelDesignerWindow : EditorWindow
     private float fillDensity        = 1.0f;   // Tam dolu (default)
     private float icePercentage      = 0.10f;  // Donmuş blok oranı
     private float prefillPercentage  = 0.0f;   // Prefilled (renk çatışması riski var)
-    
+
     // Parçalara Ayırma Ayarları
     private int minPieceSize         = 1;
     private int maxPieceSize         = 5;
-    private enum PieceGenMode { Gelisiguzel_BFS, Puzzle_Geometrik, Tetromino_Klasik }
-    private PieceGenMode pieceGenMode = PieceGenMode.Tetromino_Klasik;
+    internal enum PieceGenMode { Gelisiguzel_BFS, Puzzle_Geometrik, Tetromino_Klasik, Kutuphane_SolutionFirst }
+    internal PieceGenMode pieceGenMode = PieceGenMode.Tetromino_Klasik;
 
     // Prompt tabanlı üretim
     private string aiPrompt          = "star with ice at base and golden corners";
 
     // ── Seviye Zorluk / Hızlı Ayar Ölçeği ─────────────────────────
     private int targetLevelIndex = 1;
-    private enum AILevelDifficulty { Kolay, Orta, Zor, Uzman }
-    private AILevelDifficulty selectedDifficulty = AILevelDifficulty.Kolay;
+    internal enum AILevelDifficulty { Kolay, Orta, Zor, Uzman }
+    internal AILevelDifficulty selectedDifficulty = AILevelDifficulty.Kolay;
     private string levelDifficultyModeSuggestion = "Kolay";
 
     // ── Grid Verisi ────────────────────────────────────────────────
-    private HashSet<Vector3Int> occupiedCells   = new HashSet<Vector3Int>();
+    internal HashSet<Vector3Int> occupiedCells  = new HashSet<Vector3Int>();
     private List<Vector3Int> prefilledCells     = new List<Vector3Int>();
     private List<int> prefilledMatIdx           = new List<int>();
     private List<Vector3Int> frozenCells        = new List<Vector3Int>();
-    private List<List<Vector3Int>> pieceSplitList = new List<List<Vector3Int>>();
+    internal List<List<Vector3Int>> pieceSplitList = new List<List<Vector3Int>>();
 
     // ── Solver Sonucu ─────────────────────────────────────────────
-    private SolverResult lastSolverResult;
-    private bool solverRan = false;
+    internal SolverResult lastSolverResult;
+    internal bool solverRan = false;
     private int highlightedPieceIndex = -1;
+
+    // ── Parça Kütüphanesi (Kutuphane_SolutionFirst modu) ────────────
+    private const string PIECE_DEFINITIONS_PATH = "Assets/PieceDefinitions";
+    private List<PieceDefinition> pieceLibraryCache;
 
     // ── UI Durumu ─────────────────────────────────────────────────
     private int activeLayer          = 0;
@@ -204,12 +211,10 @@ public class AILevelDesignerWindow : EditorWindow
     }
 
 
-    // ── Sol Panel (Parametreler) ──────────────────────────────────
-    private void DrawLeftPanel()
+    // Şablon seçimi + zorluk hızlı-ayar bloğu — DrawLeftPanel'den çıkarıldı, hem eski panel
+    // hem de LevelCreationWizardWindow'un 1. adımı bu AYNI metodu çağırıyor (kopya değil).
+    internal void DrawTemplateAndDifficultySection()
     {
-        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(420), GUILayout.ExpandHeight(true));
-        leftScroll = EditorGUILayout.BeginScrollView(leftScroll);
-
         // ŞABLON SEÇİCİ (ÖNCELİKLİ)
         GUILayout.Label("📐 ŞABLON BAZLI ÜRETİM", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
@@ -239,39 +244,39 @@ public class AILevelDesignerWindow : EditorWindow
         // 🏆 ZORLUK VE SEVİYE AYARLARI
         GUILayout.Label("🏆 ZORLUK VE SEVİYE AYARLARI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        
+
         // 1. Zorluk Seviyesi Seçimi
         EditorGUILayout.LabelField("Zorluk Seviyesi Seçimi (Değerleri Formlara Aktarır):", EditorStyles.miniBoldLabel);
         EditorGUILayout.BeginHorizontal();
-        
+
         // Kolay
         GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Kolay ? Color.green : new Color(0.7f, 1f, 0.7f, 0.4f);
         if (GUILayout.Button("KOLAY", EditorStyles.miniButtonLeft, GUILayout.Height(22)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Kolay);
         }
-        
+
         // Orta
         GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Orta ? new Color(1.0f, 0.6f, 0.0f) : new Color(1f, 0.8f, 0.5f, 0.4f);
         if (GUILayout.Button("ORTA", EditorStyles.miniButtonMid, GUILayout.Height(22)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Orta);
         }
-        
+
         // Zor
         GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Zor ? new Color(0.9f, 0.2f, 0.2f) : new Color(1f, 0.6f, 0.6f, 0.4f);
         if (GUILayout.Button("ZOR", EditorStyles.miniButtonMid, GUILayout.Height(22)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Zor);
         }
-        
+
         // Uzman
         GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Uzman ? new Color(0.7f, 0.1f, 0.8f) : new Color(0.85f, 0.6f, 0.9f, 0.4f);
         if (GUILayout.Button("UZMAN", EditorStyles.miniButtonRight, GUILayout.Height(22)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Uzman);
         }
-        
+
         GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
 
@@ -279,16 +284,16 @@ public class AILevelDesignerWindow : EditorWindow
 
         // 2. Seviye Seçimi (Etiket Üstte)
         EditorGUILayout.LabelField("🎯 Kaydedilecek Seviye Numarası (Level Index):", EditorStyles.boldLabel);
-        
+
         EditorGUILayout.BeginHorizontal();
-        
+
         // -10 Seviye
         if (GUILayout.Button("◀◀", GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 10);
             levelName = $"AI_Level_{targetLevelIndex}";
         }
-        
+
         // -1 Seviye
         if (GUILayout.Button("◀", GUILayout.Width(25), GUILayout.Height(22)))
         {
@@ -309,7 +314,7 @@ public class AILevelDesignerWindow : EditorWindow
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 1);
             levelName = $"AI_Level_{targetLevelIndex}";
         }
-        
+
         // +10 Seviye
         if (GUILayout.Button("▶▶", GUILayout.Width(35), GUILayout.Height(22)))
         {
@@ -349,6 +354,15 @@ public class AILevelDesignerWindow : EditorWindow
         }
         EditorGUILayout.HelpBox(hintText, MessageType.Info);
         EditorGUILayout.EndVertical();
+    }
+
+    // ── Sol Panel (Parametreler) ──────────────────────────────────
+    private void DrawLeftPanel()
+    {
+        EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(420), GUILayout.ExpandHeight(true));
+        leftScroll = EditorGUILayout.BeginScrollView(leftScroll);
+
+        DrawTemplateAndDifficultySection();
 
         GUILayout.Space(10);
 
@@ -424,8 +438,9 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.Space(4);
 
         bool isTetrominoMode = pieceGenMode == PieceGenMode.Tetromino_Klasik;
+        bool isSolutionFirstMode = pieceGenMode == PieceGenMode.Kutuphane_SolutionFirst;
 
-        EditorGUI.BeginDisabledGroup(isTetrominoMode);
+        EditorGUI.BeginDisabledGroup(isTetrominoMode || isSolutionFirstMode);
         EditorGUILayout.BeginHorizontal();
 
         EditorGUILayout.BeginVertical();
@@ -446,6 +461,18 @@ public class AILevelDesignerWindow : EditorWindow
         if (isTetrominoMode)
         {
             EditorGUILayout.HelpBox("🧩 Tetromino modu: parçalar her zaman klasik Tetris şekillerinden (I, O, T, S, Z, J, L) oluşur, sabit 4 hücrelidir. Min/Max Parça Küpü bu modda geçersizdir.", MessageType.Info);
+        }
+        else if (isSolutionFirstMode)
+        {
+            EditorGUILayout.HelpBox("🧬 Kütüphane / Solution-First modu: Assets/PieceDefinitions/ altındaki gerçek parçalardan rastgele bir havuz seçilir ve şekil, geri izlemeli (backtracking) olarak ÖNCE ÇÖZÜLMÜŞ halde inşa edilir — sonradan 'çözülür mü' diye kontrol edilmez, zaten inşa sırasında garantilidir. Min/Max Parça Küpü bu modda geçersizdir; parça boyutları kütüphanedeki gerçek parçalara göre belirlenir.", MessageType.Info);
+            int cachedCount = pieceLibraryCache?.Count ?? 0;
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField($"Yüklü parça sayısı: {cachedCount}", EditorStyles.miniLabel);
+            if (GUILayout.Button("Kütüphaneyi Yenile", GUILayout.Width(140)))
+            {
+                RefreshPieceLibrary();
+            }
+            EditorGUILayout.EndHorizontal();
         }
         else
         {
@@ -695,6 +722,36 @@ public class AILevelDesignerWindow : EditorWindow
         return -1;
     }
 
+    // Çözülebilirlik analizi kutusu — DrawRightPanel'den çıkarıldı, hem eski panel hem de
+    // LevelCreationWizardWindow'un 3. adımı bu AYNI metodu çağırıyor (kopya değil).
+    internal void DrawSolverResultSection()
+    {
+        if (!(solverRan && lastSolverResult != null)) return;
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        GUILayout.Label("🔍 ÇÖZÜLEBİLİRLİK ANALİZİ", styleHeader);
+
+        if (lastSolverResult.isSolvable)
+        {
+            GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
+            EditorGUILayout.HelpBox($"✅ Çözülebilir ({lastSolverResult.minMoveCount} hamle)\nZorluk: {lastSolverResult.difficultyLabel.ToUpper()} ({lastSolverResult.difficultyScore:F2})", MessageType.Info);
+            GUI.backgroundColor = Color.white;
+        }
+        else
+        {
+            GUI.backgroundColor = new Color(0.95f, 0.3f, 0.3f, 1f);
+            EditorGUILayout.HelpBox($"❌ Çözülemez\n{lastSolverResult.failureReason}", MessageType.Error);
+            GUI.backgroundColor = Color.white;
+
+            GUILayout.Space(5);
+            if (GUILayout.Button("🔁 Parametreleri Ayarlayıp Yeniden Üret", GUILayout.Height(35)))
+            {
+                AutoAdjustAndRegenerate();
+            }
+        }
+        EditorGUILayout.EndVertical();
+    }
+
     // ── Sağ Panel (Dışa Aktarma) ──────────────────────────────────
     private void DrawRightPanel()
     {
@@ -806,41 +863,27 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Space(10);
 
-        // Solver Sonuçları
-        if (solverRan && lastSolverResult != null)
-        {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            GUILayout.Label("🔍 ÇÖZÜLEBİLİRLİK ANALİZİ", styleHeader);
-            
-            if (lastSolverResult.isSolvable)
-            {
-                GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
-                EditorGUILayout.HelpBox($"✅ Çözülebilir ({lastSolverResult.minMoveCount} hamle)\nZorluk: {lastSolverResult.difficultyLabel.ToUpper()} ({lastSolverResult.difficultyScore:F2})", MessageType.Info);
-                GUI.backgroundColor = Color.white;
-            }
-            else
-            {
-                GUI.backgroundColor = new Color(0.95f, 0.3f, 0.3f, 1f);
-                EditorGUILayout.HelpBox($"❌ Çözülemez\n{lastSolverResult.failureReason}", MessageType.Error);
-                GUI.backgroundColor = Color.white;
-                
-                GUILayout.Space(5);
-                if (GUILayout.Button("🔁 Parametreleri Ayarlayıp Yeniden Üret", GUILayout.Height(35)))
-                {
-                    AutoAdjustAndRegenerate();
-                }
-            }
-            EditorGUILayout.EndVertical();
-        }
+        DrawSolverResultSection();
 
         GUILayout.Space(12);
 
+        // Zorunlu Koruma Kuralı #1: doğrulanmamış (validated == false) hiçbir seviye
+        // kaydedilemez. Solver hiç çalışmadıysa, sonuç yoksa veya çözülemez bulduysa buton
+        // tamamen devre dışı — ExportProceduralLevelCore de aynı kontrolü tekrar yapıyor
+        // (savunmacı: buton her nasılsa aktifleşse bile kayıt yine reddedilir).
+        bool isValidatedSolvable = solverRan && lastSolverResult != null && lastSolverResult.isSolvable;
+        EditorGUI.BeginDisabledGroup(!isValidatedSolvable);
         GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Doygun Yeşil
         if (GUILayout.Button("💾 SEVİYEYİ TAMAMEN OLUŞTUR\n(BÖLÜMÜ KAYDET)", GUILayout.Height(50)))
         {
             ExportProceduralLevel();
         }
         GUI.backgroundColor = Color.white;
+        EditorGUI.EndDisabledGroup();
+        if (!isValidatedSolvable)
+        {
+            EditorGUILayout.HelpBox("Kaydetmeden önce seviye solver tarafından ÇÖZÜLEBİLİR olarak doğrulanmalı. Önce '⚡ BÖLÜM & PARÇALARI ÖNİZLE' ile üretip yeşil '✅ Çözülebilir' sonucunu bekleyin.", MessageType.Warning);
+        }
 
         GUILayout.Space(15);
         
@@ -960,7 +1003,7 @@ public class AILevelDesignerWindow : EditorWindow
 
     // ══ ALGORİTMİK YAPAY ZEKA METODLARI ═════════════════════════
 
-    private void GenerateLevelProcedurally()
+    internal void GenerateLevelProcedurally()
     {
         // Şablon kontrolü
         if (selectedTemplate == null)
@@ -1213,6 +1256,82 @@ public class AILevelDesignerWindow : EditorWindow
         }
     }
 
+    // ── Parça Kütüphanesi (Faz 3 — Solution-First) ─────────────────────
+
+    // internal: LevelCreationWizardWindow, 2. adımda kütüphaneyi migrate ettikten sonra
+    // önbelleği zorla tazelemek için bunu çağırıyor (aksi halde stale sayım gösterilir).
+    internal void RefreshPieceLibrary()
+    {
+        pieceLibraryCache = null;
+        LoadPieceLibrary();
+    }
+
+    internal List<PieceDefinition> LoadPieceLibrary()
+    {
+        if (pieceLibraryCache != null) return pieceLibraryCache;
+
+        pieceLibraryCache = new List<PieceDefinition>();
+        if (!AssetDatabase.IsValidFolder(PIECE_DEFINITIONS_PATH)) return pieceLibraryCache;
+
+        var guids = AssetDatabase.FindAssets("t:PieceDefinition", new[] { PIECE_DEFINITIONS_PATH });
+        foreach (var guid in guids)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(guid);
+            var def = AssetDatabase.LoadAssetAtPath<PieceDefinition>(path);
+            if (def != null && def.cells != null && def.cells.Count > 0)
+                pieceLibraryCache.Add(def);
+        }
+        return pieceLibraryCache;
+    }
+
+    // "Kütüphane / Solution-First" modu: SmartPieceSplitting'in mevcut çok-denemeli
+    // döngüsündeki her attempt için Assets/PieceDefinitions/ altından TAZE, rastgele bir
+    // parça havuzu örnekler (spawnWeight'e göre ağırlıklı, difficultyTags'e göre filtrelenmiş)
+    // ve SolutionFirstBuilder ile o havuzun bu şekli GERÇEKTEN döşeyip döşeyemediğini
+    // geri izlemeli olarak dener. Diğer 3 mod gibi "önce şekli çiz, sonra parçalara böl"
+    // DEĞİL — başarılıysa sonuç zaten inşa sırasında çözülmüş olur.
+    private List<List<Vector3Int>> SplitShapeWithSolutionFirstLibrary(int attempt)
+    {
+        var library = LoadPieceLibrary();
+        if (library.Count == 0)
+        {
+            Debug.LogWarning("⚠️ Assets/PieceDefinitions/ altında hiç PieceDefinition bulunamadı — " +
+                              "önce BlockMerge3D Hub → 🧬 Parça Kütüphanesi'nden 'Tara ve Migrate Et' çalıştırın.");
+            return new List<List<Vector3Int>>();
+        }
+
+        // Zorluk profiline uyan parçalar: difficultyTags boşsa (henüz hiç etiketlenmemiş,
+        // Faz 1 migration'ının varsayılan durumu) her zorlukta kullanılabilir sayılır.
+        string profileTag = selectedDifficulty.ToString();
+        var eligible = library
+            .Where(d => d.difficultyTags == null || d.difficultyTags.Count == 0 || d.difficultyTags.Contains(profileTag))
+            .ToList();
+        if (eligible.Count == 0) eligible = library;
+
+        // Doldurulması gereken hücreler: prefilled hariç tüm hedef hücreler (frozen dahil —
+        // buz erimesi sırası SolutionFirstBuilder'da değil, sonradan gerçek LevelSolver'da
+        // doğrulanır, bkz. SolutionFirstBuilder.cs üstündeki açıklama).
+        var cellsToFill = new HashSet<Vector3Int>(occupiedCells);
+        cellsToFill.ExceptWith(prefilledCells);
+
+        int idealCount = DifficultySpecs.TryGetValue(selectedDifficulty, out var spec) ? spec.idealPieceCount : 5;
+        int poolSize = Mathf.Clamp(idealCount + 2, 3, eligible.Count);
+
+        var shuffledEligible = eligible.OrderBy(_ => Random.value).ToList();
+        var pool = shuffledEligible.Take(poolSize).ToList();
+
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+        int stateLimit = gridVolume < 50 ? 30000 : gridVolume < 100 ? 50000 : 80000;
+        int timeLimitMs = gridVolume < 50 ? 1500 : gridVolume < 100 ? 2500 : 4000;
+
+        bool built = SolutionFirstBuilder.TryBuild(cellsToFill, gridSize, pool, stateLimit, timeLimitMs, out var resultPieces);
+
+        Debug.Log($"  [Kütüphane/Solution-First] Deneme {attempt + 1}: havuz={pool.Count} parça tipi, " +
+                   (built ? $"BAŞARILI ({resultPieces.Count} parça yerleşti)" : "döşenemedi"));
+
+        return built ? resultPieces : new List<List<Vector3Int>>();
+    }
+
     // ═════════════════════════════════════════════════════════════
     // AKILLI PARÇA ÜRETİMİ - Birden fazla strateji dene, en iyisini seç
     // ═════════════════════════════════════════════════════════════
@@ -1271,13 +1390,17 @@ public class AILevelDesignerWindow : EditorWindow
             }
 
             // Bu stratejiyle parçala
-            var piecesForThisStrategy = pieceGenMode == PieceGenMode.Tetromino_Klasik
-                ? SplitShapeAsTetrominoes(attempt)
-                : pieceGenMode == PieceGenMode.Puzzle_Geometrik
-                    ? SplitShapeWithGeometricStrategy(variantMinSize, variantMaxSize, attempt)
-                    : SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
-            
-            if (piecesForThisStrategy.Count == 0) 
+            List<List<Vector3Int>> piecesForThisStrategy;
+            if (pieceGenMode == PieceGenMode.Tetromino_Klasik)
+                piecesForThisStrategy = SplitShapeAsTetrominoes(attempt);
+            else if (pieceGenMode == PieceGenMode.Puzzle_Geometrik)
+                piecesForThisStrategy = SplitShapeWithGeometricStrategy(variantMinSize, variantMaxSize, attempt);
+            else if (pieceGenMode == PieceGenMode.Kutuphane_SolutionFirst)
+                piecesForThisStrategy = SplitShapeWithSolutionFirstLibrary(attempt);
+            else
+                piecesForThisStrategy = SplitShapeWithStrategy(variantMinSize, variantMaxSize, attempt);
+
+            if (piecesForThisStrategy.Count == 0)
             {
                 Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): Parça üretilemedi, atlandı");
                 continue;
@@ -2216,11 +2339,21 @@ public class AILevelDesignerWindow : EditorWindow
         }
     }
 
-    private void ExportProceduralLevel()
+    internal void ExportProceduralLevel()
     {
         if (occupiedCells.Count == 0)
         {
             EditorUtility.DisplayDialog("Hata", "Önce 'YAPAY ZEKA İLE OLUŞTUR' butonuna basarak bir seviye tasarlayın.", "Tamam");
+            return;
+        }
+
+        if (!(solverRan && lastSolverResult != null && lastSolverResult.isSolvable))
+        {
+            EditorUtility.DisplayDialog("Doğrulanmamış Seviye",
+                "Bu seviye solver tarafından ÇÖZÜLEBİLİR olarak doğrulanmadı, bu yüzden kaydedilemez " +
+                "(Zorunlu Koruma Kuralı #1).\n\n" +
+                "Önce '⚡ BÖLÜM & PARÇALARI ÖNİZLE' ile tekrar üretin ya da '🔁 Parametreleri Ayarlayıp " +
+                "Yeniden Üret' butonunu kullanın.", "Tamam");
             return;
         }
 
@@ -2233,10 +2366,25 @@ public class AILevelDesignerWindow : EditorWindow
                 $"✅  Ana Şekil Prefabı\n" +
                 $"✅  {ld.complementaryPieces.Count} Adet Bulmaca Parçası\n\nHedef Dizin: {LEVELS_PATH}/{levelName}/", "Harika!");
         }
+        else
+        {
+            EditorUtility.DisplayDialog("Kaydedilemedi",
+                "Seviye doğrulanmamış olduğu için kaydedilmedi (Zorunlu Koruma Kuralı #1).", "Tamam");
+        }
     }
 
     private LevelData ExportProceduralLevelCore(string targetLevelName, float targetLevelTime, int targetLevelTarget)
     {
+        // Zorunlu Koruma Kuralı #1 (bkz. BlockMerge3D_Seviye_Uretim_Sistemi_v2.md §13): doğrulanmamış
+        // (validated == false) hiçbir seviye kaydedilemez. Bu, tek gerçek kayıt noktası olduğu için
+        // (ExportProceduralLevel VE GenerateAndExportAIBatchDataset ikisi de buraya çağrı yapıyor)
+        // burada kontrol edilmesi, çağıran her yerin ayrı ayrı doğru davranmasına güvenmekten daha güvenli.
+        if (!(solverRan && lastSolverResult != null && lastSolverResult.isSolvable))
+        {
+            Debug.LogWarning($"⛔ '{targetLevelName}' kaydedilmedi: solver tarafından doğrulanmamış/çözülemez.");
+            return null;
+        }
+
         string levelDir = $"{LEVELS_PATH}/{targetLevelName}";
         if (!Directory.Exists(levelDir)) Directory.CreateDirectory(levelDir);
         AssetDatabase.Refresh();
@@ -2455,7 +2603,10 @@ public class AILevelDesignerWindow : EditorWindow
             "Parametreler ayarlandı ve seviye yeniden oluşturuldu. Sonuçları kontrol edin.", "Tamam");
     }
 
-    private void BuildStyles()
+    // internal: LevelCreationWizardWindow, aiDesigner.OnGUI()'yi hiç çağırmadan
+    // DrawTemplateAndDifficultySection/DrawSolverResultSection'ı doğrudan kullandığı için
+    // stil alanlarının (styleHeader vb.) dolu olduğundan kendi başına emin olmalı.
+    internal void BuildStyles()
     {
         if (stylesBuilt) return;
         styleHeader = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
@@ -2518,7 +2669,7 @@ public class AILevelDesignerWindow : EditorWindow
         Repaint();
     }
 
-    private void ApplyDifficultyScaleForMode(AILevelDifficulty mode)
+    internal void ApplyDifficultyScaleForMode(AILevelDifficulty mode)
     {
         selectedDifficulty = mode;
         levelDifficultyModeSuggestion = mode.ToString();
@@ -2582,6 +2733,13 @@ public class AILevelDesignerWindow : EditorWindow
 
         // Eğitim verisi veri kümesi wrapperı
         AIDatasetWrapper datasetWrapper = new AIDatasetWrapper();
+
+        // Zorunlu Koruma Kuralı #1 gereği ExportProceduralLevelCore artık doğrulanmamış/çözülemez
+        // seviyeleri reddedip null döndürebiliyor — bu sayaç, kaç tanesinin gerçekten kaydedildiğini
+        // (ve kaçının atlandığını) izler, böylece kapanış diyaloğu "10 level oluşturuldu" diye
+        // yanlış bir şey iddia etmez.
+        int savedCount = 0;
+        var skippedLevelNames = new List<string>();
 
         // 3. Kullanıcı tasarımı: İlk 10 Level (Kademeli Öğretim)
         for (int i = 1; i <= 10; i++)
@@ -2723,6 +2881,11 @@ public class AILevelDesignerWindow : EditorWindow
             if (levelAsset != null)
             {
                 levelOrder.levels.Add(levelAsset);
+                savedCount++;
+            }
+            else
+            {
+                skippedLevelNames.Add(levelName);
             }
 
             // Eğitim verisi modelini doldur
@@ -2798,9 +2961,16 @@ public class AILevelDesignerWindow : EditorWindow
 
         AssetDatabase.Refresh();
 
-        EditorUtility.DisplayDialog("🎮 İlk 10 Level Başarıyla Oluşturuldu!",
+        string skippedNote = skippedLevelNames.Count > 0
+            ? $"\n⚠️ {skippedLevelNames.Count} seviye solver tarafından doğrulanamadığı için ATLANDI " +
+              $"(Zorunlu Koruma Kuralı #1): {string.Join(", ", skippedLevelNames)}\n"
+            : "";
+
+        EditorUtility.DisplayDialog(
+            savedCount == 10 ? "🎮 İlk 10 Level Başarıyla Oluşturuldu!" : "🎮 Level Üretimi Tamamlandı",
             $"✅ Kademeli Öğretim Sistemi Devrede:\n\n" +
-            $"📦 10 Level Oluşturuldu (Assets/Levels/)\n" +
+            $"📦 {savedCount}/10 Level Oluşturuldu (Assets/Levels/)\n" +
+            skippedNote +
             $"📋 Level Sırası Güncellendi (LevelOrder.asset)\n" +
             $"🎯 Oyun Level 1'den Başlıyor\n" +
             $"📊 Eğitim Dataseti Kaydedildi:\n\t{jsonPath}\n\n" +
