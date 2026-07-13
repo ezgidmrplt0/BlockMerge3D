@@ -43,24 +43,10 @@ public class LevelManager : MonoBehaviour
 
     [Header("Next Piece Preview Settings")]
     private int nextPieceIndex = -1;
-    // "Sıradaki parça" önizlemesinde gösterilen renk — o parça gerçekten spawn edilirken
-    // AYNI renk kullanılmalı. GetDominantMaterialOnActiveLayer() aktif katmanın anlık durumuna
-    // göre değişir; önizleme gösterildikten sonra oyuncu bir parça yerleştirirse katmanın baskın
-    // rengi değişebilir, ve spawn anında yeniden hesaplanırsa önizlemeyle eşleşmeyen bir renk
-    // çıkabilir (örn. önizleme kırmızı gösterirken parça mor gelir). Bu yüzden renk, önizleme
-    // oluşturulduğu anda BİR KEZ hesaplanıp burada saklanır, spawn'da yeniden hesaplanmaz.
+    // "Sıradaki parça" önizlemesinde gösterilen renk, o parça gerçekten spawn edilirken AYNI
+    // renk kullanılsın diye önizleme oluşturulduğu anda BİR KEZ seçilip burada saklanır (kozmetik
+    // amaçlı — renk artık hiçbir oynanış kararını etkilemiyor, bkz. PickCosmeticPieceColor).
     private Material nextPieceMaterial;
-
-    // Aktif katman tamamen boşken GetDominantMaterialOnActiveLayer'ın seçtiği "rastgele başlangıç
-    // rengi" bu alanlarda katman bazında önbelleğe alınır (bkz. GetDominantMaterialOnActiveLayer
-    // içindeki açıklama — kök sebep: LoadLevel, hiçbir parça yerleşmeden ÖNCE maxVisiblePieces
-    // kadar kartı art arda spawn ediyor, her biri kendi "sıradaki parça" hazırlığında bu metodu
-    // çağırıyordu; önbellek olmadan HER çağrı ayrı bir Random.Range yapıyordu, yani seviyenin ilk
-    // kartları farklı farklı rastgele renkler alabiliyordu — ilk parça yerleştirilip katmanın
-    // gerçek rengi belli olduğunda, diğer zaten-spawn-edilmiş kartlar "yanlış renkte" kalıyor,
-    // katman tüm hücreleri dolsa bile monokromluk şartını (IsLayerComplete) hiç sağlayamıyordu).
-    private int emptyLayerColorCacheY = int.MinValue;
-    private Material emptyLayerColorCache;
 
     private GameObject nextPiecePreviewParent;
     private Camera nextPiecePreviewCam;
@@ -201,10 +187,9 @@ public class LevelManager : MonoBehaviour
         spawnedPieceIndices.Add(indexToSpawn);
         activeIsSmart.Add(false); // Kolaylaştırma yardımı kapalı
 
-        // Bu parçanın rengi, önizlemesi gösterildiği anda (PrepareNextPieceIndex içinde) zaten
-        // kararlaştırılıp nextPieceMaterial'e kaydedilmişti — burada YENİDEN hesaplanmaz, aksi
-        // halde önizlemede gösterilen renkle spawn edilen renk (araya giren bir yerleştirme
-        // aktif katmanın baskın rengini değiştirdiyse) birbirini tutmayabilir.
+        // Bu parçanın (kozmetik) rengi, önizlemesi gösterildiği anda (PrepareNextPieceIndex
+        // içinde) zaten kararlaştırılıp nextPieceMaterial'e kaydedilmişti — burada YENİDEN
+        // hesaplanmaz, aksi halde önizlemede gösterilen renkle spawn edilen renk tutmayabilir.
         Material matchingMaterial = nextPieceMaterial;
 
         // Parçayı spawn et
@@ -236,98 +221,14 @@ public class LevelManager : MonoBehaviour
         return bestIdx;
     }
 
-    private Material GetDominantMaterialOnGrid()
+    // Renksiz sisteme geçişle birlikte parça rengi artık tamamen kozmetik — katmanın "baskın
+    // rengiyle uyuşma" zorunluluğu yok, bu yüzden paletten düz rastgele seçiyoruz.
+    private Material PickCosmeticPieceColor()
     {
-        return GetDominantMaterialOnActiveLayer();
-    }
-
-    private Material GetDominantMaterialOnActiveLayer()
-    {
-        if (gridManager == null) return null;
-
-        var colorCounts = new Dictionary<Color, int>();
-        foreach (var c in gridManager.allShapeCells)
-        {
-            if (c.y == gridManager.ActiveLayerY)
-            {
-                // Prefilled (seviye başında hazır gelen engel) hücreler burada sayılmamalı —
-                // yoksa "aktif katmanda hiç blok yoksa rastgele renk seç" esnekliği hiç devreye
-                // girmiyor ve ilk parçalar hep prefilled engelin rengine kilitleniyordu.
-                if (gridManager.occupiedCells.Contains(c) && !gridManager.IsCellPrefilled(c))
-                {
-                    if (gridManager.GetCellColor(c, out Color col))
-                    {
-                        Color matchedColor = col;
-                        bool found = false;
-                        foreach (var key in colorCounts.Keys)
-                        {
-                            if (GridManager.ColorsApproxEqual(col, key))
-                            {
-                                matchedColor = key;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (found) colorCounts[matchedColor]++;
-                        else colorCounts[matchedColor] = 1;
-                    }
-                }
-            }
-        }
-
-        // Eğer aktif katmanda hiç blok yoksa, oyuncunun katmana yeni bir renkle başlama esnekliği olsun diye paletten rastgele seçilir.
-        Color? dominantColor = null;
-        if (colorCounts.Count > 0)
-        {
-            int maxCount = 0;
-            foreach (var kvp in colorCounts)
-            {
-                if (kvp.Value > maxCount)
-                {
-                    maxCount = kvp.Value;
-                    dominantColor = kvp.Key;
-                }
-            }
-        }
-
-        // Bu renge ait Materyali pieceMaterials içinden bul
-        if (dominantColor.HasValue && pieceMaterials != null)
-        {
-            foreach (var m in pieceMaterials)
-            {
-                if (m != null)
-                {
-                    Color mCol = GridManager.GetMaterialColor(m);
-                    if (GridManager.ColorsApproxEqual(dominantColor.Value, mCol))
-                    {
-                        return m;
-                    }
-                }
-            }
-        }
-
-        // Dominant renk bulunamadıysa (katman boşsa) paletten rastgele seç — ama sadece BİR KEZ bu
-        // katman için: aynı katman aktifken tekrar tekrar çağrılırsa (bkz. yukarıdaki alan
-        // yorumu) hep AYNI önbelleklenmiş rengi döndür, yoksa aynı katmana ait farklı kartlar
-        // birbirinden farklı rastgele renkler alıp monokromluk şartını asla sağlayamaz.
-        if (emptyLayerColorCacheY == gridManager.ActiveLayerY && emptyLayerColorCache != null)
-        {
-            return emptyLayerColorCache;
-        }
-
-        if (pieceMaterials != null && pieceMaterials.Length > 0)
-        {
-            var valid = pieceMaterials.Where(m => m != null).ToList();
-            if (valid.Count > 0)
-            {
-                var chosen = valid[Random.Range(0, valid.Count)];
-                emptyLayerColorCacheY = gridManager.ActiveLayerY;
-                emptyLayerColorCache = chosen;
-                return chosen;
-            }
-        }
-
-        return null;
+        if (pieceMaterials == null || pieceMaterials.Length == 0) return null;
+        var valid = pieceMaterials.Where(m => m != null).ToList();
+        if (valid.Count == 0) return null;
+        return valid[Random.Range(0, valid.Count)];
     }
 
     private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge)
@@ -535,11 +436,11 @@ public class LevelManager : MonoBehaviour
             newlyPlacedCells.Add(cell + boardOffset);
         }
 
-        // Check if there are frozen cells to thaw/explode
+        // Check if there are frozen cells to thaw
         gridManager.CheckAndResolveFrozenCells(newlyPlacedCells, onComplete: (iceResolved) =>
         {
             var lpc = FindObjectOfType<LayerPanelController>();
-            
+
             if (gridManager.IsLayerComplete())
             {
                 if (lpc != null)
@@ -703,8 +604,6 @@ public class LevelManager : MonoBehaviour
         // NEXT PIECE PREVIEW RESET
         nextPieceIndex = -1;
         nextPieceMaterial = null;
-        emptyLayerColorCacheY = int.MinValue;
-        emptyLayerColorCache = null;
         ClearNextPiecePreview();
     }
 
@@ -1217,9 +1116,9 @@ public class LevelManager : MonoBehaviour
         List<int> pickFrom = fitsActiveLayer.Count > 0 ? fitsActiveLayer : availableIndices;
 
         nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
-        // Bu parçanın rengi ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de
+        // Bu parçanın (kozmetik) rengi ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de
         // parça gerçekten spawn edilirken (bkz. SpawnRandomPiece) AYNI renk kullanılacak.
-        nextPieceMaterial = GetDominantMaterialOnActiveLayer();
+        nextPieceMaterial = PickCosmeticPieceColor();
         UpdateNextPiecePreviewVisuals();
     }
 

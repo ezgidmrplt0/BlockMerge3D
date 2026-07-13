@@ -132,7 +132,7 @@ public class LevelSolverTests
             new Vector3Int(2, 0, 2), // Köşe (alt katman, Y=0)
             new Vector3Int(2, 1, 2)  // Köşe (üst katman, Y=1)
         };
-        holder.prefilledMaterialIndices = new List<int> { 0, 0 }; // Aynı renk
+        holder.prefilledMaterialIndices = new List<int> { 0, 0 }; // Kozmetik, oynanışı etkilemiyor
         holder.frozenCells = new List<Vector3Int>();
 
         // 4 parça oluştur (toplam 16 hücre, 2 prefilled var, 18-2=16)
@@ -198,16 +198,15 @@ public class LevelSolverTests
     }
 
     /// <summary>
-    /// Minimal, elle doğrulanmış buz/patlama senaryosu: 1x3 tek katman, uçtaki hücre donmuş.
-    /// LevelSolver'ın ResolveFrozenCellsInSolver'ı artık gerçek oyundaki gibi (bkz.
-    /// GridManager.AnimateExplodeAndThaw) buza komşu aynı renkli grubu SADECE eritmekle kalmıyor,
-    /// o grubu da patlatıp yeniden doldurulmasını gerektiriyor — bu yüzden ham hedeften (3 hücre)
-    /// FAZLA parça hacmi (2+2+1=5) gerekiyor. Domino1 buza değip patlar+eritir (2 hücre "buz
-    /// vergisi"), Domino2+Filler kalan 3 hücreyi (eski buz hücresi dahil) doldurur.
+    /// Minimal, elle doğrulanmış buz/erime senaryosu: 1x3 tek katman, uçtaki hücre donmuş.
+    /// Renksiz sisteme geçişle birlikte buz kuralı basitleşti: yeni yerleşen HERHANGİ bir hücre
+    /// buza yatay komşuysa buz anında erir — grup/renk/boyut şartı yok, hiçbir hücre kaybolmuyor.
+    /// Domino, buza değip onu eritir (hücre kaybı YOK); Filler eski buz hücresini doldurur.
+    /// Toplam parça hacmi (2+1=3) ham hedefe (3 hücre) TAM eşit — "buz vergisi" artık yok.
     /// </summary>
-    public static (GameObject mainShape, List<GameObject> pieces) CreateIceExplosionLevel()
+    public static (GameObject mainShape, List<GameObject> pieces) CreateIceTouchThawLevel()
     {
-        GameObject main = new GameObject("TestMain_IceExplosion");
+        GameObject main = new GameObject("TestMain_IceTouchThaw");
         var holder = main.AddComponent<CubeShapeDataHolder>();
         holder.gridSize = new Vector3Int(3, 1, 1);
         holder.cellSize = 1f;
@@ -222,23 +221,17 @@ public class LevelSolverTests
 
         List<GameObject> pieces = new List<GameObject>();
 
-        GameObject p1 = new GameObject("Domino1");
+        GameObject p1 = new GameObject("Domino");
         var p1h = p1.AddComponent<CubeShapeDataHolder>();
         p1h.gridSize = holder.gridSize; p1h.cellSize = holder.cellSize; p1h.spacing = holder.spacing;
         p1h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0) };
         pieces.Add(p1);
 
-        GameObject p2 = new GameObject("Domino2");
+        GameObject p2 = new GameObject("Filler");
         var p2h = p2.AddComponent<CubeShapeDataHolder>();
         p2h.gridSize = holder.gridSize; p2h.cellSize = holder.cellSize; p2h.spacing = holder.spacing;
-        p2h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0) };
+        p2h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
         pieces.Add(p2);
-
-        GameObject p3 = new GameObject("Filler");
-        var p3h = p3.AddComponent<CubeShapeDataHolder>();
-        p3h.gridSize = holder.gridSize; p3h.cellSize = holder.cellSize; p3h.spacing = holder.spacing;
-        p3h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
-        pieces.Add(p3);
 
         return (main, pieces);
     }
@@ -326,19 +319,21 @@ public class LevelSolverTests
         Object.DestroyImmediate(test3.mainShape);
         foreach (var p in test3.pieces) Object.DestroyImmediate(p);
 
-        // ── Test 4: Buz eritme = patlama (explode-on-thaw) ───────────
-        var test4 = CreateIceExplosionLevel();
+        // ── Test 4: Buz = anlık erime, hücre kaybı yok ───────────────
+        var test4 = CreateIceTouchThawLevel();
         var result4 = solver.SolveFromPrefabs(test4.mainShape, test4.pieces);
-        bool explodedSomewhere = result4.isSolvable && result4.solutionSteps.Any(s => s.explodedCells.Count > 0);
+        bool thawedSomewhere = result4.isSolvable && result4.solutionSteps.Any(s => s.thawedCells.Count > 0);
         results.Add(new PieceTestResult
         {
-            name = "Buz eritme = patlama (explode-on-thaw)",
-            passed = result4.isSolvable && explodedSomewhere,
+            name = "Buz = anlık erime (temas yeterli, hücre kaybı yok)",
+            passed = result4.isSolvable && thawedSomewhere && result4.minMoveCount == 2,
             message = !result4.isSolvable
                 ? $"BAŞARISIZ: {result4.failureReason}"
-                : explodedSomewhere
-                    ? $"Çözülebilir: {result4.minMoveCount} hamle, patlama doğru simüle edildi"
-                    : "BAŞARISIZ: çözüldü ama hiçbir adımda patlama tetiklenmedi (mekanik simüle edilmiyor olabilir)"
+                : !thawedSomewhere
+                    ? "BAŞARISIZ: çözüldü ama hiçbir adımda erime tetiklenmedi"
+                    : result4.minMoveCount != 2
+                        ? $"BAŞARISIZ: {result4.minMoveCount} hamle bekleniyordu 2 (buz vergisi kalmamalıydı)"
+                        : $"Çözülebilir: {result4.minMoveCount} hamle, erime doğru simüle edildi, hücre kaybı yok"
         });
         Object.DestroyImmediate(test4.mainShape);
         foreach (var p in test4.pieces) Object.DestroyImmediate(p);

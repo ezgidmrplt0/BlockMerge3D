@@ -396,49 +396,24 @@ public class GridManager : MonoBehaviour
         }
     }
 
+    // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden bir katmanın tamamlanması için tüm hücrelerin
+    // dolu OLMASI YETMEZ, hepsi aynı renk/materyal olması da şarttı. Bu monokromluk şartı
+    // kaldırıldı — katman artık sadece doluluğa göre tamamlanır. Renk artık tamamen kozmetik.
     public bool IsLayerComplete()
     {
         int cellsInLayer    = 0;
         int occupiedInLayer = 0;
-        List<Vector3Int> layerCells = new List<Vector3Int>();
 
         foreach (var c in allShapeCells)
         {
             if (c.y == ActiveLayerY)
             {
                 cellsInLayer++;
-                if (occupiedCells.Contains(c))
-                {
-                    occupiedInLayer++;
-                    layerCells.Add(c);
-                }
+                if (occupiedCells.Contains(c)) occupiedInLayer++;
             }
         }
 
-        if (cellsInLayer == 0 || occupiedInLayer < cellsInLayer) return false;
-
-        if (layerCells.Count > 0)
-        {
-            bool hasFirstMatIdx = cellMatIndex.TryGetValue(layerCells[0], out int firstMatIdx);
-            bool hasFirstColor = cellColors.TryGetValue(layerCells[0], out Color firstColor);
-
-            for (int i = 1; i < layerCells.Count; i++)
-            {
-                bool hasMatIdx = cellMatIndex.TryGetValue(layerCells[i], out int matIdx);
-                bool hasColor = cellColors.TryGetValue(layerCells[i], out Color color);
-
-                if (hasFirstMatIdx && hasMatIdx && (firstMatIdx != -1 || matIdx != -1))
-                {
-                    if (firstMatIdx != matIdx) return false;
-                }
-                else if (hasFirstColor && hasColor)
-                {
-                    if (!ColorsApproxEqual(firstColor, color)) return false;
-                }
-            }
-        }
-
-        return true;
+        return cellsInLayer > 0 && occupiedInLayer >= cellsInLayer;
     }
 
     private bool TryFindFirstIncompleteLayer(out int layerY)
@@ -447,7 +422,6 @@ public class GridManager : MonoBehaviour
         {
             bool hasCells = false;
             bool layerFull = true;
-            List<Vector3Int> layerCells = new List<Vector3Int>();
 
             foreach (var cell in allShapeCells)
             {
@@ -459,42 +433,11 @@ public class GridManager : MonoBehaviour
                     layerFull = false;
                     break;
                 }
-                layerCells.Add(cell);
             }
 
             if (!hasCells) continue;
 
             if (!layerFull)
-            {
-                layerY = y;
-                return true;
-            }
-
-            // Katman tamamen dolu. Şimdi tüm hücrelerin aynı renk/materyal olup olmadığına bakalım.
-            bool isMonochrome = true;
-            if (layerCells.Count > 0)
-            {
-                bool hasFirstMatIdx = cellMatIndex.TryGetValue(layerCells[0], out int firstMatIdx);
-                bool hasFirstColor = cellColors.TryGetValue(layerCells[0], out Color firstColor);
-
-                for (int i = 1; i < layerCells.Count; i++)
-                {
-                    bool hasMatIdx = cellMatIndex.TryGetValue(layerCells[i], out int matIdx);
-                    bool hasColor = cellColors.TryGetValue(layerCells[i], out Color color);
-
-                    if (hasFirstMatIdx && hasMatIdx && (firstMatIdx != -1 || matIdx != -1))
-                    {
-                        if (firstMatIdx != matIdx) { isMonochrome = false; break; }
-                    }
-                    else if (hasFirstColor && hasColor)
-                    {
-                        if (!ColorsApproxEqual(firstColor, color)) { isMonochrome = false; break; }
-                    }
-                }
-            }
-
-            // Eğer katman dolu ama tek renk değilse, eksik/tamamlanmamış sayılır!
-            if (!isMonochrome)
             {
                 layerY = y;
                 return true;
@@ -883,26 +826,6 @@ public class GridManager : MonoBehaviour
         }
 
         return true;
-    }
-
-    public bool AreCellsSameColor(Vector3Int cellA, Vector3Int cellB)
-    {
-        bool hasMatA = cellMatIndex.TryGetValue(cellA, out int matA);
-        bool hasMatB = cellMatIndex.TryGetValue(cellB, out int matB);
-        bool hasColA = cellColors.TryGetValue(cellA, out Color colA);
-        bool hasColB = cellColors.TryGetValue(cellB, out Color colB);
-
-        if (hasMatA && hasMatB && (matA != -1 || matB != -1))
-        {
-            return matA == matB;
-        }
-
-        if (hasColA && hasColB)
-        {
-            return ColorsApproxEqual(colA, colB);
-        }
-
-        return false;
     }
 
     public static bool ColorsApproxEqual(Color a, Color b)
@@ -1725,82 +1648,34 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    // ─── NEW MECHANIC: FROZEN CELLS RESOLUTION ─────────────────────────────────
+    // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
+    // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden buz sadece, eritme yapan grup AYNI RENKTE
+    // ve boyutu ≥2 ise eriyordu — üstelik o grup da PATLAYIP yok oluyordu ("buz vergisi").
+    // Artık kural çok daha basit: yeni yerleşen HERHANGİ bir hücre buza yatay komşuysa buz
+    // anında erir. Grup/renk/boyut şartı yok, hiçbir hücre kaybolmuyor — buz sadece normal
+    // boş hedef hücresine dönüyor.
 
     public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
     {
-        if (newlyPlacedCells == null || newlyPlacedCells.Count == 0)
+        if (newlyPlacedCells == null || newlyPlacedCells.Count == 0 || frozenCells.Count == 0)
         {
             onComplete?.Invoke(false);
             return false;
         }
-
-        HashSet<Vector3Int> cellsToExplode = new HashSet<Vector3Int>();
-        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
 
         Vector3Int[] horizontalNeighbors = {
             Vector3Int.left, Vector3Int.right,
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        HashSet<Vector3Int> visited = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
 
-        // We check same-color horizontal groups starting from each newly placed cell in the active layer Y
-        foreach (var startCell in newlyPlacedCells)
+        foreach (var cell in newlyPlacedCells)
         {
-            if (startCell.y != ActiveLayerY) continue;
-            if (visited.Contains(startCell)) continue;
-
-            // BFS to find connected same-color occupied cells in the active layer Y
-            List<Vector3Int> group = new List<Vector3Int>();
-            Queue<Vector3Int> queue = new Queue<Vector3Int>();
-            
-            queue.Enqueue(startCell);
-            visited.Add(startCell);
-            group.Add(startCell);
-
-            while (queue.Count > 0)
+            foreach (var offset in horizontalNeighbors)
             {
-                Vector3Int curr = queue.Dequeue();
-                foreach (var offset in horizontalNeighbors)
-                {
-                    Vector3Int neighbor = curr + offset;
-                    if (neighbor.y == ActiveLayerY && occupiedCells.Contains(neighbor) && !visited.Contains(neighbor))
-                    {
-                        if (AreCellsSameColor(startCell, neighbor))
-                        {
-                            visited.Add(neighbor);
-                            group.Add(neighbor);
-                            queue.Enqueue(neighbor);
-                        }
-                    }
-                }
-            }
-
-            // Condition: The same-color horizontal group size must be at least 2
-            if (group.Count < 2)
-            {
-                continue;
-            }
-
-            // Check if any block in this group is adjacent horizontally to a frozen cell in the same layer
-            foreach (var cell in group)
-            {
-                foreach (var offset in horizontalNeighbors)
-                {
-                    Vector3Int neighbor = cell + offset;
-                    if (neighbor.y == ActiveLayerY && frozenCells.Contains(neighbor))
-                    {
-                        cellsToThaw.Add(neighbor);
-                        foreach (var gCell in group)
-                        {
-                            if (occupiedCells.Contains(gCell))
-                            {
-                                cellsToExplode.Add(gCell);
-                            }
-                        }
-                    }
-                }
+                Vector3Int neighbor = cell + offset;
+                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
             }
         }
 
@@ -1810,7 +1685,7 @@ public class GridManager : MonoBehaviour
             return false;
         }
 
-        StartCoroutine(AnimateExplodeAndThaw(cellsToExplode, cellsToThaw, () => onComplete?.Invoke(true)));
+        StartCoroutine(AnimateThaw(cellsToThaw, () => onComplete?.Invoke(true)));
         return true;
     }
 
@@ -1837,49 +1712,17 @@ public class GridManager : MonoBehaviour
         RefreshLayerVisibility();
     }
 
-    private IEnumerator AnimateExplodeAndThaw(HashSet<Vector3Int> cellsToExplode, HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
+    // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden bu coroutine hem "patlayan" hücreleri (grubu)
+    // hem "eriyen" buz hücrelerini birlikte animasyonluyordu. Patlama kavramı tamamen kalktığı
+    // için sadece erime kaldı — hiçbir hücre occupiedCells'ten çıkarılmıyor/yok olmuyor.
+    private IEnumerator AnimateThaw(HashSet<Vector3Int> cellsToThaw, System.Action onComplete)
     {
-        // 1. Capture GameObjects and Colors before logically clearing them
-        Dictionary<Vector3Int, GameObject> gosToDestroy = new Dictionary<Vector3Int, GameObject>();
-        Dictionary<Vector3Int, Color> capturedColors = new Dictionary<Vector3Int, Color>();
-        
-        foreach (var cell in cellsToExplode)
-        {
-            if (cellObjects.TryGetValue(cell, out var go) && go != null)
-            {
-                gosToDestroy[cell] = go;
-            }
-            else if (prefilledRenderers.TryGetValue(cell, out var prefilledRend) && prefilledRend != null)
-            {
-                gosToDestroy[cell] = prefilledRend.gameObject;
-            }
-
-            if (cellColors.TryGetValue(cell, out var col))
-            {
-                capturedColors[cell] = col;
-            }
-            else
-            {
-                capturedColors[cell] = Color.white;
-            }
-        }
-
-        // 2. LOGICAL CLEAR IMMEDIATELY: Fixes premature Game Over
-        foreach (var cell in cellsToExplode)
-        {
-            occupiedCells.Remove(cell);
-            cellColors.Remove(cell);
-            cellMatIndex.Remove(cell);
-            cellObjects.Remove(cell);
-            prefilledRenderers.Remove(cell);
-        }
-
         foreach (var cell in cellsToThaw)
         {
             frozenCells.Remove(cell);
         }
-        
-        int pendingEffects = gosToDestroy.Count + cellsToThaw.Count;
+
+        int pendingEffects = cellsToThaw.Count;
         if (pendingEffects == 0)
         {
             onComplete?.Invoke();
@@ -1895,65 +1738,6 @@ public class GridManager : MonoBehaviour
             }
         };
 
-        // 3. Play Ice Break Effect for Exploded Blocks
-        foreach (var kvp in gosToDestroy)
-        {
-            var cell = kvp.Key;
-            var go = kvp.Value;
-            Color blockColor = capturedColors.ContainsKey(cell) ? capturedColors[cell] : Color.white;
-
-            // Bu hücrenin zaten bir ghost/hedef objesi var mı? Sadece normal "Cube_" hücrelerde
-            // olur — prefilled hücreler için Initialize() hiç ghost üretmez (bkz. targetRenderers
-            // vs prefilledRenderers ayrımı). Ghost yoksa patlayan küpün kendisini ghost'a çevireceğiz.
-            bool hasExistingGhost = targetRenderers.TryGetValue(cell, out var targetRend) && targetRend != null;
-            if (hasExistingGhost)
-            {
-                // Parça yok olurken hemen ghost grid'i göster
-                targetRend.enabled = true;
-            }
-
-            if (IceBreakEffect.Instance != null)
-            {
-                // Bu bloklar buzu eritiyor — patlamadan önce kısa bir ısı-temas parıltısı
-                IceBreakEffect.PlayContactHeatFlash(go);
-
-                if (hasExistingGhost)
-                {
-                    IceBreakEffect.Play(go, blockColor, onOneEffectDone);
-                }
-                else
-                {
-                    // Prefilled küp: altında hazır bir ghost yok, yoksa hücre kalıcı olarak
-                    // boş/görünmez kalır. hideTarget:false ile küp hiç gizlenmiyor/kaybolmuyor —
-                    // sadece kısa bir parlama + sıçrama efekti oynuyor, animasyon bitince
-                    // kendi Renderer'ını normal bir hedef (ghost) hücresine dönüştürüyoruz.
-                    var prefilledRend = go.GetComponentInChildren<Renderer>(true);
-                    IceBreakEffect.Play(go, blockColor, () =>
-                    {
-                        RestoreAsGhostTarget(cell, prefilledRend);
-                        onOneEffectDone();
-                    }, hideTarget: false);
-                }
-            }
-            else
-            {
-                if (hasExistingGhost)
-                {
-                    go.transform.DOScale(Vector3.zero, 0.2f).OnComplete(() => {
-                        Destroy(go);
-                        onOneEffectDone();
-                    });
-                }
-                else
-                {
-                    // Ghost'a dönüşecek küp hiç gizlenmesin/küçülmesin — direkt ghost'a çevir.
-                    RestoreAsGhostTarget(cell, go.GetComponentInChildren<Renderer>(true));
-                    onOneEffectDone();
-                }
-            }
-        }
-
-        // 4. Play Ice Melt Effect for Thawed Ice Blocks
         foreach (var cell in cellsToThaw)
         {
             if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)

@@ -5,7 +5,7 @@ using System.Linq;
 
 // ═══════════════════════════════════════════════════════════════════
 //  LEVEL SOLVER  —  Seviye Çözülebilirlik ve Zorluk Analizi
-//  BlockMerge3D  •  Backtracking ile geometrik + renk çözülebilirlik
+//  BlockMerge3D  •  Backtracking ile saf geometrik çözülebilirlik (renk kısıtı yok)
 // ═══════════════════════════════════════════════════════════════════
 
 public class LevelSolver
@@ -28,13 +28,11 @@ public class LevelSolver
     private Vector3Int gridSize;
     private HashSet<Vector3Int> targetCells;
     private HashSet<Vector3Int> prefilledCells;
-    private Dictionary<Vector3Int, int> cellMatIndex;
     private HashSet<Vector3Int> frozenCells;
     private List<PieceData> pieces;
 
     // ── Çözüm Durumu ──────────────────────────────────────────────
     private HashSet<Vector3Int> currentOccupied;
-    private Dictionary<Vector3Int, int> currentMatIndex;
     private List<PlacementStep> currentSolution;
     private SolverResult bestResult;
 
@@ -94,12 +92,10 @@ public class LevelSolver
             };
         }
 
-        // Buz (frozen) hücre YOKSA hacim tam eşit olmak zorunda (fazlalık her zaman şüphelidir).
-        // Buz VARSA fazlalık meşru olabilir: bir parça buza değip patladığında (bkz.
-        // ResolveFrozenCellsInSolver) o hücreler yeniden doldurulmalı — bu "buz vergisi" ham hedef
-        // hacminden FAZLA parça gerektirir. Sıkı eşitlik burada yanlış pozitif ("Fazla hücre") üretip
-        // aslında çözülebilir, sadece buz vergisi ödeyen seviyeleri gereksiz yere reddediyordu.
-        if (totalPieceCells > emptyTargetCells && frozenCells.Count == 0)
+        // Renksiz sisteme geçişle birlikte buz artık sadece anlık erime (bkz.
+        // ResolveFrozenCellsInSolver) — hiçbir hücre kaybolmuyor, "buz vergisi" diye bir şey
+        // kalmadı. Yani buz olsun olmasın, parça hacmi her zaman hedefe TAM eşit olmalı.
+        if (totalPieceCells > emptyTargetCells)
         {
             return new SolverResult
             {
@@ -114,7 +110,6 @@ public class LevelSolver
         searchTimedOut = false;
 
         currentOccupied = new HashSet<Vector3Int>(prefilledCells);
-        currentMatIndex = new Dictionary<Vector3Int, int>(cellMatIndex);
         currentSolution = new List<PlacementStep>();
         bestResult = new SolverResult { isSolvable = false };
 
@@ -137,7 +132,7 @@ public class LevelSolver
         }
         else
         {
-            bestResult.failureReason = bestResult.failureReason ?? "Çözüm bulunamadı (renk/geometri kısıtları)";
+            bestResult.failureReason = bestResult.failureReason ?? "Çözüm bulunamadı (geometri kısıtları)";
         }
 
         return bestResult;
@@ -169,16 +164,6 @@ public class LevelSolver
         targetCells = new HashSet<Vector3Int>(holder.occupiedCells);
         prefilledCells = new HashSet<Vector3Int>(holder.prefilledCells ?? new List<Vector3Int>());
         frozenCells = new HashSet<Vector3Int>(holder.frozenCells ?? new List<Vector3Int>());
-
-        // Material indekslerini hazırla
-        cellMatIndex = new Dictionary<Vector3Int, int>();
-        if (holder.prefilledCells != null && holder.prefilledMaterialIndices != null)
-        {
-            for (int i = 0; i < holder.prefilledCells.Count && i < holder.prefilledMaterialIndices.Count; i++)
-            {
-                cellMatIndex[holder.prefilledCells[i]] = holder.prefilledMaterialIndices[i];
-            }
-        }
     }
 
     private bool BacktrackingSolve(int pieceIdx)
@@ -201,12 +186,6 @@ public class LevelSolver
         // Tüm parçalar kullanıldı ama hala boşluk var
         if (pieceIdx >= pieces.Count)
             return false;
-
-        // ERKEN BUDAMA: Herhangi bir katmanda çözülemez renk çakışması varsa dur
-        if (HasIrrecoverableColorConflict())
-        {
-            return false;
-        }
 
         // Collapse-aware: oyuncu gerçek oyunda HER ZAMAN sadece en alttaki tamamlanmamış
         // katmana yerleştirme yapabilir (bkz. GridManager.ActiveLayerY / CanPlace). Arama
@@ -240,7 +219,7 @@ public class LevelSolver
                 // Sadece aktif (en alttaki tamamlanmamış) katmandaki olası pozisyonları dene
                 foreach (var offset in GetPossibleOffsets(rotatedCells, activeLayer))
                 {
-                    if (TryPlacePiece(pieces[i].index, rotatedCells, offset, rotation, activeLayer, out int materialIdx))
+                    if (TryPlacePiece(pieces[i].index, rotatedCells, offset, rotation, activeLayer))
                     {
                         // Özyinelemeli arama
                         if (BacktrackingSolve(pieceIdx + 1))
@@ -259,9 +238,7 @@ public class LevelSolver
     }
 
     // GridManager.TryFindFirstIncompleteLayer (GridManager.cs) ile aynı mantık: en alttaki
-    // dolu-olmayan katmanı döndürür. Bir katman "dolu ama tek renk değilse" de tamamlanmamış
-    // sayılır — TryPlacePiece'in katman-içi renk kısıtı bunun pratikte oluşmasını zaten
-    // engelliyor, ama savunmacı olarak burada da kontrol ediyoruz.
+    // dolu-olmayan katmanı döndürür.
     private int GetLowestIncompleteLayer()
     {
         int minY = targetCells.Min(c => c.y);
@@ -274,21 +251,13 @@ public class LevelSolver
 
             bool allFilled = cellsInLayer.All(c => currentOccupied.Contains(c));
             if (!allFilled) return y;
-
-            var matsInLayer = cellsInLayer
-                .Where(c => currentMatIndex.ContainsKey(c))
-                .Select(c => currentMatIndex[c])
-                .Distinct()
-                .ToList();
-            if (matsInLayer.Count > 1) return y;
         }
 
         return maxY + 1; // tüm katmanlar tamamlandı
     }
 
-    private bool TryPlacePiece(int pieceIndex, List<Vector3Int> cells, Vector3Int offset, Quaternion rotation, int activeLayerY, out int materialIdx)
+    private bool TryPlacePiece(int pieceIndex, List<Vector3Int> cells, Vector3Int offset, Quaternion rotation, int activeLayerY)
     {
-        materialIdx = -1;
         List<Vector3Int> worldCells = new List<Vector3Int>();
 
         // 1. Geometrik validasyon
@@ -327,76 +296,14 @@ public class LevelSolver
             worldCells.Add(worldCell);
         }
 
-        // 2. Renk çözülebilirliği kontrolü - optimize edilmiş
-        var layersAffected = worldCells.Select(c => c.y).Distinct().ToList();
-        materialIdx = pieceIndex % 8;
-
-        foreach (int y in layersAffected)
-        {
-            var newCellsInLayer = worldCells.Where(c => c.y == y).ToList();
-            var occupiedInLayer = currentOccupied.Where(c => c.y == y).ToList();
-            var matsInLayer = occupiedInLayer
-                .Where(c => currentMatIndex.ContainsKey(c))
-                .Select(c => currentMatIndex[c])
-                .Distinct()
-                .ToList();
-
-            // ERKEN BUDAMA: Katmanda zaten karışık renkler varsa red
-            if (matsInLayer.Count > 1)
-            {
-                return false;
-            }
-
-            // Katmanda mevcut renk varsa, yeni parça aynı renkte olmalı
-            if (matsInLayer.Count == 1)
-            {
-                materialIdx = matsInLayer[0];
-            }
-
-            // Katman boyutu kontrolü
-            int totalInLayer = targetCells.Count(c => c.y == y);
-            int currentOccupiedInLayer = occupiedInLayer.Count;
-            int afterPlacement = currentOccupiedInLayer + newCellsInLayer.Count;
-
-            // Katman dolacaksa, tüm hücreler aynı renkte olmalı
-            if (afterPlacement == totalInLayer)
-            {
-                if (matsInLayer.Count > 1)
-                {
-                    return false;
-                }
-            }
-            
-            // ERKEN BUDAMA 2: Katman yarı doluyken bile renk çakışması kontrolü
-            // Eğer bu parça farklı renkte ise ve katman zaten %30+ doluysa, riskli
-            if (matsInLayer.Count == 1 && matsInLayer[0] != materialIdx)
-            {
-                // Bu parça mevcut renge uymuyorsa red et
-                return false;
-            }
-            
-            // ERKEN BUDAMA 3: Katman %50+ doluyken, kalan hücre sayısı ile 
-            // yerleştirilebilecek parça sayısını kontrol et
-            float fillRatio = (float)currentOccupiedInLayer / totalInLayer;
-            if (fillRatio > 0.5f)
-            {
-                int remainingCells = totalInLayer - afterPlacement;
-                // Eğer kalan hücre sayısı çok az ve karışık renk riski varsa budama yap
-                if (remainingCells > 0 && remainingCells < 3 && matsInLayer.Count == 0)
-                {
-                    // İlk rengi belirlerken dikkatli ol - küçük boşluklarda sorun çıkabilir
-                }
-            }
-        }
-
-        // 3. Yerleştir
+        // 2. Yerleştir (renksiz sistemde katman içi renk uzlaşması diye bir şey yok, sadece
+        // geometri — bkz. dosya başındaki not).
         var step = new PlacementStep
         {
             pieceIndex = pieceIndex,
             offset = offset,
             rotation = rotation,
-            cells = new List<Vector3Int>(worldCells),
-            materialIndex = materialIdx
+            cells = new List<Vector3Int>(worldCells)
         };
 
         currentSolution.Add(step);
@@ -404,11 +311,11 @@ public class LevelSolver
         foreach (var worldCell in worldCells)
         {
             currentOccupied.Add(worldCell);
-            currentMatIndex[worldCell] = materialIdx;
         }
 
-        // Simulate ice thawing and block explosion in the active layer (which is offset.y + cells[0].y)
-        ResolveFrozenCellsInSolver(step, offset.y + cells[0].y);
+        // Buza komşu olan hücreler varsa an be an erit (bkz. GridManager.CheckAndResolveFrozenCells
+        // ile birebir eşleşmesi gereken kural: temas = erime, grup/renk şartı yok).
+        ResolveFrozenCellsInSolver(step);
 
         return true;
     }
@@ -426,30 +333,20 @@ public class LevelSolver
             frozenCells.Add(cell);
         }
 
-        // 2. Restore exploded cells back to occupied
-        foreach (var item in lastStep.explodedCells)
-        {
-            currentOccupied.Add(item.cell);
-            currentMatIndex[item.cell] = item.materialIndex;
-        }
-
-        // 3. Remove placed piece's cells
+        // 2. Remove placed piece's cells
         foreach (var cell in lastStep.cells)
         {
             currentOccupied.Remove(cell);
-            currentMatIndex.Remove(cell);
         }
     }
 
-    private void ResolveFrozenCellsInSolver(PlacementStep step, int activeLayerY)
+    // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
+    // yeni yerleşen HERHANGİ bir hücre buza yatay komşuysa buz anında erir. Grup/renk/boyut
+    // şartı yok, hiçbir hücre kaybolmuyor (renksiz sisteme geçişle "buz vergisi" kavramı da
+    // tamamen kalktı — bkz. SolveFromPrefabs'taki hacim eşitliği kontrolü).
+    private void ResolveFrozenCellsInSolver(PlacementStep step)
     {
         if (frozenCells.Count == 0) return;
-
-        var cellsInLayer = targetCells.Where(c => c.y == activeLayerY).ToList();
-        var occupiedInLayer = cellsInLayer.Where(c => currentOccupied.Contains(c)).ToList();
-
-        var groups = new List<List<Vector3Int>>();
-        var visited = new HashSet<Vector3Int>();
 
         var horizontalNeighbors = new Vector3Int[]
         {
@@ -459,73 +356,13 @@ public class LevelSolver
             new Vector3Int(0, 0, -1)
         };
 
-        foreach (var cell in occupiedInLayer)
-        {
-            if (visited.Contains(cell)) continue;
-            if (!currentMatIndex.TryGetValue(cell, out int matIdx)) continue;
-
-            var group = new List<Vector3Int>();
-            var queue = new Queue<Vector3Int>();
-
-            queue.Enqueue(cell);
-            visited.Add(cell);
-
-            while (queue.Count > 0)
-            {
-                var curr = queue.Dequeue();
-                group.Add(curr);
-
-                foreach (var offset in horizontalNeighbors)
-                {
-                    Vector3Int neighbor = curr + offset;
-                    if (neighbor.y == activeLayerY && 
-                        occupiedInLayer.Contains(neighbor) && 
-                        !visited.Contains(neighbor))
-                    {
-                        if (currentMatIndex.TryGetValue(neighbor, out int nMatIdx) && nMatIdx == matIdx)
-                        {
-                            visited.Add(neighbor);
-                            queue.Enqueue(neighbor);
-                        }
-                    }
-                }
-            }
-
-            if (group.Count >= 2)
-            {
-                groups.Add(group);
-            }
-        }
-
         var cellsToThaw = new HashSet<Vector3Int>();
-        // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kısım:
-        // buza komşu olan grup sadece buzu ERİTMEKLE kalmıyor, GRUBUN KENDİSİ DE PATLIYOR
-        // (bkz. GridManager.AnimateExplodeAndThaw → occupiedCells.Remove). Önceden burada sadece
-        // thaw simüle ediliyordu; bu, solver'ın "9 hamlede çözülür" dediği bir seviyenin gerçek
-        // oyunda patlayan hücreleri yeniden dolduracak parça kalmadığı için OYNANAMAZ çıkmasına
-        // yol açan gerçek bir hataydı (bkz. PlacementStep.explodedCells — alan zaten vardı ve
-        // UndoPlacement onu geri yüklüyordu, ama hiçbir yerde doldurulmuyordu).
-        var cellsToExplode = new HashSet<Vector3Int>();
-
-        foreach (var group in groups)
+        foreach (var cell in step.cells)
         {
-            bool touchesFrozen = false;
-            foreach (var cell in group)
+            foreach (var offset in horizontalNeighbors)
             {
-                foreach (var offset in horizontalNeighbors)
-                {
-                    Vector3Int neighbor = cell + offset;
-                    if (neighbor.y == activeLayerY && frozenCells.Contains(neighbor))
-                    {
-                        cellsToThaw.Add(neighbor);
-                        touchesFrozen = true;
-                    }
-                }
-            }
-
-            if (touchesFrozen)
-            {
-                foreach (var cell in group) cellsToExplode.Add(cell);
+                Vector3Int neighbor = cell + offset;
+                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
             }
         }
 
@@ -533,16 +370,6 @@ public class LevelSolver
         {
             frozenCells.Remove(cell);
             step.thawedCells.Add(cell);
-        }
-
-        foreach (var cell in cellsToExplode)
-        {
-            if (!currentOccupied.Contains(cell)) continue;
-
-            int matIdx = currentMatIndex.TryGetValue(cell, out int mi) ? mi : -1;
-            step.explodedCells.Add(new ExplodedCellInfo { cell = cell, materialIndex = matIdx });
-            currentOccupied.Remove(cell);
-            currentMatIndex.Remove(cell);
         }
     }
 
@@ -555,7 +382,7 @@ public class LevelSolver
         {
             if (!IsLayerCompleteAndValid(y))
             {
-                bestResult.failureReason = $"Katman Y={y} geçersiz (farklı renkler veya eksik hücreler)";
+                bestResult.failureReason = $"Katman Y={y} geçersiz (eksik hücreler)";
                 return false;
             }
         }
@@ -568,21 +395,13 @@ public class LevelSolver
         var cellsInLayer = targetCells.Where(c => c.y == y).ToList();
         if (cellsInLayer.Count == 0) return true;
 
-        // Tüm hücreler dolu mu?
         foreach (var cell in cellsInLayer)
         {
             if (!currentOccupied.Contains(cell))
                 return false;
         }
 
-        // Hepsi aynı materyalde mi?
-        var materials = cellsInLayer
-            .Where(c => currentMatIndex.ContainsKey(c))
-            .Select(c => currentMatIndex[c])
-            .Distinct()
-            .ToList();
-
-        return materials.Count == 1 && materials[0] >= 0;
+        return true;
     }
 
     private List<Quaternion> GetAllRotations()
@@ -679,33 +498,6 @@ public class LevelSolver
         return "zor";
     }
 
-    private bool HasIrrecoverableColorConflict()
-    {
-        // Her katmanı kontrol et: karışık renkler varsa çözülemez
-        int minY = targetCells.Any() ? targetCells.Min(c => c.y) : 0;
-        int maxY = targetCells.Any() ? targetCells.Max(c => c.y) : 0;
-
-        for (int y = minY; y <= maxY; y++)
-        {
-            var cellsInLayer = targetCells.Where(c => c.y == y).ToList();
-            if (cellsInLayer.Count == 0) continue;
-
-            var occupiedInLayer = cellsInLayer.Where(c => currentOccupied.Contains(c)).ToList();
-            var matsInLayer = occupiedInLayer
-                .Where(c => currentMatIndex.ContainsKey(c))
-                .Select(c => currentMatIndex[c])
-                .Distinct()
-                .ToList();
-
-            // Birden fazla farklı renk varsa çözülemez
-            if (matsInLayer.Count > 1)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -727,23 +519,14 @@ public class SolverResult
 }
 
 [System.Serializable]
-public struct ExplodedCellInfo
-{
-    public Vector3Int cell;
-    public int materialIndex;
-}
-
-[System.Serializable]
 public class PlacementStep
 {
     public int pieceIndex;
     public Vector3Int offset;
     public Quaternion rotation;
     public List<Vector3Int> cells;
-    public int materialIndex;
 
     public List<Vector3Int> thawedCells = new List<Vector3Int>();
-    public List<ExplodedCellInfo> explodedCells = new List<ExplodedCellInfo>();
 }
 
 public class PieceData
