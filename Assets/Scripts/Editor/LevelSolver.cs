@@ -94,7 +94,12 @@ public class LevelSolver
             };
         }
 
-        if (totalPieceCells > emptyTargetCells)
+        // Buz (frozen) hücre YOKSA hacim tam eşit olmak zorunda (fazlalık her zaman şüphelidir).
+        // Buz VARSA fazlalık meşru olabilir: bir parça buza değip patladığında (bkz.
+        // ResolveFrozenCellsInSolver) o hücreler yeniden doldurulmalı — bu "buz vergisi" ham hedef
+        // hacminden FAZLA parça gerektirir. Sıkı eşitlik burada yanlış pozitif ("Fazla hücre") üretip
+        // aslında çözülebilir, sadece buz vergisi ödeyen seviyeleri gereksiz yere reddediyordu.
+        if (totalPieceCells > emptyTargetCells && frozenCells.Count == 0)
         {
             return new SolverResult
             {
@@ -211,6 +216,14 @@ public class LevelSolver
         // Kullanılmamış bir parça seç. Aynı şekle sahip (örn. Tetromino modunda birçok özdeş
         // parça) birden fazla parça varsa, bu dalda sadece BİRİNİ deneriz — diğerleri tamamen
         // aynı alt-ağacı tekrar keşfeder ve arama uzayını (N! kadar) gereksiz yere patlatır.
+        // (Bir ara bu budamanın hatalı olduğu şüphelenilmişti — CreateMediumLevel testi aynı
+        // şekilden 2 parça gerektiğinde "çözülemez" çıkıyordu. Kök sebep izole edildiğinde asıl
+        // suçlunun o testteki BAĞIMSIZ bir gridSize Y/Z karışıklığı olduğu anlaşıldı — bkz. git
+        // geçmişi/LevelSolverTests.cs. Bu budama doğru ve güvenli: aynı şekle sahip iki parçadan
+        // BİRİNİN tüm rotasyon/offset kombinasyonlarıyla dene­nip başarısız olması, DİĞERİNİN de
+        // (aynı geometri, aynı arama durumu) başarısız olacağı anlamına gelir — sadece BU dal için,
+        // her recursion seviyesinde taze bir HashSet ile çalıştığı için farklı katman/derinliklerde
+        // aynı şeklin ayrı kopyaları yine denenir.)
         var triedShapesAtThisLevel = new HashSet<string>();
         for (int i = 0; i < pieces.Count; i++)
         {
@@ -485,9 +498,18 @@ public class LevelSolver
         }
 
         var cellsToThaw = new HashSet<Vector3Int>();
+        // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kısım:
+        // buza komşu olan grup sadece buzu ERİTMEKLE kalmıyor, GRUBUN KENDİSİ DE PATLIYOR
+        // (bkz. GridManager.AnimateExplodeAndThaw → occupiedCells.Remove). Önceden burada sadece
+        // thaw simüle ediliyordu; bu, solver'ın "9 hamlede çözülür" dediği bir seviyenin gerçek
+        // oyunda patlayan hücreleri yeniden dolduracak parça kalmadığı için OYNANAMAZ çıkmasına
+        // yol açan gerçek bir hataydı (bkz. PlacementStep.explodedCells — alan zaten vardı ve
+        // UndoPlacement onu geri yüklüyordu, ama hiçbir yerde doldurulmuyordu).
+        var cellsToExplode = new HashSet<Vector3Int>();
 
         foreach (var group in groups)
         {
+            bool touchesFrozen = false;
             foreach (var cell in group)
             {
                 foreach (var offset in horizontalNeighbors)
@@ -496,8 +518,14 @@ public class LevelSolver
                     if (neighbor.y == activeLayerY && frozenCells.Contains(neighbor))
                     {
                         cellsToThaw.Add(neighbor);
+                        touchesFrozen = true;
                     }
                 }
+            }
+
+            if (touchesFrozen)
+            {
+                foreach (var cell in group) cellsToExplode.Add(cell);
             }
         }
 
@@ -505,6 +533,16 @@ public class LevelSolver
         {
             frozenCells.Remove(cell);
             step.thawedCells.Add(cell);
+        }
+
+        foreach (var cell in cellsToExplode)
+        {
+            if (!currentOccupied.Contains(cell)) continue;
+
+            int matIdx = currentMatIndex.TryGetValue(cell, out int mi) ? mi : -1;
+            step.explodedCells.Add(new ExplodedCellInfo { cell = cell, materialIndex = matIdx });
+            currentOccupied.Remove(cell);
+            currentMatIndex.Remove(cell);
         }
     }
 

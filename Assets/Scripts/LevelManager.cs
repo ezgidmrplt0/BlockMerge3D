@@ -50,6 +50,18 @@ public class LevelManager : MonoBehaviour
     // çıkabilir (örn. önizleme kırmızı gösterirken parça mor gelir). Bu yüzden renk, önizleme
     // oluşturulduğu anda BİR KEZ hesaplanıp burada saklanır, spawn'da yeniden hesaplanmaz.
     private Material nextPieceMaterial;
+
+    // Aktif katman tamamen boşken GetDominantMaterialOnActiveLayer'ın seçtiği "rastgele başlangıç
+    // rengi" bu alanlarda katman bazında önbelleğe alınır (bkz. GetDominantMaterialOnActiveLayer
+    // içindeki açıklama — kök sebep: LoadLevel, hiçbir parça yerleşmeden ÖNCE maxVisiblePieces
+    // kadar kartı art arda spawn ediyor, her biri kendi "sıradaki parça" hazırlığında bu metodu
+    // çağırıyordu; önbellek olmadan HER çağrı ayrı bir Random.Range yapıyordu, yani seviyenin ilk
+    // kartları farklı farklı rastgele renkler alabiliyordu — ilk parça yerleştirilip katmanın
+    // gerçek rengi belli olduğunda, diğer zaten-spawn-edilmiş kartlar "yanlış renkte" kalıyor,
+    // katman tüm hücreleri dolsa bile monokromluk şartını (IsLayerComplete) hiç sağlayamıyordu).
+    private int emptyLayerColorCacheY = int.MinValue;
+    private Material emptyLayerColorCache;
+
     private GameObject nextPiecePreviewParent;
     private Camera nextPiecePreviewCam;
     private GameObject nextPiecePreview3D;
@@ -294,11 +306,25 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // Dominant renk bulunamadıysa (katman boşsa) paletten rastgele seç
+        // Dominant renk bulunamadıysa (katman boşsa) paletten rastgele seç — ama sadece BİR KEZ bu
+        // katman için: aynı katman aktifken tekrar tekrar çağrılırsa (bkz. yukarıdaki alan
+        // yorumu) hep AYNI önbelleklenmiş rengi döndür, yoksa aynı katmana ait farklı kartlar
+        // birbirinden farklı rastgele renkler alıp monokromluk şartını asla sağlayamaz.
+        if (emptyLayerColorCacheY == gridManager.ActiveLayerY && emptyLayerColorCache != null)
+        {
+            return emptyLayerColorCache;
+        }
+
         if (pieceMaterials != null && pieceMaterials.Length > 0)
         {
             var valid = pieceMaterials.Where(m => m != null).ToList();
-            if (valid.Count > 0) return valid[Random.Range(0, valid.Count)];
+            if (valid.Count > 0)
+            {
+                var chosen = valid[Random.Range(0, valid.Count)];
+                emptyLayerColorCacheY = gridManager.ActiveLayerY;
+                emptyLayerColorCache = chosen;
+                return chosen;
+            }
         }
 
         return null;
@@ -677,6 +703,8 @@ public class LevelManager : MonoBehaviour
         // NEXT PIECE PREVIEW RESET
         nextPieceIndex = -1;
         nextPieceMaterial = null;
+        emptyLayerColorCacheY = int.MinValue;
+        emptyLayerColorCache = null;
         ClearNextPiecePreview();
     }
 
@@ -845,34 +873,28 @@ public class LevelManager : MonoBehaviour
             col.enabled = true;
     }
 
+    // DÜZELTİLDİ: eskiden temizlenmemiş TÜM katmanları tarıyordu ("şu an aktif olmayan ama
+    // ileride sığacağı bir katman var" → "yerleştirilebilir" sayılıyordu). Ama GridManager.CanPlace
+    // SADECE ActiveLayerY'ye yerleştirmeye izin veriyor — yani oyuncu, geleceğe ait bir katmanda
+    // "ilerleyemiyor", katmanlar kesin sırayla (alttan üste) işleniyor. Eski davranış şu sessiz
+    // kilitlenmeye yol açıyordu: elindeki TÜM kartlar henüz aktif olmayan bir katmana ait olabilir
+    // (SpawnRandomPiece kart seçerken katman gözetmiyordu) — CheckGameOver bunu "hâlâ oynanabilir"
+    // sanıp asla "Kaybettin" göstermiyordu, oyun sonsuza dek donuyordu. Artık sadece ActiveLayerY'ye
+    // gerçekten sığıp sığmadığına bakıyor — CanPlace ile birebir tutarlı.
     private bool IsShapePlaceable(GameObject shapePrefabOrGO)
     {
-        if (shapePrefabOrGO == null) return false;
+        return CanShapeFitActiveLayer(shapePrefabOrGO);
+    }
+
+    // PrepareNextPieceIndex (aktif katmana uyan parçaları önceliklendirmek için) ve IsShapePlaceable
+    // (gerçek deadlock kontrolü için) tarafından paylaşılan tek doğru kaynak.
+    private bool CanShapeFitActiveLayer(GameObject shapePrefabOrGO)
+    {
+        if (shapePrefabOrGO == null || gridManager == null) return false;
         var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
         if (h == null) return false;
 
-        // Get all active layers that are not cleared and have cells
-        List<int> activeLayers = new List<int>();
-        int minY = gridManager.GridMinY;
-        int maxY = gridManager.GridMaxY;
-        for (int y = minY; y <= maxY; y++)
-        {
-            if (gridManager.IsLayerCleared(y)) continue;
-            
-            bool hasCells = false;
-            foreach (var cell in gridManager.TargetCells)
-            {
-                if (cell.y == y) { hasCells = true; break; }
-            }
-            if (!hasCells)
-            {
-                foreach (var cell in gridManager.occupiedCells)
-                {
-                    if (cell.y == y) { hasCells = true; break; }
-                }
-            }
-            if (hasCells) activeLayers.Add(y);
-        }
+        int activeLayer = gridManager.ActiveLayerY;
 
         Quaternion[] rots = {
             Quaternion.identity,
@@ -883,14 +905,11 @@ public class LevelManager : MonoBehaviour
             Quaternion.Euler(270, 0, 0)
         };
 
-        foreach (var layerY in activeLayers)
+        foreach (var r in rots)
         {
-            foreach (var r in rots)
-            {
-                var rotated = GridManager.RotateCells(h.occupiedCells, r);
-                var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, layerY);
-                if (offsets.Count > 0) return true;
-            }
+            var rotated = GridManager.RotateCells(h.occupiedCells, r);
+            var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, activeLayer);
+            if (offsets.Count > 0) return true;
         }
 
         return false;
@@ -1180,7 +1199,24 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
+        // DÜZELTİLDİ: eskiden availableIndices içinden TAMAMEN rastgele seçiliyordu — katman
+        // gözetmeden. Bu, oyuncuya art arda "henüz aktif olmayan katmana ait" kartlar dağıtıp
+        // (bkz. IsShapePlaceable'daki fix notu) sessiz bir kilitlenmeye yol açabiliyordu. Şimdi,
+        // mevcut havuzdan aktif katmana GERÇEKTEN sığan parçalar varsa seçim onların arasından
+        // yapılıyor — hâlâ rastgele (çeşitlilik korunuyor), ama artık "boşa" bir kart asla
+        // dağıtılmıyor. Aktif katmana sığan hiçbir parça kalmadıysa (o katman için gereken tüm
+        // parçalar zaten dağıtılmış/yerleştirilmiş demektir) eski tam-rastgele davranışa düşülür.
+        List<int> fitsActiveLayer = new List<int>();
+        foreach (int i in availableIndices)
+        {
+            if (CanShapeFitActiveLayer(allPiecePrefabs[i]))
+            {
+                fitsActiveLayer.Add(i);
+            }
+        }
+        List<int> pickFrom = fitsActiveLayer.Count > 0 ? fitsActiveLayer : availableIndices;
+
+        nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
         // Bu parçanın rengi ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de
         // parça gerçekten spawn edilirken (bkz. SpawnRandomPiece) AYNI renk kullanılacak.
         nextPieceMaterial = GetDominantMaterialOnActiveLayer();

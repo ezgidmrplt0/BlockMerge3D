@@ -16,6 +16,7 @@
 | Merge/hint sistemi | Hiç bahsi yok | `LevelManager.FindBestPieceIndex()` + `GridManager.GetMergeColor()` — otomatik ipucu/kolaylaştırma katmanı var | Bölüm 9'a yeni bölüm olarak eklendi |
 | Puanlama | `cellsCleared * pointsPerCell` her temizlemede işliyor varsayıldı | `lineClearEnabled = false` layer-mode'da sürekli kapalı; `ExplodeActiveLayer()` hiç skor eklemiyor — **puanlama şu an kopuk** | Zorluk skoru ile oyun-içi puan ayrıştırıldı, Bölüm 11'de not edildi |
 | Game Over / deadlock | Sadece aktif katman | `CheckGameOver()` **temizlenmemiş tüm katmanları** tarıyor, sadece görünen katmanı değil | Bölüm 8'e deadlock tanımı olarak eklendi |
+| **(2026-07-13 eklendi)** Buz eritme | "Bedava" — sadece erir, hiçbir şey kaybolmaz varsayılıyordu | `GridManager.AnimateExplodeAndThaw`: erimeyi tetikleyen ≥2 hücrelik aynı-renk grup da PATLAR, hücreler yeniden boşalır | Bölüm 2.4'e yeni zorunlu kural olarak eklendi; `LevelSolver.cs`'deki eksik patlama simülasyonu ve buna bağlı katı hacim-eşitliği ön-kontrolü aynı gün düzeltildi (kod içi yorumlarda tarihli) |
 
 ---
 
@@ -57,6 +58,25 @@ Bu, Solution Builder için şu anlama gelir:
 - Bir katmana atanan hücreler backtracking sırasında **doldurulmuş olmakla kalmayıp aynı renk grubuna** ait olmalı.
 - Piece Selector, bir katmana yerleştirilecek parçaları seçerken **o katmanın hedef rengini** önceden belirlemeli (katman başına 1 renk ataması).
 - `TryFindFirstIncompleteLayer()` mantığı önemli bir detay içeriyor: bir katman **dolu ama tek renk değilse**, yine "tamamlanmamış" sayılıyor — yani üretim sırasında yanlışlıkla bir katmana iki renk sızarsa (örneğin prefilled bir engelin rengi farklıysa) o seviye Solver tarafından geçersiz sayılmalı.
+
+### 2.4. ⭐ Zorunlu Ek Kural: Buz Eritme = Patlama (Explode-on-Thaw) [2026-07-13 eklendi]
+
+v1'de ve v2'nin ilk halinde hiç bahsi geçmeyen, ama oyunun gerçek koduna bakılınca ortaya çıkan **ikinci** çekirdek mekanik. Gerçek kod (`GridManager.CheckAndResolveFrozenCells` → `AnimateExplodeAndThaw`):
+
+```csharp
+// Yeni yerleştirilen parçanın komşu AYNI RENKTE bağlı grubu (>=2 hücre) buza komşuysa:
+// 1. Buz erir (frozenCells'ten çıkar) — v1/v2'nin önceden bildiği kısım budur.
+// 2. AMA grup da PATLAR: occupiedCells.Remove(her hücre) — grup TAMAMEN yok olur ve
+//    o hücreler yeniden BOŞ hedef hücresine döner, yeniden bir parça ile doldurulmalıdır.
+```
+
+**Bunun anlamı:** 2.2'deki katman monokromluk kuralı yüzünden bir katmandaki TÜM parçalar zorunlu olarak aynı renktedir. Yani buza komşu olan İLK parça (grup boyutu her zaman ≥2, çünkü tek parçalar bile genelde ≥2 hücrelidir) kaçınılmaz olarak patlar. Bu, düz "hacim eşitliği" (Bölüm 13, Kural eski hali) varsayımını bozar:
+
+> **Buz hücresi olan bir seviyede, gerekli parça hacmi HAM hedef hücre sayısından FAZLA olmalıdır** — her buz hücresi başına en az bir "buz vergisi" (patlayan grubun boyutu kadar, minimum 2 hücre) fazladan parça hacmi gerekir. Tek hücrelik (1-cell) bir parça buza tek başına değerse hiçbir şey olmaz (ne erir ne patlar) çünkü grup boyutu şartı (≥2) sağlanmaz — bu, "vergisiz" tek güvenli dokunuş yoludur ama katmanı asla tek başına tamamlayamaz.
+
+**Bulunan gerçek hata (2026-07-13):** `LevelSolver.cs`'in `ResolveFrozenCellsInSolver`'ı SADECE erimeyi simüle ediyordu, patlamayı hiç simüle etmiyordu (`PlacementStep.explodedCells` alanı ve `UndoPlacement`'taki geri-yükleme kodu zaten hazırdı ama hiçbir yerde doldurulmuyordu — yarım bırakılmış bir özellik). Bu yüzden solver, buz içeren seviyeleri "çözülebilir" diye onaylıyordu ama gerçek oyunda parça havuzu patlayan hücreleri yeniden dolduramıyordu — **çözülemez seviyeler yanlışlıkla doğrulanmış oluyordu**. Düzeltildi: `ResolveFrozenCellsInSolver` artık `GridManager.AnimateExplodeAndThaw` ile birebir eşleşiyor. Ayrıca `SolveFromPrefabs`'taki katı "parça hacmi == hedef hücre" ön-kontrolü, buz hücresi VARSA fazlalığa izin verecek şekilde gevşetildi (yoksa her buzlu seviye "Fazla hücre" diye anında reddediliyordu).
+
+**Henüz YAPILMAYAN (açık iş):** `SolutionFirstBuilder.cs` (Solution-First üretim) bu vergiyi hâlâ hesaba katmıyor — kendi kod yorumunda da yazdığı gibi "Renk VE buz erimesi simüle EDİLMEZ". Şu an buzlu bir seviye üretilecekse, üretici tarafın (Piece Selector / Solution Builder) parça havuzuna ELLE fazladan hacim eklemesi gerekiyor, aksi halde geometrik olarak "inşa edilebilir" görünen ama gerçek Solver'dan hiç geçemeyen (ya da makul sürede doğrulanamayan) seviyeler ortaya çıkabiliyor. Canlı doğrulamada tam da bu yüzden bir seviye (AI_Level_13, eski/deneysel) matematiksel olarak çözülemez bulundu ve LevelOrder'dan çıkarıldı; Level12 ise sıfır vergi payıyla üretildiği için buzsuz olarak yeniden üretildi (S/Z parçaları korunarak). Faz 3 tamamlanmış sayılmadan önce bu vergi, Piece Selector'a resmi olarak entegre edilmeli (bkz. Bölüm 6, Aşama 2).
 
 ### 2.3. Üretim Akışı (güncellendi)
 1. Zorluk profili seçilir (Kolay/Orta/Zor/Uzman)
@@ -241,13 +261,19 @@ Telemetri tabloları (medyan çözüm süresi, restart oranı, ipucu kullanımı
 | Deadlock'u sadece aktif katmana göre değerlendirmek | Tüm temizlenmemiş katmanları tara (Bölüm 8) |
 | Solver doğrulaması olmadan seviyeyi onaylamak | Her seviye için collapse-aware Solver çalıştır |
 | Timeout/hata durumunda seviyeyi yayına almak | Timeout'u "Belirsiz" kabul et, reddet |
+| **(Yeni)** Buz eritmeyi "bedava" saymak (patlamayı simüle etmemek) | Erime = patlama + yeniden doldurma (Bölüm 2.4); parça hacmine buz vergisi ekle |
+| **(Yeni)** Parça hacmi == hedef hücre sayısı şartını buzlu seviyelerde de sıkı uygulamak | Buz VARSA fazlalığa (vergiye) izin ver — sıkı eşitlik sadece buzsuz seviyede geçerli |
 
 **Zorunlu Koruma Kuralları:**
 1. Doğrulanmamış (`validated == false`) hiçbir seviye oyuna dahil edilemez
 2. Kütüphanede mükerrer (aynı imza) parça tespit edilirse uyarı verilmeli
 3. Zorluk profilleri güncellendiğinde tüm kayıtlı seviyeler yeniden puanlanmalı
-4. **(Yeni)** Bir katmana birden fazla renk ataması yapan hiçbir üretim çıktısı kabul edilmemeli
-5. **(Yeni)** Merge/hint sistemi (Bölüm 9) hakkında karar verilmeden Faz 3 tamamlanmış sayılmaz
+4. Bir katmana birden fazla renk ataması yapan hiçbir üretim çıktısı kabul edilmemeli
+5. Merge/hint sistemi (Bölüm 9) hakkında karar verilmeden Faz 3 tamamlanmış sayılmaz
+6. **(Yeni)** Buz hücresi içeren hiçbir seviye, Piece Selector "buz vergisi" (Bölüm 2.4) için hacim
+   ayırmadan üretilemez — Solution Builder/SolutionFirstBuilder'a bu mantık eklenmeden buzlu
+   otomatik üretim güvenilmez sayılmalı (2026-07-13 itibarıyla `SolutionFirstBuilder.cs`'de bu iş
+   henüz yapılmadı, bkz. Bölüm 2.4 sonu)
 
 ---
 
@@ -264,7 +290,7 @@ Telemetri tabloları (medyan çözüm süresi, restart oranı, ipucu kullanımı
 
 ## Ek B. Seviye Kabul Kontrol Listesi (güncellendi)
 
-- [ ] Parçaların toplam hacmi hedef şeklin hacmine eşit mi?
+- [ ] Parçaların toplam hacmi hedef şeklin hacmine eşit mi? (Buz hücresi VARSA: eşit DEĞİL, en az "buz vergisi" kadar FAZLA olmalı — bkz. Bölüm 2.4)
 - [ ] Her katmana atanan renk, o katmandaki tüm hücrelerde tutarlı mı? (`IsLayerComplete` monokromluk şartı)
 - [ ] Kayıtlı çözüm izi, collapse davranışı dahil gerçek oyun kurallarıyla tamamlanabiliyor mu?
 - [ ] Bağımsız Solver en az bir geçerli çözüm buluyor mu?

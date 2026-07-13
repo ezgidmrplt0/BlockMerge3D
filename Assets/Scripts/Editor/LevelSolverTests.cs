@@ -97,14 +97,19 @@ public class LevelSolverTests
     }
 
     /// <summary>
-    /// Çözülebilir orta zorluk seviye: 3x3x2, prefilled ve frozen içerir
+    /// Çözülebilir orta zorluk seviye: 3x3x2, prefilled içerir (buz yok — buz/patlama mekaniği
+    /// ayrıca CreateIceExplosionLevel'de izole ve minimal bir senaryoyla test ediliyor).
     /// </summary>
     public static (GameObject mainShape, List<GameObject> pieces) CreateMediumLevel()
     {
-        // Ana şekil: 3x3x2 (18 hücre)
+        // Ana şekil: 3x3x2 (18 hücre) — DÜZELTİLDİ: gridSize eskiden (3,3,2) idi ama hücreler
+        // x,z ekseninde 3'er, y ekseninde 2'şer dolduruluyor (aşağıdaki döngüye bak); yani Y/Z
+        // bileşenleri yer değiştirmişti. gridSize.z=2 sınırı yüzünden z=2'deki hücrelere HİÇBİR
+        // parça yerleştirilemiyordu (TryPlacePiece'in sınır kontrolü reddediyordu) — bu, bu
+        // testin ice/dedup düzeltmelerinden bağımsız, kendi başına çözülemez kılan gizli bir hataydı.
         GameObject main = new GameObject("TestMain_Medium");
         var holder = main.AddComponent<CubeShapeDataHolder>();
-        holder.gridSize = new Vector3Int(3, 3, 2);
+        holder.gridSize = new Vector3Int(3, 2, 3);
         holder.cellSize = 1f;
         holder.spacing = 0.1f;
         holder.occupiedCells = new List<Vector3Int>();
@@ -128,12 +133,7 @@ public class LevelSolverTests
             new Vector3Int(2, 1, 2)  // Köşe (üst katman, Y=1)
         };
         holder.prefilledMaterialIndices = new List<int> { 0, 0 }; // Aynı renk
-
-        // 1 frozen hücre
-        holder.frozenCells = new List<Vector3Int>
-        {
-            new Vector3Int(0, 0, 0) // Köşe
-        };
+        holder.frozenCells = new List<Vector3Int>();
 
         // 4 parça oluştur (toplam 16 hücre, 2 prefilled var, 18-2=16)
         List<GameObject> pieces = new List<GameObject>();
@@ -164,12 +164,13 @@ public class LevelSolverTests
         };
         pieces.Add(p2);
 
-        // Parça 3: Köşe (4 hücre) — DÜZELTİLDİ: 4. hücre eskiden (0,1,0) idi, yani parçanın
-        // kendi yerel şeklinde Y=1'e taşıyordu. Solver her parçanın TEK bir katmanda düz
-        // (aynı Y) olmasını zorunlu kılıyor (bkz. LevelSolver.TryPlacePiece) ve Y ekseni
-        // rotasyonu Y bileşenini asla değiştirmediği için bu parça hiçbir rotasyonla
-        // yerleştirilemiyordu — seviyeyi sessizce çözülemez kılan gizli bir hataydı.
-        GameObject p3 = new GameObject("Piece_Line");
+        // Parça 3 ve 4: L ve Kare'nin BİRER kopyası daha — DÜZELTİLDİ: eski "Line" ve "T"
+        // parçaları, katman 1'i (köşesi eksik 3x3) hiçbir rotasyonla döşeyemiyordu (elle
+        // doğrulandı: L+Kare çifti dışındaki HİÇBİR ikili — Line+T, T+Kare, Line+Kare — köşesi
+        // eksik bir 3x3'ü kalan boşluğun şekli tetromino-uyumsuz veya bağlantısız kaldığı için
+        // döşeyemiyor). L+Kare çiftinin kendisi tek bir katmanı doğru döşediği için (kalan 4 hücre
+        // birebir Kare'nin şekli), aynı çifti İKİNCİ katman için de tekrar kullanıyoruz.
+        GameObject p3 = new GameObject("Piece_L2");
         var p3h = p3.AddComponent<CubeShapeDataHolder>();
         p3h.gridSize = holder.gridSize;
         p3h.cellSize = holder.cellSize;
@@ -177,12 +178,11 @@ public class LevelSolverTests
         p3h.occupiedCells = new List<Vector3Int>
         {
             new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0),
-            new Vector3Int(2, 0, 0), new Vector3Int(0, 0, 1)
+            new Vector3Int(2, 0, 0), new Vector3Int(2, 0, 1)
         };
         pieces.Add(p3);
 
-        // Parça 4: T şekli (4 hücre)
-        GameObject p4 = new GameObject("Piece_T");
+        GameObject p4 = new GameObject("Piece_Square2");
         var p4h = p4.AddComponent<CubeShapeDataHolder>();
         p4h.gridSize = holder.gridSize;
         p4h.cellSize = holder.cellSize;
@@ -190,9 +190,55 @@ public class LevelSolverTests
         p4h.occupiedCells = new List<Vector3Int>
         {
             new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0),
-            new Vector3Int(2, 0, 0), new Vector3Int(1, 0, 1)
+            new Vector3Int(0, 0, 1), new Vector3Int(1, 0, 1)
         };
         pieces.Add(p4);
+
+        return (main, pieces);
+    }
+
+    /// <summary>
+    /// Minimal, elle doğrulanmış buz/patlama senaryosu: 1x3 tek katman, uçtaki hücre donmuş.
+    /// LevelSolver'ın ResolveFrozenCellsInSolver'ı artık gerçek oyundaki gibi (bkz.
+    /// GridManager.AnimateExplodeAndThaw) buza komşu aynı renkli grubu SADECE eritmekle kalmıyor,
+    /// o grubu da patlatıp yeniden doldurulmasını gerektiriyor — bu yüzden ham hedeften (3 hücre)
+    /// FAZLA parça hacmi (2+2+1=5) gerekiyor. Domino1 buza değip patlar+eritir (2 hücre "buz
+    /// vergisi"), Domino2+Filler kalan 3 hücreyi (eski buz hücresi dahil) doldurur.
+    /// </summary>
+    public static (GameObject mainShape, List<GameObject> pieces) CreateIceExplosionLevel()
+    {
+        GameObject main = new GameObject("TestMain_IceExplosion");
+        var holder = main.AddComponent<CubeShapeDataHolder>();
+        holder.gridSize = new Vector3Int(3, 1, 1);
+        holder.cellSize = 1f;
+        holder.spacing = 0.1f;
+        holder.occupiedCells = new List<Vector3Int>
+        {
+            new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0), new Vector3Int(2, 0, 0)
+        };
+        holder.prefilledCells = new List<Vector3Int>();
+        holder.prefilledMaterialIndices = new List<int>();
+        holder.frozenCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
+
+        List<GameObject> pieces = new List<GameObject>();
+
+        GameObject p1 = new GameObject("Domino1");
+        var p1h = p1.AddComponent<CubeShapeDataHolder>();
+        p1h.gridSize = holder.gridSize; p1h.cellSize = holder.cellSize; p1h.spacing = holder.spacing;
+        p1h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0) };
+        pieces.Add(p1);
+
+        GameObject p2 = new GameObject("Domino2");
+        var p2h = p2.AddComponent<CubeShapeDataHolder>();
+        p2h.gridSize = holder.gridSize; p2h.cellSize = holder.cellSize; p2h.spacing = holder.spacing;
+        p2h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0) };
+        pieces.Add(p2);
+
+        GameObject p3 = new GameObject("Filler");
+        var p3h = p3.AddComponent<CubeShapeDataHolder>();
+        p3h.gridSize = holder.gridSize; p3h.cellSize = holder.cellSize; p3h.spacing = holder.spacing;
+        p3h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
+        pieces.Add(p3);
 
         return (main, pieces);
     }
@@ -265,7 +311,7 @@ public class LevelSolverTests
         Object.DestroyImmediate(test2.mainShape);
         foreach (var p in test2.pieces) Object.DestroyImmediate(p);
 
-        // ── Test 3: Orta zorluk seviye (prefilled + frozen içerir) ───
+        // ── Test 3: Orta zorluk seviye (prefilled içerir) ────────────
         var test3 = CreateMediumLevel();
         var result3 = solver.SolveFromPrefabs(test3.mainShape, test3.pieces);
         results.Add(new PieceTestResult
@@ -279,6 +325,23 @@ public class LevelSolverTests
         if (result3.isSolvable) results.Add(CheckBottomUpOrder("Orta seviye — hamle sırası alttan üste", result3));
         Object.DestroyImmediate(test3.mainShape);
         foreach (var p in test3.pieces) Object.DestroyImmediate(p);
+
+        // ── Test 4: Buz eritme = patlama (explode-on-thaw) ───────────
+        var test4 = CreateIceExplosionLevel();
+        var result4 = solver.SolveFromPrefabs(test4.mainShape, test4.pieces);
+        bool explodedSomewhere = result4.isSolvable && result4.solutionSteps.Any(s => s.explodedCells.Count > 0);
+        results.Add(new PieceTestResult
+        {
+            name = "Buz eritme = patlama (explode-on-thaw)",
+            passed = result4.isSolvable && explodedSomewhere,
+            message = !result4.isSolvable
+                ? $"BAŞARISIZ: {result4.failureReason}"
+                : explodedSomewhere
+                    ? $"Çözülebilir: {result4.minMoveCount} hamle, patlama doğru simüle edildi"
+                    : "BAŞARISIZ: çözüldü ama hiçbir adımda patlama tetiklenmedi (mekanik simüle edilmiyor olabilir)"
+        });
+        Object.DestroyImmediate(test4.mainShape);
+        foreach (var p in test4.pieces) Object.DestroyImmediate(p);
 
         return results;
     }
