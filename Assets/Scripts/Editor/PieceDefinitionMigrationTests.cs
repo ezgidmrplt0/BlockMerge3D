@@ -18,7 +18,7 @@ public struct PieceTestResult
 
 public class PieceDefinitionMigrationTests
 {
-    [MenuItem("BlockMerge3D/Test Piece Migration")]
+    // [MenuItem("BlockMerge3D/Test Piece Migration")]
     public static void RunTests()
     {
         Debug.Log("═══════════════════════════════════════");

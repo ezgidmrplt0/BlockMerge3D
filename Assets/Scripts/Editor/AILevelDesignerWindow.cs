@@ -94,6 +94,7 @@ public class AILevelDesignerWindow : EditorWindow
     private int activeLayer          = 0;
     private float cellPx             = 35f;
     private AIDrawView drawView      = AIDrawView.FullShape;
+    private bool show3D              = true;
     private Vector2 leftScroll, rightScroll;
     private GameObject cubePrefab;
     private Material[] prefilledMaterials; // Engel (prefilled) küplerin gerçek rengini oynatan materyal paleti — pieceMaterials (LevelManager) ile aynı sırada olmalı
@@ -216,6 +217,25 @@ public class AILevelDesignerWindow : EditorWindow
 
     // Şablon seçimi + zorluk hızlı-ayar bloğu — DrawLeftPanel'den çıkarıldı, hem eski panel
     // hem de LevelCreationWizardWindow'un 1. adımı bu AYNI metodu çağırıyor (kopya değil).
+    private void DrawStatBlock(string title, string val)
+    {
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.MinWidth(80), GUILayout.ExpandWidth(true));
+        var titleStyle = new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = new Color(0.7f, 0.75f, 0.8f) }
+        };
+        var valueStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 11,
+            normal = { textColor = new Color(0.15f, 0.60f, 0.90f) }
+        };
+        EditorGUILayout.LabelField(title, titleStyle);
+        EditorGUILayout.LabelField(val, valueStyle);
+        EditorGUILayout.EndVertical();
+    }
+
     internal void DrawTemplateAndDifficultySection()
     {
         // ŞABLON VEYA PREFAB SEÇİCİ
@@ -223,8 +243,37 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUILayout.HelpBox("AI seviyeyi bir şablon veya özel prefab baz alarak oluşturur.", MessageType.Info);
 
-        generationBaseType = (GenerationBaseType)EditorGUILayout.EnumPopup("Üretim Kaynağı", generationBaseType);
-        EditorGUILayout.Space(5);
+        // Custom choice cards for Production Source
+        EditorGUILayout.LabelField("Üretim Kaynağı Seçimi:", EditorStyles.miniBoldLabel);
+        EditorGUILayout.BeginHorizontal();
+
+        bool isTemplate = (generationBaseType == GenerationBaseType.Template);
+        GUI.backgroundColor = isTemplate ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.24f, 0.24f, 0.28f);
+        var sourceCardStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            fixedHeight = 36,
+            wordWrap = true
+        };
+        sourceCardStyle.normal.textColor = Color.white;
+
+        if (GUILayout.Button("📐  ŞABLON BAZLI (Template)", sourceCardStyle, GUILayout.ExpandWidth(true)))
+        {
+            generationBaseType = GenerationBaseType.Template;
+        }
+
+        GUILayout.Space(10);
+
+        bool isPrefab = (generationBaseType == GenerationBaseType.CustomPrefab);
+        GUI.backgroundColor = isPrefab ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.24f, 0.24f, 0.28f);
+        if (GUILayout.Button("🧊  ÖZEL PREFAB BAZLI (Custom)", sourceCardStyle, GUILayout.ExpandWidth(true)))
+        {
+            generationBaseType = GenerationBaseType.CustomPrefab;
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.Space(8);
 
         if (generationBaseType == GenerationBaseType.Template)
         {
@@ -274,33 +323,48 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
         // 1. Zorluk Seviyesi Seçimi
-        EditorGUILayout.LabelField("Zorluk Seviyesi Seçimi (Değerleri Formlara Aktarır):", EditorStyles.miniBoldLabel);
+        EditorGUILayout.LabelField("Zorluk Seviyesi Seçimi:", EditorStyles.miniBoldLabel);
         EditorGUILayout.BeginHorizontal();
 
         // Kolay
-        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Kolay ? Color.green : new Color(0.7f, 1f, 0.7f, 0.4f);
-        if (GUILayout.Button("KOLAY", EditorStyles.miniButtonLeft, GUILayout.Height(22)))
+        bool isKolay = selectedDifficulty == AILevelDifficulty.Kolay;
+        GUI.backgroundColor = isKolay ? new Color(0.18f, 0.70f, 0.40f) : new Color(0.18f, 0.70f, 0.40f, 0.25f);
+        var diffCardStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            fixedHeight = 28,
+            wordWrap = true
+        };
+        diffCardStyle.normal.textColor = isKolay ? Color.white : new Color(0.85f, 0.85f, 0.85f);
+        if (GUILayout.Button("🟢  KOLAY", diffCardStyle, GUILayout.ExpandWidth(true)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Kolay);
         }
 
         // Orta
-        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Orta ? new Color(1.0f, 0.6f, 0.0f) : new Color(1f, 0.8f, 0.5f, 0.4f);
-        if (GUILayout.Button("ORTA", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        bool isOrta = selectedDifficulty == AILevelDifficulty.Orta;
+        GUI.backgroundColor = isOrta ? new Color(0.95f, 0.65f, 0.15f) : new Color(0.95f, 0.65f, 0.15f, 0.25f);
+        diffCardStyle.normal.textColor = isOrta ? Color.white : new Color(0.85f, 0.85f, 0.85f);
+        if (GUILayout.Button("🟡  ORTA", diffCardStyle, GUILayout.ExpandWidth(true)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Orta);
         }
 
         // Zor
-        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Zor ? new Color(0.9f, 0.2f, 0.2f) : new Color(1f, 0.6f, 0.6f, 0.4f);
-        if (GUILayout.Button("ZOR", EditorStyles.miniButtonMid, GUILayout.Height(22)))
+        bool isZor = selectedDifficulty == AILevelDifficulty.Zor;
+        GUI.backgroundColor = isZor ? new Color(0.88f, 0.25f, 0.25f) : new Color(0.88f, 0.25f, 0.25f, 0.25f);
+        diffCardStyle.normal.textColor = isZor ? Color.white : new Color(0.85f, 0.85f, 0.85f);
+        if (GUILayout.Button("🔴  ZOR", diffCardStyle, GUILayout.ExpandWidth(true)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Zor);
         }
 
         // Uzman
-        GUI.backgroundColor = selectedDifficulty == AILevelDifficulty.Uzman ? new Color(0.7f, 0.1f, 0.8f) : new Color(0.85f, 0.6f, 0.9f, 0.4f);
-        if (GUILayout.Button("UZMAN", EditorStyles.miniButtonRight, GUILayout.Height(22)))
+        bool isUzman = selectedDifficulty == AILevelDifficulty.Uzman;
+        GUI.backgroundColor = isUzman ? new Color(0.60f, 0.25f, 0.80f) : new Color(0.60f, 0.25f, 0.80f, 0.25f);
+        diffCardStyle.normal.textColor = isUzman ? Color.white : new Color(0.85f, 0.85f, 0.85f);
+        if (GUILayout.Button("🟣  UZMAN", diffCardStyle, GUILayout.ExpandWidth(true)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Uzman);
         }
@@ -308,21 +372,18 @@ public class AILevelDesignerWindow : EditorWindow
         GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
 
-        EditorGUILayout.Space(5);
+        EditorGUILayout.Space(8);
 
-        // 2. Seviye Seçimi (Etiket Üstte)
-        EditorGUILayout.LabelField("🎯 Kaydedilecek Seviye Numarası (Level Index):", EditorStyles.boldLabel);
-
+        // 2. Seviye Seçimi
+        EditorGUILayout.LabelField("🎯  Kaydedilecek Seviye Numarası (Level Index):", EditorStyles.boldLabel);
         EditorGUILayout.BeginHorizontal();
 
-        // -10 Seviye
         if (GUILayout.Button("◀◀", GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 10);
             levelName = $"AI_Level_{targetLevelIndex}";
         }
 
-        // -1 Seviye
         if (GUILayout.Button("◀", GUILayout.Width(25), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 1);
@@ -336,14 +397,12 @@ public class AILevelDesignerWindow : EditorWindow
             levelName = $"AI_Level_{targetLevelIndex}";
         }
 
-        // +1 Seviye
         if (GUILayout.Button("▶", GUILayout.Width(25), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 1);
             levelName = $"AI_Level_{targetLevelIndex}";
         }
 
-        // +10 Seviye
         if (GUILayout.Button("▶▶", GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 10);
@@ -351,18 +410,19 @@ public class AILevelDesignerWindow : EditorWindow
         }
         EditorGUILayout.EndHorizontal();
 
-        EditorGUILayout.Space(4);
+        EditorGUILayout.Space(8);
 
-        // 3. Öneri Değerleri Önizlemesi
-        string badgeText = selectedDifficulty.ToString().ToUpper();
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        EditorGUILayout.LabelField($"📈 {badgeText} ZORLUK ÖNERİLEN DEĞERLERİ", EditorStyles.miniBoldLabel);
-        EditorGUILayout.LabelField($"• Süre Limiti: {levelTime} sn", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"• Hedef Skor: {levelTarget} Puan", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"• Hazır Küp: %{prefillPercentage * 100f:F0}", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"• Buz Küpü: %{icePercentage * 100f:F0}", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"• Parça Boyutu: {minPieceSize} - {maxPieceSize} Küp", EditorStyles.miniLabel);
-        EditorGUILayout.EndVertical();
+        // 3. Öneri Değerleri Önizlemesi (Dashboard Panel)
+        EditorGUILayout.LabelField("📈  ÖNERİLEN PARAMETRELER", EditorStyles.miniBoldLabel);
+        EditorGUILayout.BeginHorizontal();
+        DrawStatBlock("⏱️ Süre Sınırı", $"{levelTime} sn");
+        DrawStatBlock("⭐ Hedef Skor", $"{levelTarget}");
+        DrawStatBlock("🧱 Hazır Küp", $"%{prefillPercentage * 100f:F0}");
+        DrawStatBlock("❄️ Buz Küpü", $"%{icePercentage * 100f:F0}");
+        DrawStatBlock("🧩 Parça Boyutu", $"{minPieceSize}-{maxPieceSize}");
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space(6);
 
         string hintText = "";
         switch (selectedDifficulty)
@@ -543,55 +603,78 @@ public class AILevelDesignerWindow : EditorWindow
         DrawViewBtn("❄️ Sadece Buzlar", AIDrawView.IceOnly);
         DrawViewBtn("🧩 Bölünmüş Parçalar", AIDrawView.PiecesOnly);
         EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space(4);
+
+        EditorGUILayout.BeginHorizontal();
+        bool prev3D = show3D;
+        show3D = GUILayout.Toolbar(show3D ? 1 : 0, new string[] { "🖥️ 2D Katman Görünümü", "🧱 3D İzometrik Görünüm" }, GUILayout.Height(24)) == 1;
+        if (show3D != prev3D) Repaint();
+        EditorGUILayout.EndHorizontal();
+
         EditorGUILayout.EndVertical();
 
         // Katman Değiştirici
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        GUILayout.Label("📍 KATMAN ÖNİZLEME (Y Ekseninde Katman Seçin)", styleHeader);
-        EditorGUILayout.BeginHorizontal();
-        
-        GUI.enabled = activeLayer > 0;
-        if (GUILayout.Button("◀ ALT KATMAN", GUILayout.Height(28), GUILayout.Width(120)))
+        if (!show3D)
         {
-            activeLayer--;
-            Repaint();
-        }
-        GUI.enabled = true;
-
-        GUILayout.Space(4);
-
-        for (int y = 0; y < gridSize.y; y++)
-        {
-            bool isActive = (y == activeLayer);
-            GUI.backgroundColor = isActive ? COL_HEADER : new Color(0.85f, 0.85f, 0.85f);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            GUILayout.Label("📍 KATMAN ÖNİZLEME (Y Ekseninde Katman Seçin)", styleHeader);
+            EditorGUILayout.BeginHorizontal();
             
-            int countInLayer = occupiedCells.Count(c => c.y == y);
-            string lbl = $"KATMAN Y={y}\n({countInLayer} Küp)";
-
-            if (GUILayout.Button(lbl, new GUIStyle(GUI.skin.button) { fontSize = 10, fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal }))
+            GUI.enabled = activeLayer > 0;
+            if (GUILayout.Button("◀ ALT KATMAN", GUILayout.Height(28), GUILayout.Width(120)))
             {
-                activeLayer = y;
+                activeLayer--;
                 Repaint();
             }
-            GUI.backgroundColor = Color.white;
+            GUI.enabled = true;
+
+            GUILayout.Space(4);
+
+            for (int y = 0; y < gridSize.y; y++)
+            {
+                bool isActive = (y == activeLayer);
+                GUI.backgroundColor = isActive ? COL_HEADER : new Color(0.85f, 0.85f, 0.85f);
+                
+                int countInLayer = occupiedCells.Count(c => c.y == y);
+                string lbl = $"KATMAN Y={y}\n({countInLayer} Küp)";
+
+                if (GUILayout.Button(lbl, new GUIStyle(GUI.skin.button) { fontSize = 10, fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal }))
+                {
+                    activeLayer = y;
+                    Repaint();
+                }
+                GUI.backgroundColor = Color.white;
+            }
+
+            GUILayout.Space(4);
+
+            GUI.enabled = activeLayer < gridSize.y - 1;
+            if (GUILayout.Button("ÜST KATMAN ▶", GUILayout.Height(28), GUILayout.Width(120)))
+            {
+                activeLayer++;
+                Repaint();
+            }
+            GUI.enabled = true;
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
         }
-
-        GUILayout.Space(4);
-
-        GUI.enabled = activeLayer < gridSize.y - 1;
-        if (GUILayout.Button("ÜST KATMAN ▶", GUILayout.Height(28), GUILayout.Width(120)))
+        else
         {
-            activeLayer++;
-            Repaint();
+            EditorGUILayout.HelpBox("💡 3D İzometrik Görünüm: Tüm seviyenin üç boyutlu genel yapısını gösterir. Çözüm doğruluğu ve hacmini kolayca kontrol edebilirsiniz.", MessageType.None);
         }
-        GUI.enabled = true;
-
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.EndVertical();
 
         // Çizim Alanı
         Rect area = GUILayoutUtility.GetRect(100, 100, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
-        DrawGrid2D(area);
+        if (show3D)
+        {
+            DrawIsometricGrid3D(area);
+        }
+        else
+        {
+            DrawGrid2D(area);
+        }
 
         EditorGUILayout.EndVertical();
     }
@@ -723,6 +806,197 @@ public class AILevelDesignerWindow : EditorWindow
         for (int z = 0; z < D; z++) GUI.Label(new Rect(ox - 18, oy + z * cellPx, 18, cellPx), z.ToString(), lbl);
     }
 
+    private void DrawIsometricGrid3D(Rect area)
+    {
+        if (Event.current.type != EventType.Repaint) return;
+
+        EditorGUI.DrawRect(area, COL_BG);
+
+        if (occupiedCells == null || occupiedCells.Count == 0)
+        {
+            var emptyLabelStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 14
+            };
+            emptyLabelStyle.normal.textColor = Color.gray;
+            GUI.Label(area, "Gösterilecek şekil yok.\n(Önizlemek için soldaki '⚡ BÖLÜM & PARÇALARI ÖNİZLE' butonuna basın)", emptyLabelStyle);
+            return;
+        }
+
+        // 1. Calculate boundaries of projected centers
+        float minPx = float.MaxValue, maxPx = float.MinValue;
+        float minPy = float.MaxValue, maxPy = float.MinValue;
+
+        foreach (var cell in occupiedCells)
+        {
+            float px = (cell.x - cell.z) * 0.866f;
+            float py = (cell.x + cell.z) * 0.5f - cell.y;
+            if (px < minPx) minPx = px;
+            if (px > maxPx) maxPx = px;
+            if (py < minPy) minPy = py;
+            if (py > maxPy) maxPy = py;
+        }
+
+        float shapeWidth = maxPx - minPx;
+        float shapeHeight = maxPy - minPy;
+
+        // Add padding for cell size
+        shapeWidth += 2f;
+        shapeHeight += 2f;
+
+        // Scale S
+        float scaleX = (area.width - 40f) / shapeWidth;
+        float scaleY = (area.height - 40f) / shapeHeight;
+        float S = Mathf.Min(scaleX, scaleY);
+        S = Mathf.Clamp(S, 12f, 65f); // Clamp size to prevent scaling too huge or tiny
+
+        Vector2 areaCenter = new Vector2(area.x + area.width * 0.5f, area.y + area.height * 0.5f);
+        float shapeCenterX = (minPx + maxPx) * 0.5f;
+        float shapeCenterY = (minPy + maxPy) * 0.5f;
+
+        // 2. Sort cells: Bottom-to-top (Y), then Back-to-front (X+Z)
+        var sortedCells = occupiedCells
+            .OrderBy(c => c.y)
+            .ThenBy(c => c.x + c.z)
+            .ToList();
+
+        // 3. Draw each cell
+        Handles.BeginGUI();
+        foreach (var cell in sortedCells)
+        {
+            bool isPf = prefilledCells.Contains(cell);
+            bool isIce = frozenCells.Contains(cell);
+
+            // Visibility filters
+            if (drawView == AIDrawView.PrefilledOnly && !isPf) continue;
+            if (drawView == AIDrawView.IceOnly && !isIce) continue;
+
+            Color fill = COL_OCCUPIED;
+
+            if (drawView == AIDrawView.PiecesOnly)
+            {
+                int pIdx = GetPieceIndexForCell(cell);
+                fill = pIdx >= 0 ? PIECE_COLORS[pIdx % PIECE_COLORS.Length] : new Color(0.3f, 0.3f, 0.35f);
+            }
+            else
+            {
+                if (isPf)
+                {
+                    int idx = prefilledCells.IndexOf(cell);
+                    int mat = (idx >= 0 && idx < prefilledMatIdx.Count) ? prefilledMatIdx[idx] : 0;
+                    fill = PIECE_COLORS[mat % PIECE_COLORS.Length];
+                }
+                else if (isIce)
+                {
+                    fill = COL_ICE;
+                }
+            }
+
+            // Dim if highlight is active and cell is not part of highlighted piece
+            bool isDimmed = false;
+            if (highlightedPieceIndex >= 0)
+            {
+                int pIdx = GetPieceIndexForCell(cell);
+                if (pIdx != highlightedPieceIndex)
+                {
+                    fill.a = 0.12f;
+                    isDimmed = true;
+                }
+            }
+
+            // Calculate center
+            float px = (cell.x - cell.z) * 0.866f;
+            float py = (cell.x + cell.z) * 0.5f - cell.y;
+
+            float cx = areaCenter.x + (px - shapeCenterX) * S;
+            float cy = areaCenter.y + (py - shapeCenterY) * S;
+
+            DrawIsometricCube(new Vector2(cx, cy), S, fill, isIce, isPf && drawView != AIDrawView.PiecesOnly, isDimmed);
+        }
+        Handles.EndGUI();
+    }
+
+    private void DrawIsometricCube(Vector2 center, float S, Color color, bool isIce, bool isPf, bool isDimmed)
+    {
+        float cx = center.x;
+        float cy = center.y;
+
+        Vector3[] vTop = new Vector3[]
+        {
+            new Vector3(cx, cy - S * 0.5f, 0),
+            new Vector3(cx + S * 0.866f, cy - S * 0.25f, 0),
+            new Vector3(cx, cy, 0),
+            new Vector3(cx - S * 0.866f, cy - S * 0.25f, 0)
+        };
+
+        Vector3[] vLeft = new Vector3[]
+        {
+            new Vector3(cx - S * 0.866f, cy - S * 0.25f, 0),
+            new Vector3(cx, cy, 0),
+            new Vector3(cx, cy + S, 0),
+            new Vector3(cx - S * 0.866f, cy + S * 0.75f, 0)
+        };
+
+        Vector3[] vRight = new Vector3[]
+        {
+            new Vector3(cx, cy, 0),
+            new Vector3(cx + S * 0.866f, cy - S * 0.25f, 0),
+            new Vector3(cx + S * 0.866f, cy + S * 0.75f, 0),
+            new Vector3(cx, cy + S, 0)
+        };
+
+        // Shading colors
+        Color cTop = color;
+        Color cLeft = color * 0.82f;
+        Color cRight = color * 0.65f;
+
+        // Ensure alpha is preserved
+        cTop.a = color.a;
+        cLeft.a = color.a;
+        cRight.a = color.a;
+
+        // Draw faces
+        Handles.color = cTop;
+        Handles.DrawAAConvexPolygon(vTop);
+        Handles.color = cLeft;
+        Handles.DrawAAConvexPolygon(vLeft);
+        Handles.color = cRight;
+        Handles.DrawAAConvexPolygon(vRight);
+
+        // Draw thin wire outlines to prevent alias gaps
+        Handles.color = new Color(0, 0, 0, isDimmed ? 0.05f : 0.25f);
+        Handles.DrawPolyLine(vTop[0], vTop[1], vTop[2], vTop[3], vTop[0]);
+        Handles.DrawPolyLine(vLeft[0], vLeft[1], vLeft[2], vLeft[3], vLeft[0]);
+        Handles.DrawPolyLine(vRight[0], vRight[1], vRight[2], vRight[3], vRight[0]);
+
+        // Draw overlays on top face
+        if (isDimmed) return;
+
+        if (isIce && S >= 18f)
+        {
+            var iceLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = Mathf.Clamp(Mathf.RoundToInt(S * 0.45f), 9, 22)
+            };
+            Rect labelRect = new Rect(cx - S * 0.5f, cy - S * 0.5f, S, S * 0.5f);
+            GUI.Label(labelRect, "❄️", iceLabelStyle);
+        }
+        else if (isPf && S >= 14f)
+        {
+            var labelStyle = new GUIStyle(EditorStyles.miniLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = Mathf.Clamp(Mathf.RoundToInt(S * 0.35f), 8, 16),
+                fontStyle = FontStyle.Bold
+            };
+            labelStyle.normal.textColor = Color.white;
+            Rect labelRect = new Rect(cx - S * 0.5f, cy - S * 0.45f, S, S * 0.4f);
+            GUI.Label(labelRect, "P", labelStyle);
+        }
+    }
+
     private int GetPieceIndexForCell(Vector3Int cell)
     {
         for (int i = 0; i < pieceSplitList.Count; i++)
@@ -738,26 +1012,81 @@ public class AILevelDesignerWindow : EditorWindow
     {
         if (!(solverRan && lastSolverResult != null)) return;
 
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        GUILayout.Label("🔍 ÇÖZÜLEBİLİRLİK ANALİZİ", styleHeader);
+        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        GUI.backgroundColor = Color.white;
+
+        GUILayout.Label("🔍  ÇÖZÜLEBİLİRLİK DOĞRULAMA (SOLVER)", styleHeader);
+        EditorGUILayout.Space(4);
 
         if (lastSolverResult.isSolvable)
         {
-            GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
-            EditorGUILayout.HelpBox($"✅ Çözülebilir ({lastSolverResult.minMoveCount} hamle)\nZorluk: {lastSolverResult.difficultyLabel.ToUpper()} ({lastSolverResult.difficultyScore:F2})", MessageType.Info);
+            // Solvable layout: Green background tint box
+            GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f, 0.12f);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
             GUI.backgroundColor = Color.white;
+
+            var solverSuccessStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 12,
+                normal = { textColor = new Color(0.18f, 0.70f, 0.40f) }
+            };
+            GUILayout.Label("✅  BAŞARILI: SEVİYE ÇÖZÜLEBİLİR DURUMDA!", solverSuccessStyle);
+            
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+            
+            // Move count card
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(130));
+            var statTitleStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
+            var statValStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, fontSize = 13, normal = { textColor = new Color(0.15f, 0.60f, 0.90f) } };
+            GUILayout.Label("En Kısa Yol", statTitleStyle);
+            GUILayout.Label($"{lastSolverResult.minMoveCount} Hamle", statValStyle);
+            EditorGUILayout.EndVertical();
+
+            GUILayout.Space(8);
+
+            // Difficulty card
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(150));
+            GUILayout.Label("Hesaplanan Zorluk", statTitleStyle);
+            string diffText = string.IsNullOrEmpty(lastSolverResult.difficultyLabel) ? "Bilinmiyor" : lastSolverResult.difficultyLabel.ToUpper();
+            GUILayout.Label($"{diffText} ({lastSolverResult.difficultyScore:F2})", statValStyle);
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
         }
         else
         {
-            GUI.backgroundColor = new Color(0.95f, 0.3f, 0.3f, 1f);
-            EditorGUILayout.HelpBox($"❌ Çözülemez\n{lastSolverResult.failureReason}", MessageType.Error);
+            // Unsolvable layout: Red background tint box
+            GUI.backgroundColor = new Color(0.88f, 0.25f, 0.25f, 0.12f);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
             GUI.backgroundColor = Color.white;
 
-            GUILayout.Space(5);
-            if (GUILayout.Button("🔁 Parametreleri Ayarlayıp Yeniden Üret", GUILayout.Height(35)))
+            var solverFailStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 12,
+                normal = { textColor = new Color(0.88f, 0.25f, 0.25f) }
+            };
+            GUILayout.Label("❌  HATA: SEVİYE ÇÖZÜLEMEZ DURUMDA!", solverFailStyle);
+            
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(lastSolverResult.failureReason, MessageType.Error);
+            
+            EditorGUILayout.Space(6);
+            GUI.backgroundColor = new Color(0.95f, 0.65f, 0.15f, 1.0f); // Accent yellow/orange
+            var retryStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 11,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+            if (GUILayout.Button("🔁  Parametreleri İyileştir & Yeniden Üret", retryStyle, GUILayout.Height(28)))
             {
                 AutoAdjustAndRegenerate();
             }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndVertical();
         }
         EditorGUILayout.EndVertical();
     }

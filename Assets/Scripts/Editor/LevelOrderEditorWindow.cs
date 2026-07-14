@@ -14,7 +14,7 @@ public class LevelOrderEditorWindow : EditorWindow
     private const string ASSET_PATH = "Assets/LevelOrder.asset";
     private const string PREF_LEVEL = "CurrentLevelIndex";
 
-    [MenuItem("BlockMerge3D/3. Seviye Sırası")]
+    // [MenuItem("BlockMerge3D/3. Seviye Sırası")]
     public static void ShowWindow()
     {
         var w = GetWindow<LevelOrderEditorWindow>("Seviye Sıralayıcı");

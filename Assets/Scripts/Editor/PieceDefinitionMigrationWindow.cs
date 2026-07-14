@@ -50,7 +50,7 @@ public class PieceDefinitionMigrationWindow : EditorWindow
         onRepaintRequested?.Invoke();
     }
 
-    [MenuItem("BlockMerge3D/🧬 Parça Kütüphanesi (Piece Library)")]
+    // [MenuItem("BlockMerge3D/🧬 Parça Kütüphanesi (Piece Library)")]
     public static void ShowWindow()
     {
         var w = GetWindow<PieceDefinitionMigrationWindow>("Parça Kütüphanesi");

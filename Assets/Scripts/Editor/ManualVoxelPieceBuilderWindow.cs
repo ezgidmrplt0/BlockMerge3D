@@ -28,7 +28,7 @@ public class ManualVoxelPieceBuilderWindow : EditorWindow
     private GUIStyle headerStyle;
     private GUIStyle boxStyle;
 
-    [MenuItem("BlockMerge3D/🧱 3D Sahne Parça Yapıcı", false, 5)]
+    // [MenuItem("BlockMerge3D/🧱 3D Sahne Parça Yapıcı", false, 5)]
     public static void ShowWindow()
     {
         var w = GetWindow<ManualVoxelPieceBuilderWindow>("3D Sahne Yapıcı");

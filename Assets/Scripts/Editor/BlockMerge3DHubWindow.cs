@@ -175,25 +175,54 @@ public class BlockMerge3DHubWindow : EditorWindow
         InitializeStyles();
         InitializeSubWindows(); // Fallback assurance
 
-        // --- Top Header Panel ---
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        EditorGUILayout.LabelField("BLOCKMERGE 3D  •  GELİŞTİRİCİ MERKEZİ", headerStyle);
-        EditorGUILayout.LabelField("Tüm tasarım, seviye düzenleme ve kurulum araçları tek bir yerde toplandı.", subHeaderStyle);
+        // --- Top Header Panel (Modern Workshop Design) ---
+        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.Space(6);
+
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+        var logoStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            fontSize = 18,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter
+        };
+        logoStyle.normal.textColor = new Color(0.35f, 0.82f, 1.00f);
+        GUILayout.Label("🛠️  BLOCKMERGE 3D  •  GELİŞTİRİCİ ATÖLYESİ", logoStyle);
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
+
+        var descStyle = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
+        {
+            fontSize = 11,
+            normal = { textColor = new Color(0.75f, 0.78f, 0.82f) }
+        };
+        GUILayout.Label("Seviye tasarımı, AI üretimi ve görsel kurulum araçları tek bir kontrol panelinde birleştirildi.", descStyle);
+
+        EditorGUILayout.Space(8);
 
         EditorGUILayout.BeginHorizontal();
         GUILayout.FlexibleSpace();
 
-        GUI.backgroundColor = new Color(0.3f, 0.8f, 0.5f, 0.9f);
-        if (GUILayout.Button("3. 📋 Seviye Sıralama Penceresini Aç", GUILayout.Width(260), GUILayout.Height(26)))
+        GUI.backgroundColor = new Color(0.15f, 0.65f, 0.35f, 1.0f);
+        var quickBtnStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = Color.white }
+        };
+        if (GUILayout.Button("📋  Seviye Sıralama Penceresini Aç", quickBtnStyle, GUILayout.Width(250), GUILayout.Height(28)))
         {
             LevelOrderEditorWindow.ShowWindow();
         }
-        GUI.backgroundColor = Color.white;
 
-        GUILayout.Space(10);
+        GUILayout.Space(12);
 
-        GUI.backgroundColor = new Color(0.9f, 0.45f, 0.45f, 0.9f);
-        if (GUILayout.Button("⚡ Katman Paneli Arayüzünü Kur", GUILayout.Width(220), GUILayout.Height(26)))
+        GUI.backgroundColor = new Color(0.82f, 0.30f, 0.30f, 1.0f);
+        if (GUILayout.Button("⚡  Katman Paneli Arayüzünü Kur", quickBtnStyle, GUILayout.Width(230), GUILayout.Height(28)))
         {
             LayerPanelSetupTool.SetupLayerPanel();
         }
@@ -201,24 +230,47 @@ public class BlockMerge3DHubWindow : EditorWindow
 
         GUILayout.FlexibleSpace();
         EditorGUILayout.EndHorizontal();
-        EditorGUILayout.Space(5);
+        EditorGUILayout.Space(6);
         EditorGUILayout.EndVertical();
 
-        EditorGUILayout.Space(8);
+        EditorGUILayout.Space(10);
 
-        // --- Tab Selection Toolbar ---
-        EditorGUI.BeginChangeCheck();
-        activeTab = (Tab)GUILayout.Toolbar((int)activeTab, tabNames, toolbarStyle);
-        if (EditorGUI.EndChangeCheck())
+        // --- Tab Selection (Custom Buttons Layout replacing default Grid Toolbar) ---
+        int prevTabIdx = (int)activeTab;
+        
+        EditorGUILayout.BeginHorizontal();
+        for (int i = 0; i < tabNames.Length; i++)
         {
-            DisableActiveTab(previousTab);
+            bool isActive = ((int)activeTab == i);
+            GUI.backgroundColor = isActive ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.24f, 0.24f, 0.28f);
+            
+            var tabStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 11,
+                fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal,
+                fixedHeight = 36,
+                wordWrap = true
+            };
+            tabStyle.normal.textColor = isActive ? Color.white : new Color(0.85f, 0.85f, 0.85f);
+            
+            if (GUILayout.Button(tabNames[i], tabStyle, GUILayout.ExpandWidth(true)))
+            {
+                activeTab = (Tab)i;
+            }
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndHorizontal();
+
+        if ((int)activeTab != prevTabIdx)
+        {
+            DisableActiveTab((Tab)prevTabIdx);
             EnableActiveTab(activeTab);
             previousTab = activeTab;
             GUIUtility.hotControl = 0;
             GUIUtility.keyboardControl = 0;
         }
 
-        EditorGUILayout.Space(10);
+        EditorGUILayout.Space(12);
 
         // --- Active Tab Draw Content ---
         switch (activeTab)

@@ -258,7 +258,7 @@ public class LevelSolverTests
     /// <summary>
     /// Test suite'i çalıştır (Console'a log basar)
     /// </summary>
-    [MenuItem("BlockMerge3D/Test Solver")]
+    // [MenuItem("BlockMerge3D/Test Solver")]
     public static void RunTests()
     {
         Debug.Log("═══════════════════════════════════════");

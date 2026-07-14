@@ -39,7 +39,7 @@ public class LevelCreationWizardWindow : EditorWindow
         onRepaintRequested?.Invoke();
     }
 
-    [MenuItem("BlockMerge3D/🧭 Seviye Oluşturma Sihirbazı", false, 1)]
+    // [MenuItem("BlockMerge3D/🧭 Seviye Oluşturma Sihirbazı", false, 1)]
     public static void ShowWindow()
     {
         var w = GetWindow<LevelCreationWizardWindow>("Seviye Sihirbazı");
@@ -95,18 +95,59 @@ public class LevelCreationWizardWindow : EditorWindow
 
     private void DrawStepIndicator()
     {
-        EditorGUILayout.BeginHorizontal();
+        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+        EditorGUILayout.BeginHorizontal(GUI.skin.box);
+        GUI.backgroundColor = Color.white;
+
         for (int i = 1; i <= STEP_COUNT; i++)
         {
             bool isActive = i == currentStep;
-            bool isReachable = i <= currentStep; // ileri atlama yok, sadece geri/aynı adım
+            bool isCompleted = i < currentStep;
+
+            if (isActive)
+            {
+                GUI.backgroundColor = new Color(0.15f, 0.60f, 0.90f); // Bright blue
+            }
+            else if (isCompleted)
+            {
+                GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f); // Green for completed
+            }
+            else
+            {
+                GUI.backgroundColor = new Color(0.24f, 0.24f, 0.28f); // Dark grey
+            }
+
+            var stepStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 11,
+                fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal,
+                fixedHeight = 32
+            };
+            stepStyle.normal.textColor = Color.white;
+
+            string prefix = isCompleted ? "✓ " : (isActive ? "▶ " : "○ ");
+            string labelText = prefix + StepLabels[i - 1];
+
+            bool isReachable = i <= currentStep;
             EditorGUI.BeginDisabledGroup(!isReachable);
-            if (GUILayout.Button(StepLabels[i - 1], isActive ? styleStepActive : styleStepInactive))
+            if (GUILayout.Button(labelText, stepStyle, GUILayout.ExpandWidth(true)))
             {
                 currentStep = i;
             }
             EditorGUI.EndDisabledGroup();
+
+            if (i < STEP_COUNT)
+            {
+                var arrowStyle = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
+                {
+                    fontSize = 14,
+                    fontStyle = FontStyle.Bold,
+                    normal = { textColor = new Color(0.6f, 0.6f, 0.6f) }
+                };
+                GUILayout.Label(" ➔ ", arrowStyle, GUILayout.Width(20), GUILayout.Height(32));
+            }
         }
+        GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
     }
 
@@ -133,69 +174,103 @@ public class LevelCreationWizardWindow : EditorWindow
     // ── Adım 2 ───────────────────────────────────────────────────
     private void DrawStep2()
     {
-        GUILayout.Label("ADIM 2 — PARÇA KÜTÜPHANESİ", styleHeader);
+        GUILayout.Label("ADIM 2 — PARÇA KÜTÜPHANESİ KONTROLÜ", styleHeader);
         EditorGUILayout.HelpBox(
-            "Üretim Assets/PieceDefinitions/ altındaki gerçek parçalardan yapılacak " +
-            "(Solution-First backtracking) — bu artık projedeki tek üretim yolu.", MessageType.Info);
+            "Üretim, Assets/PieceDefinitions/ altındaki parçalar kullanılarak yapılacak (Solution-First).", MessageType.Info);
         EditorGUILayout.Space(6);
 
         var library = aiDesigner.LoadPieceLibrary();
 
-        EditorGUILayout.BeginVertical(styleBox);
-        EditorGUILayout.LabelField($"Yüklü parça sayısı: {library.Count}", EditorStyles.boldLabel);
+        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        GUI.backgroundColor = Color.white;
 
         if (library.Count == 0)
         {
-            EditorGUILayout.HelpBox(
-                "Kütüphane boş. Assets/Pieces ve Assets/Levels altındaki mevcut parça " +
-                "prefab'larını tarayıp PieceDefinition assetleri oluşturmak için:", MessageType.Warning);
-            GUI.backgroundColor = new Color(0.25f, 0.65f, 0.95f);
-            if (GUILayout.Button("🧬 Kütüphaneyi Kur (Tara ve Migrate Et)", GUILayout.Height(32)))
+            // Empty library layout
+            GUI.backgroundColor = new Color(0.88f, 0.25f, 0.25f, 0.12f);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            GUI.backgroundColor = Color.white;
+            
+            var warningHeaderStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = new Color(0.88f, 0.25f, 0.25f) } };
+            GUILayout.Label("⚠️  KÜTÜPHANE BOŞ: HİÇ PARÇA BULUNAMADI!", warningHeaderStyle);
+            GUILayout.Label("Seviye üretebilmek için Assets/Pieces klasörünü tarayıp parça kütüphanesini doldurmalısınız.", EditorStyles.wordWrappedMiniLabel);
+            
+            EditorGUILayout.Space(8);
+            GUI.backgroundColor = new Color(0.15f, 0.60f, 0.90f);
+            var setupBtnStyle = new GUIStyle(GUI.skin.button) { fontSize = 11, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
+            if (GUILayout.Button("🧬  Kütüphaneyi Otomatik Kur (Tara ve Migrate Et)", setupBtnStyle, GUILayout.Height(36)))
             {
                 migrationWindow.ScanAndMigrate();
                 aiDesigner.RefreshPieceLibrary();
             }
             GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndVertical();
         }
         else
         {
-            EditorGUILayout.LabelField(
-                "Kütüphane hazır. Detaylı düzenleme için 🧬 Parça Kütüphanesi sekmesini kullanabilirsin.",
-                EditorStyles.wordWrappedMiniLabel);
-            if (GUILayout.Button("Kütüphaneyi Yenile", GUILayout.Width(140)))
+            // Ready library layout
+            GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f, 0.12f);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            GUI.backgroundColor = Color.white;
+
+            var successHeaderStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = new Color(0.18f, 0.70f, 0.40f) } };
+            GUILayout.Label("✅  KÜTÜPHANE HAZIR: PARÇALAR YÜKLENDİ", successHeaderStyle);
+            GUILayout.Label($"Kayıtlı Blueprint Parça Sayısı: {library.Count}", EditorStyles.boldLabel);
+            GUILayout.Label("Parça kütüphanesi aktif. Detaylı düzenlemeler için üstteki 🧬 Parça Kütüphanesi sekmesini kullanabilirsiniz.", EditorStyles.wordWrappedMiniLabel);
+
+            EditorGUILayout.Space(8);
+            GUI.backgroundColor = new Color(0.24f, 0.24f, 0.28f);
+            var refreshBtnStyle = new GUIStyle(GUI.skin.button) { fontSize = 11, normal = { textColor = Color.white } };
+            if (GUILayout.Button("🔁  Kütüphaneyi Yenile / Yeniden Oku", refreshBtnStyle, GUILayout.Width(220), GUILayout.Height(26)))
             {
                 aiDesigner.RefreshPieceLibrary();
             }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndVertical();
         }
         EditorGUILayout.EndVertical();
 
-        DrawNavigation(canGoNext: aiDesigner.LoadPieceLibrary().Count > 0);
+        DrawNavigation(canGoNext: library.Count > 0);
     }
 
     // ── Adım 3 ───────────────────────────────────────────────────
     private void DrawStep3()
     {
-        GUILayout.Label("ADIM 3 — ÜRET & DOĞRULA", styleHeader);
+        GUILayout.Label("ADIM 3 — SEVİYE ÜRETİMİ VE SOLVER TESTİ", styleHeader);
         EditorGUILayout.HelpBox(
-            "Seçilen şablon + zorluk + kütüphaneyle bir seviye üretilecek ve otomatik olarak " +
-            "solver ile doğrulanacak. Doğrulanmadan bir sonraki adıma geçilemez.", MessageType.Info);
+            "Seçilen şablon, zorluk ve kütüphaneye göre seviye oluşturulur ve otomatik solver ile test edilir.", MessageType.Info);
         EditorGUILayout.Space(6);
 
-        EditorGUILayout.BeginVertical(styleBox);
+        // Parameters Summary Panel
+        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        GUI.backgroundColor = Color.white;
+
+        GUILayout.Label("📋  AKTİF ÜRETİM PARAMETRELERİ", EditorStyles.boldLabel);
+        
         string templateName = aiDesigner.selectedTemplate != null ? aiDesigner.selectedTemplate.templateName : "—";
-        EditorGUILayout.LabelField($"Şablon: {templateName}", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"Zorluk: {aiDesigner.selectedDifficulty}", EditorStyles.miniLabel);
-        EditorGUILayout.LabelField($"Grid: {aiDesigner.gridSize}", EditorStyles.miniLabel);
+        EditorGUILayout.LabelField($"• Şablon (Template): {templateName}", EditorStyles.miniBoldLabel);
+        EditorGUILayout.LabelField($"• Zorluk Modu: {aiDesigner.selectedDifficulty}", EditorStyles.miniBoldLabel);
+        EditorGUILayout.LabelField($"• Grid Çözünürlüğü: {aiDesigner.gridSize}", EditorStyles.miniBoldLabel);
 
-        EditorGUILayout.Space(6);
-        GUI.backgroundColor = new Color(0.25f, 0.65f, 0.95f);
-        if (GUILayout.Button("🎲 Üret", GUILayout.Height(36)))
+        EditorGUILayout.Space(8);
+
+        // Big visual generate button
+        GUI.backgroundColor = new Color(0.15f, 0.60f, 0.90f);
+        var genBtnStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = Color.white }
+        };
+        if (GUILayout.Button("🎲  SEVİYEYİ RASTGELE ÜRET VE DOĞRULA", genBtnStyle, GUILayout.Height(38)))
         {
             aiDesigner.GenerateLevelProcedurally();
         }
         GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.Space(6);
+        EditorGUILayout.Space(8);
         aiDesigner.DrawSolverResultSection();
         EditorGUILayout.EndVertical();
 
@@ -206,24 +281,35 @@ public class LevelCreationWizardWindow : EditorWindow
     // ── Adım 4 ───────────────────────────────────────────────────
     private void DrawStep4()
     {
-        GUILayout.Label("ADIM 4 — KAYDET", styleHeader);
+        GUILayout.Label("ADIM 4 — VERİTABANINA SEVİYEYİ KAYDET", styleHeader);
         EditorGUILayout.HelpBox(
-            "Seviye adı/süre/hedef puanı gözden geçir ve kaydet. Doğrulanmamış bir seviye " +
-            "kaydedilemez (Zorunlu Koruma Kuralı #1).", MessageType.Info);
+            "Seviye meta-verilerini (isim, süre, hedef) gözden geçirip veritabanına ihraç edin.", MessageType.Info);
         EditorGUILayout.Space(6);
 
-        EditorGUILayout.BeginVertical(styleBox);
-        aiDesigner.levelName = EditorGUILayout.TextField("Seviye Adı", aiDesigner.levelName);
-        aiDesigner.levelTime = EditorGUILayout.FloatField("Süre Sınırı (sn, 0 = süresiz)", aiDesigner.levelTime);
-        aiDesigner.levelTarget = EditorGUILayout.IntField("Hedef Skor", aiDesigner.levelTarget);
+        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.Space(6);
+        GUILayout.Label("✍️  SEVİYE METADATALARI", EditorStyles.boldLabel);
+        aiDesigner.levelName = EditorGUILayout.TextField("Seviye Dosya Adı", aiDesigner.levelName);
+        aiDesigner.levelTime = EditorGUILayout.FloatField("Süre Sınırı (Saniye, 0 = Süresiz)", aiDesigner.levelTime);
+        aiDesigner.levelTarget = EditorGUILayout.IntField("Hedef Puan (Target)", aiDesigner.levelTarget);
+
+        EditorGUILayout.Space(8);
         aiDesigner.DrawSolverResultSection();
 
+        EditorGUILayout.Space(8);
         bool isValidated = aiDesigner.solverRan && aiDesigner.lastSolverResult != null && aiDesigner.lastSolverResult.isSolvable;
+        
         EditorGUI.BeginDisabledGroup(!isValidated);
-        GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f);
-        if (GUILayout.Button("💾 Kaydet", GUILayout.Height(44)))
+        GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f);
+        var saveBtnStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = Color.white }
+        };
+        if (GUILayout.Button("💾  SEVİYEYİ DOSYA OLARAK KAYDET (EXPORT)", saveBtnStyle, GUILayout.Height(42)))
         {
             aiDesigner.ExportProceduralLevel();
         }
@@ -231,11 +317,18 @@ public class LevelCreationWizardWindow : EditorWindow
         EditorGUI.EndDisabledGroup();
         EditorGUILayout.EndVertical();
 
-        EditorGUILayout.Space(10);
-        if (GUILayout.Button("🎉 Yeni Seviye Oluştur (1. Adıma Dön)", GUILayout.Height(30)))
+        EditorGUILayout.Space(12);
+        GUI.backgroundColor = new Color(0.24f, 0.24f, 0.28f);
+        var resetStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white }
+        };
+        if (GUILayout.Button("🎉  Yeni Seviye Atölyesi Aç (1. Adıma Dön)", resetStyle, GUILayout.Height(28)))
         {
             currentStep = 1;
         }
+        GUI.backgroundColor = Color.white;
 
         DrawNavigation(canGoNext: false, showNext: false);
     }
@@ -246,10 +339,18 @@ public class LevelCreationWizardWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
 
         EditorGUI.BeginDisabledGroup(currentStep <= 1);
-        if (GUILayout.Button("◀ Geri", GUILayout.Width(100), GUILayout.Height(30)))
+        GUI.backgroundColor = currentStep > 1 ? new Color(0.32f, 0.32f, 0.36f) : Color.white;
+        var navStyle = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = Color.white }
+        };
+        if (GUILayout.Button("◀  GERİ", navStyle, GUILayout.Width(100), GUILayout.Height(30)))
         {
             currentStep--;
         }
+        GUI.backgroundColor = Color.white;
         EditorGUI.EndDisabledGroup();
 
         GUILayout.FlexibleSpace();
@@ -257,15 +358,23 @@ public class LevelCreationWizardWindow : EditorWindow
         if (showNext)
         {
             EditorGUI.BeginDisabledGroup(!canGoNext);
-            if (GUILayout.Button("İleri ▶", GUILayout.Width(100), GUILayout.Height(30)))
+            GUI.backgroundColor = canGoNext ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.25f, 0.25f, 0.25f, 0.4f);
+            if (GUILayout.Button("İLERİ  ▶", navStyle, GUILayout.Width(100), GUILayout.Height(30)))
             {
                 currentStep++;
             }
+            GUI.backgroundColor = Color.white;
             EditorGUI.EndDisabledGroup();
+            
             if (!canGoNext)
             {
                 GUILayout.Space(6);
-                EditorGUILayout.LabelField("(bu adımın koşulu henüz sağlanmadı)", EditorStyles.miniLabel);
+                var warningLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    normal = { textColor = new Color(0.85f, 0.35f, 0.35f) },
+                    fontStyle = FontStyle.Italic
+                };
+                EditorGUILayout.LabelField("(bu adımın koşulu henüz sağlanmadı)", warningLabelStyle, GUILayout.Width(180));
             }
         }
 
