@@ -517,9 +517,56 @@ public class LevelManager : MonoBehaviour
             }
         }
 
+        // GEÇİCİ TEŞHİS LOGU: gerçek "level fail" tetiklenmeden hemen önce aktif katmanın tam
+        // durumunu döker — özellikle katmanın buzla ne kadar kaplı olduğunu görmek için (bkz.
+        // buz/renk patlama mekanizmasının "kesin garanti değildir" notu, GridManager.cs). Teşhis
+        // sonrası kaldırılabilir.
+        LogGameOverDiagnostics();
+
         // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin
         // hiçbirinde aktif katmandaki boş hücrelere yerleşemiyorsa gelir.
         GameManager.Instance?.GameOver();
+    }
+
+    private void LogGameOverDiagnostics()
+    {
+        int y = gridManager.ActiveLayerY;
+
+        int totalInLayer = 0, occupiedInLayer = 0, emptyFrozen = 0, emptyOpen = 0;
+        var openCells = new List<Vector3Int>();
+        var frozenCellsInLayer = new List<Vector3Int>();
+        var occupiedCellsInLayer = new List<Vector3Int>();
+        foreach (var c in gridManager.targetCells)
+        {
+            if (c.y != y) continue;
+            totalInLayer++;
+            if (gridManager.occupiedCells.Contains(c)) { occupiedInLayer++; occupiedCellsInLayer.Add(c); continue; }
+            if (gridManager.frozenCells.Contains(c)) { emptyFrozen++; frozenCellsInLayer.Add(c); }
+            else { emptyOpen++; openCells.Add(c); }
+        }
+
+        Debug.LogWarning($"🚫 GAME OVER TEŞHİSİ — Aktif Katman Y={y} | " +
+                          $"Katmandaki toplam hücre={totalInLayer}, dolu={occupiedInLayer}, " +
+                          $"boş+buzlu(yerleştirilemez)={emptyFrozen}, boş+açık(teorik yerleştirilebilir)={emptyOpen}");
+        Debug.LogWarning($"   Dolu hücreler (X,Z): {string.Join(" | ", occupiedCellsInLayer.Select(c => $"({c.x},{c.z})"))}");
+        Debug.LogWarning($"   Buzlu hücreler (X,Z): {string.Join(" | ", frozenCellsInLayer.Select(c => $"({c.x},{c.z})"))}");
+        Debug.LogWarning($"   AÇIK boş hücreler (X,Z): {string.Join(" | ", openCells.Select(c => $"({c.x},{c.z})"))}");
+
+        for (int i = 0; i < activePieces.Count; i++)
+        {
+            var pieceGO = activePieces[i];
+            if (pieceGO == null) continue;
+            var holder = pieceGO.GetComponent<CubeShapeDataHolder>();
+            if (holder == null) continue;
+            string cellsStr = string.Join(" | ", holder.occupiedCells.Select(c => $"({c.x},{c.y},{c.z})"));
+            Debug.LogWarning($"   Elde parça #{i}: {pieceGO.name}, hücre sayısı={holder.occupiedCells.Count}, " +
+                              $"yerel şekil=[{cellsStr}], yerleştirilebilir=HAYIR (aktif katmana göre)");
+        }
+
+        if (emptyOpen == 0 && emptyFrozen > 0)
+        {
+            Debug.LogWarning("   ⚠️ TEŞHİS: Katmandaki TÜM boş hücreler buzlu — hiçbir parça buz eritilmeden yerleştirilemez.");
+        }
     }
 
     private bool CanPlacementThawIce(List<Vector3Int> rotatedCells, Vector3Int offset)

@@ -198,59 +198,44 @@ public class LevelSolverTests
     }
 
     /// <summary>
-    /// Minimal, elle doğrulanmış buz/erime + yok-olma senaryosu: 1x3 tek katman.
-    /// (0,0,0): prefilled, materialIndex=0 (tasarımcı tarafından SABİT, rastgele değil).
-    /// (1,0,0): frozen. (2,0,0): boş, Piece0 (index 0) ile doldurulmalı.
-    /// [2026-07-14, ekip kararı] Buz, komşularından EN AZ İKİSİ aynı renkteyse erir VE o iki
-    /// tetikleyici komşu ANINDA YOK OLUR. Piece0 (index 0) (2,0,0)'a yerleşince proxy rengi
-    /// (pieceIndex % 8 = 0) prefilled hücrenin rengiyle (0) eşleşir — buz erir, AMA aynı zamanda
-    /// hem prefilled (0,0,0) hem de Piece0'ın az önce doldurduğu (2,0,0) yok olur (tetikleyici
-    /// çift). Sonuçta 3 hücrenin de (0,0,0)/(1,0,0)/(2,0,0) yeniden boş kaldığı bir durum ortaya
-    /// çıkar — Piece1 + 2 "yedek" tek hücrelik parça (Piece2Buffer/Piece3Buffer, üretim tarafının
-    /// buz başına 2 yedek ekleme kuralını taklit eder, bkz. AILevelDesignerWindow) bunları
-    /// yeniden doldurur. Toplam 4 parça (hepsi tek hücre) kullanılır — ham hedef (3-1=2 boş
-    /// hücre) + buz yedeği (1 buz × 2 = 2) = 4 üst sınırıyla TAM eşleşir.
+    /// Minimal, elle doğrulanmış buz/erime + GRUP patlaması senaryosu: 3x1x2 tek katman.
+    /// (0,0,0) ve (1,0,1): prefilled, materialIndex=0 (tasarımcı tarafından SABİT).
+    /// (1,0,0): boş, buza değecek hücre. (2,0,0): frozen.
+    /// [2026-07-14, eski mantığa dönüş] Piece0 (index 0, proxyColor=0) (1,0,0)'a yerleşince
+    /// buza (2,0,0) değer. (1,0,0)'dan başlayan flood-fill aynı renkli (matIndex=0) bağlantılı
+    /// komşuları toplar: (0,0,0) ve (1,0,1) ikisi de prefilled matIndex=0, ikisi de (1,0,0)'a
+    /// komşu → grup = {(1,0,0),(0,0,0),(1,0,1)} = 3 ÜYELİ (eski sabit-2 kuralından farklı
+    /// olarak grup büyüklüğü keyfi). Grup ≥2 olduğu için TAMAMI buzla birlikte yok olur, buz
+    /// da (2,0,0) olarak normal boş hücreye döner. Sonuçta 4 hücrenin de (0,0,0)/(1,0,0)/
+    /// (1,0,1)/(2,0,0) yeniden boş kaldığı bir durum ortaya çıkar — Piece1..Piece4 (4 "yedek"
+    /// tek hücrelik parça, üretim tarafının buz başına genişletilmiş pay eklemesini taklit
+    /// eder, bkz. AILevelDesignerWindow) bunları yeniden doldurur. Toplam 5 parça kullanılır
+    /// (1 tetikleyici + 4 yeniden-doldurma).
     /// </summary>
-    public static (GameObject mainShape, List<GameObject> pieces) CreateIceDestroyTriggerLevel()
+    public static (GameObject mainShape, List<GameObject> pieces) CreateIceGroupExplosionLevel()
     {
-        GameObject main = new GameObject("TestMain_IceDestroyTrigger");
+        GameObject main = new GameObject("TestMain_IceGroupExplosion");
         var holder = main.AddComponent<CubeShapeDataHolder>();
-        holder.gridSize = new Vector3Int(3, 1, 1);
+        holder.gridSize = new Vector3Int(3, 1, 2);
         holder.cellSize = 1f;
         holder.spacing = 0.1f;
         holder.occupiedCells = new List<Vector3Int>
         {
-            new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0), new Vector3Int(2, 0, 0)
+            new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 0), new Vector3Int(2, 0, 0), new Vector3Int(1, 0, 1)
         };
-        holder.prefilledCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
-        holder.prefilledMaterialIndices = new List<int> { 0 };
-        holder.frozenCells = new List<Vector3Int> { new Vector3Int(1, 0, 0) };
+        holder.prefilledCells = new List<Vector3Int> { new Vector3Int(0, 0, 0), new Vector3Int(1, 0, 1) };
+        holder.prefilledMaterialIndices = new List<int> { 0, 0 };
+        holder.frozenCells = new List<Vector3Int> { new Vector3Int(2, 0, 0) };
 
         List<GameObject> pieces = new List<GameObject>();
-
-        GameObject p1 = new GameObject("Piece0");
-        var p1h = p1.AddComponent<CubeShapeDataHolder>();
-        p1h.gridSize = holder.gridSize; p1h.cellSize = holder.cellSize; p1h.spacing = holder.spacing;
-        p1h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
-        pieces.Add(p1);
-
-        GameObject p2 = new GameObject("Piece1");
-        var p2h = p2.AddComponent<CubeShapeDataHolder>();
-        p2h.gridSize = holder.gridSize; p2h.cellSize = holder.cellSize; p2h.spacing = holder.spacing;
-        p2h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
-        pieces.Add(p2);
-
-        GameObject p3 = new GameObject("Piece2Buffer");
-        var p3h = p3.AddComponent<CubeShapeDataHolder>();
-        p3h.gridSize = holder.gridSize; p3h.cellSize = holder.cellSize; p3h.spacing = holder.spacing;
-        p3h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
-        pieces.Add(p3);
-
-        GameObject p4 = new GameObject("Piece3Buffer");
-        var p4h = p4.AddComponent<CubeShapeDataHolder>();
-        p4h.gridSize = holder.gridSize; p4h.cellSize = holder.cellSize; p4h.spacing = holder.spacing;
-        p4h.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
-        pieces.Add(p4);
+        for (int i = 0; i < 5; i++)
+        {
+            GameObject p = new GameObject("Piece" + i);
+            var ph = p.AddComponent<CubeShapeDataHolder>();
+            ph.gridSize = holder.gridSize; ph.cellSize = holder.cellSize; ph.spacing = holder.spacing;
+            ph.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
+            pieces.Add(p);
+        }
 
         return (main, pieces);
     }
@@ -338,24 +323,24 @@ public class LevelSolverTests
         Object.DestroyImmediate(test3.mainShape);
         foreach (var p in test3.pieces) Object.DestroyImmediate(p);
 
-        // ── Test 4: Buz = 2 komşu aynı renkte olunca erir VE tetikleyen çift yok olur ────
-        var test4 = CreateIceDestroyTriggerLevel();
+        // ── Test 4: Buz = buza değen hücreden başlayan bağlantılı aynı-renk GRUBU (≥2) TAMAMEN patlar ────
+        var test4 = CreateIceGroupExplosionLevel();
         var result4 = solver.SolveFromPrefabs(test4.mainShape, test4.pieces);
         bool thawedSomewhere = result4.isSolvable && result4.solutionSteps.Any(s => s.thawedCells.Count > 0);
         int totalDestroyed = result4.isSolvable ? result4.solutionSteps.Sum(s => s.destroyedCells.Count) : 0;
         results.Add(new PieceTestResult
         {
-            name = "Buz = renk eşleşmesiyle erir VE tetikleyen çift yok olur",
-            passed = result4.isSolvable && thawedSomewhere && totalDestroyed == 2 && result4.minMoveCount == 4,
+            name = "Buz = buza değen hücreden başlayan bağlantılı aynı-renk grubu TAMAMEN patlar",
+            passed = result4.isSolvable && thawedSomewhere && totalDestroyed == 3 && result4.minMoveCount == 5,
             message = !result4.isSolvable
                 ? $"BAŞARISIZ: {result4.failureReason}"
                 : !thawedSomewhere
                     ? "BAŞARISIZ: çözüldü ama hiçbir adımda erime tetiklenmedi"
-                    : totalDestroyed != 2
-                        ? $"BAŞARISIZ: {totalDestroyed} hücre yok oldu, 2 bekleniyordu (tetikleyici çift)"
-                        : result4.minMoveCount != 4
-                            ? $"BAŞARISIZ: {result4.minMoveCount} hamle bekleniyordu 4 (yok olan 2 hücre + eski buz hücresi yeniden dolduruluyor)"
-                            : $"Çözülebilir: {result4.minMoveCount} hamle, erime + tetikleyen çiftin yok olması doğru simüle edildi"
+                    : totalDestroyed != 3
+                        ? $"BAŞARISIZ: {totalDestroyed} hücre yok oldu, 3 bekleniyordu (bağlantılı grup: dokunan hücre + 2 prefilled)"
+                        : result4.minMoveCount != 5
+                            ? $"BAŞARISIZ: {result4.minMoveCount} hamle bekleniyordu 5 (1 tetikleyici + 4 yeniden-doldurma)"
+                            : $"Çözülebilir: {result4.minMoveCount} hamle, grup patlaması (3 üyeli) doğru simüle edildi"
         });
         Object.DestroyImmediate(test4.mainShape);
         foreach (var p in test4.pieces) Object.DestroyImmediate(p);

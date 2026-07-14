@@ -35,10 +35,11 @@ public class LevelSolver
     // ── Çözüm Durumu ──────────────────────────────────────────────
     private HashSet<Vector3Int> currentOccupied;
     // Ekip kararıyla buz erimesi kısmen renk-bağımlı kaldı (bkz. ResolveFrozenCellsInSolver notu):
-    // buz hücresinin ≥2 komşusu aynı renkteyse erir. Gerçek oyunda parça rengi spawn anında
-    // RASTGELE atandığı için bu, solver'ın KESİN garanti VEREMEYECEĞİ tek mekanik — burada
-    // pieceIndex tabanlı basit bir vekil (proxy) renk kullanıyoruz, sadece best-effort bir
-    // simülasyon, gerçek oyundaki rastgele atamayı temsil etme iddiası yok.
+    // buza değen hücreden başlayan bağlantılı aynı renk grubu ≥2 üyeliyse buz erir VE grubun
+    // tamamı buzla birlikte yok olur. Gerçek oyunda parça rengi spawn anında RASTGELE atandığı
+    // için bu, solver'ın KESİN garanti VEREMEYECEĞİ tek mekanik — burada pieceIndex tabanlı
+    // basit bir vekil (proxy) renk kullanıyoruz, sadece best-effort bir simülasyon, gerçek
+    // oyundaki rastgele atamayı temsil etme iddiası yok.
     private Dictionary<Vector3Int, int> currentMatIndex;
     private List<PlacementStep> currentSolution;
     private SolverResult bestResult;
@@ -99,28 +100,19 @@ public class LevelSolver
             };
         }
 
-        // [2026-07-14, ekip kararıyla] Buz erimesini tetikleyen 2 aynı renkli komşu parça artık
-        // anında yok oluyor (bkz. ResolveFrozenCellsInSolver) — bu yüzden buz içeren seviyelerde
-        // parça hacmi hedeften FAZLA olabilir (yok olan hücrelerin yeniden doldurulması gerekir).
-        // Buzsuz seviyelerde hiçbir hücre kaybolmadığı için hacim hâlâ TAM eşit olmalı — bu kesin
-        // bir kural, gevşetilmiyor. Buzlu seviyelerde üst sınır olarak "her buz hücresi en fazla
-        // BİR kez erir ve en fazla 2 hücre yok eder" varsayımı kullanılıyor (bkz. üretim tarafındaki
-        // eşleşen yedek-parça mantığı, AILevelDesignerWindow.SplitShapeWithSolutionFirstLibrary).
-        int maxExtraForIce = frozenCells.Count * 2;
+        // [2026-07-14, eski mantığa dönüş] Buza değen hücreden başlayan BAĞLANTILI aynı renk
+        // grubu (≥2 üyeli) artık TAMAMEN buzla birlikte yok oluyor (bkz. ResolveFrozenCellsInSolver)
+        // — grup büyüklüğü keyfi olabileceği için "buz başına en fazla N hücre" gibi sabit bir üst
+        // sınır artık YOK. Buz içeren seviyelerde parça hacmi hedeften ne kadar fazla olursa olsun
+        // erken reddedilmiyor, arama (zaman/durum limitleriyle sınırlı) karar versin. Buzsuz
+        // seviyelerde hiçbir hücre kaybolmadığı için hacim hâlâ TAM eşit olmalı — bu kesin bir
+        // kural, gevşetilmiyor.
         if (frozenCells.Count == 0 && totalPieceCells > emptyTargetCells)
         {
             return new SolverResult
             {
                 isSolvable = false,
                 failureReason = $"Fazla hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells}"
-            };
-        }
-        if (frozenCells.Count > 0 && totalPieceCells > emptyTargetCells + maxExtraForIce)
-        {
-            return new SolverResult
-            {
-                isSolvable = false,
-                failureReason = $"Fazla hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells} (+buz yedeği={maxExtraForIce})"
             };
         }
 
@@ -159,6 +151,7 @@ public class LevelSolver
         }
         else if (searchTimedOut)
         {
+            bestResult.timedOut = true;
             bestResult.failureReason = $"Arama limiti aşıldı ({maxSearchTimeMs}ms veya {maxStatesExplored} durum) - kesin çözülemez değil";
         }
         else
@@ -393,9 +386,10 @@ public class LevelSolver
         }
     }
 
-    // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
-    // buz hücresinin yatay komşularından EN AZ İKİSİ aynı renkteyse buz erir VE o iki tetikleyici
-    // komşu hücre de anında yok olur (hücreleri boşalır, bkz. PlacementStep.destroyedCells).
+    // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural
+    // [2026-07-14, eski mantığa dönüş]: buza değen hücreden başlayarak BAĞLANTILI aynı renkteki
+    // TÜM grup (flood-fill) hesaplanır — grup ≥2 üyeliyse grubun TAMAMI buzla birlikte yok olur
+    // (bkz. PlacementStep.destroyedCells). Grup büyüklüğü artık sabit-2 değil, keyfi olabilir.
     // Renk burada pieceIndex tabanlı bir vekil olduğu için bu KESİN bir garanti değil,
     // best-effort — bkz. currentMatIndex alanının üstündeki not.
     private void ResolveFrozenCellsInSolver(PlacementStep step)
@@ -410,43 +404,36 @@ public class LevelSolver
             new Vector3Int(0, 0, -1)
         };
 
+        var touchingCells = new HashSet<Vector3Int>();
         var candidateFrozenCells = new HashSet<Vector3Int>();
         foreach (var cell in step.cells)
         {
             foreach (var offset in horizontalNeighbors)
             {
                 Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor)) candidateFrozenCells.Add(neighbor);
+                if (frozenCells.Contains(neighbor))
+                {
+                    touchingCells.Add(cell);
+                    candidateFrozenCells.Add(neighbor);
+                }
             }
         }
 
         var cellsToThaw = new HashSet<Vector3Int>();
         var cellsToDestroy = new HashSet<Vector3Int>();
 
-        foreach (var frozenCell in candidateFrozenCells)
+        foreach (var touchCell in touchingCells)
         {
-            var colorGroups = new Dictionary<int, List<Vector3Int>>();
-            List<Vector3Int> winningGroup = null;
+            if (!currentMatIndex.TryGetValue(touchCell, out int touchMatIdx)) continue;
 
+            var group = FloodFillSameColorInSolver(touchCell, touchMatIdx, horizontalNeighbors);
+            if (group.Count < 2) continue;
+
+            cellsToDestroy.UnionWith(group);
             foreach (var offset in horizontalNeighbors)
             {
-                Vector3Int neighbor = frozenCell + offset;
-                if (!currentMatIndex.TryGetValue(neighbor, out int matIdx)) continue;
-
-                if (!colorGroups.TryGetValue(matIdx, out var list))
-                {
-                    list = new List<Vector3Int>();
-                    colorGroups[matIdx] = list;
-                }
-                list.Add(neighbor);
-                if (list.Count >= 2 && winningGroup == null) winningGroup = list;
-            }
-
-            if (winningGroup != null)
-            {
-                cellsToThaw.Add(frozenCell);
-                cellsToDestroy.Add(winningGroup[0]);
-                cellsToDestroy.Add(winningGroup[1]);
+                Vector3Int neighbor = touchCell + offset;
+                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
             }
         }
 
@@ -465,6 +452,33 @@ public class LevelSolver
             currentOccupied.Remove(cell);
             currentMatIndex.Remove(cell);
         }
+    }
+
+    // GridManager.FloodFillSameColor ile birebir eşleşmesi gereken mantık: start hücresinden
+    // başlayarak, currentOccupied içinde aynı proxy/prefilled matIndex'e sahip ve yatay
+    // komşuluk üzerinden birbirine bağlı tüm hücreleri (start dahil) döndürür.
+    private HashSet<Vector3Int> FloodFillSameColorInSolver(Vector3Int start, int matIdx, Vector3Int[] horizontalNeighbors)
+    {
+        var visited = new HashSet<Vector3Int> { start };
+        var stack = new Stack<Vector3Int>();
+        stack.Push(start);
+
+        while (stack.Count > 0)
+        {
+            var cur = stack.Pop();
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = cur + offset;
+                if (visited.Contains(neighbor)) continue;
+                if (!currentMatIndex.TryGetValue(neighbor, out int neighborMatIdx)) continue;
+                if (neighborMatIdx != matIdx) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
+            }
+        }
+
+        return visited;
     }
 
     private bool AllLayersValid()
@@ -610,6 +624,10 @@ public class SolverResult
     public float difficultyScore;
     public string difficultyLabel;
     public string failureReason;
+    // true ⇔ isSolvable=false yalnızca arama limiti (süre/durum sayısı) aşıldığı için — yani
+    // "çözülemez" KANITLANMADI, sadece bu bütçede bulunamadı. UI bunu gerçek/kanıtlanmış
+    // çözülemezlikten ayırt etmek için kullanır (bkz. AILevelDesignerWindow.DrawSolverResultSection).
+    public bool timedOut;
 }
 
 [System.Serializable]

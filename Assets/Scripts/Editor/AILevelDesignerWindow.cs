@@ -86,6 +86,16 @@ public class AILevelDesignerWindow : EditorWindow
     internal bool solverRan = false;
     private int highlightedPieceIndex = -1;
 
+    // ── Katman Katman Üretim (LevelCreationWizardWindow Adım 3) ─────
+    // Wizard, tüm şekli tek seferde üretmek yerine Y katmanlarını tek tek üretip her birini
+    // kullanıcıya onaylatıyor (bkz. StartLayerByLayerGeneration/GenerateCurrentLayerPieces).
+    internal bool layerGenActive = false;
+    internal int genCurrentLayerY = 0;
+    internal int pendingLayerPieceCount = 0; // pieceSplitList kuyruğundaki henüz onaylanmamış parça sayısı
+    internal string layerGenError = null;
+    internal int pieceLibraryVersion = 0; // RefreshPieceLibrary tarafından artırılır — bayat oturumları yakalamak için
+    private string layerGenSignature = null;
+
     // ── Parça Kütüphanesi (Kutuphane_SolutionFirst modu) ────────────
     private const string PIECE_DEFINITIONS_PATH = "Assets/PieceDefinitions";
     private List<PieceDefinition> pieceLibraryCache;
@@ -590,7 +600,9 @@ public class AILevelDesignerWindow : EditorWindow
     }
 
     // ── Merkez Grid Önizleme ───────────────────────────────────────
-    private void DrawCenterGrid()
+    // internal: LevelCreationWizardWindow Adım 3, katman katman üretim sırasında canlı
+    // parça önizlemesini göstermek için bunu doğrudan çağırıyor (kopya değil).
+    internal void DrawCenterGrid()
     {
         EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
 
@@ -1008,7 +1020,11 @@ public class AILevelDesignerWindow : EditorWindow
 
     // Çözülebilirlik analizi kutusu — DrawRightPanel'den çıkarıldı, hem eski panel hem de
     // LevelCreationWizardWindow'un 3. adımı bu AYNI metodu çağırıyor (kopya değil).
-    internal void DrawSolverResultSection()
+    // onRetry/retryLabel: katman katman üretim akışı (Wizard Adım 3), bütünsel doğrulama
+    // başarısız olduğunda varsayılan AutoAdjustAndRegenerate (atomik yol) yerine katman
+    // oturumunu baştan başlatan kendi retry'ını geçirebilsin diye — verilmezse davranış
+    // (ve buton metni) eskisiyle BİREBİR aynı kalır.
+    internal void DrawSolverResultSection(System.Action onRetry = null, string retryLabel = null)
     {
         if (!(solverRan && lastSolverResult != null)) return;
 
@@ -1056,9 +1072,46 @@ public class AILevelDesignerWindow : EditorWindow
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
         }
+        else if (lastSolverResult.timedOut)
+        {
+            // Belirsiz sonuç: arama limiti aşıldı, ama bu "çözülemez" ANLAMINA GELMEZ — sadece bu
+            // bütçede bir çözüm bulunamadı. Kanıtlanmış çözülemezlikle (aşağıdaki kırmızı dal)
+            // karıştırılmasın diye ayrı, turuncu bir "belirsiz" görünüm — ve İLERİ'yi engellemiyor
+            // (bkz. LevelCreationWizardWindow'daki isValidated: timedOut de geçerli sayılıyor).
+            GUI.backgroundColor = new Color(0.95f, 0.65f, 0.15f, 0.12f);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            GUI.backgroundColor = Color.white;
+
+            var solverTimeoutStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 12,
+                normal = { textColor = new Color(0.95f, 0.65f, 0.15f) }
+            };
+            GUILayout.Label("⏱️  BELİRSİZ: DOĞRULAMA SÜRE/DURUM LİMİTİNE TAKILDI", solverTimeoutStyle);
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(lastSolverResult.failureReason + " Katmanları siz zaten tek tek onayladınız — isterseniz " +
+                                     "İLERİ ile devam edebilirsiniz.", MessageType.Warning);
+
+            EditorGUILayout.Space(6);
+            GUI.backgroundColor = new Color(0.24f, 0.24f, 0.28f);
+            var retryStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 11,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+            if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir & Yeniden Üret", retryStyle, GUILayout.Height(28)))
+            {
+                (onRetry ?? AutoAdjustAndRegenerate)();
+            }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndVertical();
+        }
         else
         {
-            // Unsolvable layout: Red background tint box
+            // Unsolvable layout: Red background tint box — SADECE kanıtlanmış (arama tükendi,
+            // gerçekten çözüm yok) durumlarda. timedOut burada asla true olamaz (yukarıda ele alındı).
             GUI.backgroundColor = new Color(0.88f, 0.25f, 0.25f, 0.12f);
             EditorGUILayout.BeginVertical(GUI.skin.box);
             GUI.backgroundColor = Color.white;
@@ -1069,10 +1122,10 @@ public class AILevelDesignerWindow : EditorWindow
                 normal = { textColor = new Color(0.88f, 0.25f, 0.25f) }
             };
             GUILayout.Label("❌  HATA: SEVİYE ÇÖZÜLEMEZ DURUMDA!", solverFailStyle);
-            
+
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(lastSolverResult.failureReason, MessageType.Error);
-            
+
             EditorGUILayout.Space(6);
             GUI.backgroundColor = new Color(0.95f, 0.65f, 0.15f, 1.0f); // Accent yellow/orange
             var retryStyle = new GUIStyle(GUI.skin.button)
@@ -1081,9 +1134,9 @@ public class AILevelDesignerWindow : EditorWindow
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = Color.white }
             };
-            if (GUILayout.Button("🔁  Parametreleri İyileştir & Yeniden Üret", retryStyle, GUILayout.Height(28)))
+            if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir & Yeniden Üret", retryStyle, GUILayout.Height(28)))
             {
-                AutoAdjustAndRegenerate();
+                (onRetry ?? AutoAdjustAndRegenerate)();
             }
             GUI.backgroundColor = Color.white;
             EditorGUILayout.EndVertical();
@@ -1210,7 +1263,7 @@ public class AILevelDesignerWindow : EditorWindow
         // kaydedilemez. Solver hiç çalışmadıysa, sonuç yoksa veya çözülemez bulduysa buton
         // tamamen devre dışı — ExportProceduralLevelCore de aynı kontrolü tekrar yapıyor
         // (savunmacı: buton her nasılsa aktifleşse bile kayıt yine reddedilir).
-        bool isValidatedSolvable = solverRan && lastSolverResult != null && lastSolverResult.isSolvable;
+        bool isValidatedSolvable = solverRan && lastSolverResult != null && (lastSolverResult.isSolvable || lastSolverResult.timedOut);
         EditorGUI.BeginDisabledGroup(!isValidatedSolvable);
         GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Doygun Yeşil
         if (GUILayout.Button("💾 SEVİYEYİ TAMAMEN OLUŞTUR\n(BÖLÜMÜ KAYDET)", GUILayout.Height(50)))
@@ -1344,18 +1397,36 @@ public class AILevelDesignerWindow : EditorWindow
 
     internal void GenerateLevelProcedurally()
     {
+        if (!ValidateAndLoadSourceShape(out int W, out int H, out int D)) return;
+
+        ApplyObstaclesAndSplitPieces(W, H, D);
+
+        activeLayer = 0;
+        Repaint();
+        Debug.Log($"🤖 Yapay Zeka: '{levelName}' seviyesi procedurally oluşturuldu. Küp: {occupiedCells.Count}, Parça: {pieceSplitList.Count}");
+    }
+
+    // Kaynak (şablon/özel prefab) doğrulaması + occupiedCells'in o kaynaktan yüklenmesi —
+    // GenerateLevelProcedurally VE StartLayerByLayerGeneration tarafından ortak kullanılır.
+    // Kaynak seçilmemiş/geçersizse kullanıcıya dialog gösterip false döner (state hiç temizlenmez).
+    private bool ValidateAndLoadSourceShape(out int W, out int H, out int D)
+    {
+        W = gridSize.x;
+        H = gridSize.y;
+        D = gridSize.z;
+
         // Kaynak kontrolü
         if (generationBaseType == GenerationBaseType.Template && selectedTemplate == null)
         {
             EditorUtility.DisplayDialog("Hata", "Lütfen önce bir Level Şablonu seçin (Assets/Templates/)", "Tamam");
-            return;
+            return false;
         }
         else if (generationBaseType == GenerationBaseType.CustomPrefab)
         {
             if (customBasePrefab == null || customBasePrefab.GetComponent<CubeShapeDataHolder>() == null)
             {
                 EditorUtility.DisplayDialog("Hata", "Lütfen CubeShapeDataHolder içeren geçerli bir Prefab seçin", "Tamam");
-                return;
+                return false;
             }
         }
 
@@ -1367,10 +1438,6 @@ public class AILevelDesignerWindow : EditorWindow
         highlightedPieceIndex = -1;
 
         // 1. Kaynaktan Grid'i Yükle
-        int W = gridSize.x;
-        int H = gridSize.y;
-        int D = gridSize.z;
-
         if (generationBaseType == GenerationBaseType.Template)
         {
             // Şablon boşsa (occupiedCells listesi boşsa) = tam dolu küp
@@ -1407,11 +1474,197 @@ public class AILevelDesignerWindow : EditorWindow
             occupiedCells.Add(new Vector3Int(W / 2, 0, D / 2));
         }
 
-        ApplyObstaclesAndSplitPieces(W, H, D);
+        return true;
+    }
 
-        activeLayer = 0;
+    // ── Katman Katman Üretim (LevelCreationWizardWindow Adım 3) ────────────────────
+    // Şekli tek seferde üretip tüm parçaları bir arada bölmek yerine, en alt Y katmanından
+    // başlayarak SADECE o katmanın hücrelerini SolutionFirstBuilder ile döşer, sonucu
+    // pieceSplitList kuyruğuna ekler ve kullanıcının onayını bekler. SolutionFirstBuilder'ın
+    // arama mantığı zaten katman-katman (GetLowestIncompleteLayer/GetPossibleOffsets, bkz. o
+    // dosya) — buraya sadece TEK bir Y'nin hücrelerini vermek, aramayı doğal olarak o katmanla
+    // sınırlıyor, SolutionFirstBuilder.cs'de hiçbir değişiklik gerekmiyor.
+    internal void StartLayerByLayerGeneration()
+    {
+        if (layerGenActive)
+        {
+            bool confirmed = EditorUtility.DisplayDialog(
+                "Katman Üretimini Yeniden Başlat",
+                "Devam eden bir katman katman üretim oturumu var. Şimdiye kadar onayladığınız katmanlar silinecek. Baştan başlansın mı?",
+                "Evet, Baştan Başla", "İptal");
+            if (!confirmed) return;
+        }
+
+        if (!ValidateAndLoadSourceShape(out int W, out int H, out int D)) return;
+
+        DistributeObstacles(W, H, D);
+
+        genCurrentLayerY = occupiedCells.Count > 0 ? occupiedCells.Min(c => c.y) : 0;
+        pendingLayerPieceCount = 0;
+        layerGenError = null;
+        solverRan = false;
+        lastSolverResult = null;
+        layerGenActive = true;
+        drawView = AIDrawView.PiecesOnly;
+        show3D = false;
+        activeLayer = genCurrentLayerY;
+        layerGenSignature = BuildLayerGenSignature();
+
+        GenerateCurrentLayerPieces();
+    }
+
+    // Adım 1/2 girdileri (şablon/prefab, zorluk, kütüphane sürümü) bir katman oturumu açıkken
+    // değişirse (kullanıcı Wizard'da geri gidip başka şablon/zorluk seçerse) oturum artık
+    // tutarsız hale gelir — bkz. DrawStep3'teki bayat-oturum kontrolü.
+    private string BuildLayerGenSignature()
+    {
+        string sourceId = generationBaseType == GenerationBaseType.Template
+            ? (selectedTemplate != null ? selectedTemplate.GetInstanceID().ToString() : "none")
+            : (customBasePrefab != null ? customBasePrefab.GetInstanceID().ToString() : "none");
+        return $"{generationBaseType}|{sourceId}|{selectedDifficulty}|{pieceLibraryVersion}";
+    }
+
+    // Wizard Adım 3, layerGenActive iken her OnGUI'de imzayı bununla karşılaştırır.
+    internal bool IsLayerGenSignatureStale()
+    {
+        return layerGenActive && layerGenSignature != BuildLayerGenSignature();
+    }
+
+    // Bayat bir oturumu (imza uyuşmazlığı) sessizce iptal eder — pieceSplitList/pending
+    // durumunu temizler, kullanıcıya neden sıfırlandığını açıklayan bir mesaj bırakır.
+    internal void CancelStaleLayerGenSession()
+    {
+        pieceSplitList.Clear();
+        pendingLayerPieceCount = 0;
+        layerGenActive = false;
+        layerGenError = "⚠️ Adım 1/2'deki ayarlar değişti, katman katman üretim oturumu sıfırlandı. Lütfen yeniden başlatın.";
+    }
+
+    // Geçerli katmanı (genCurrentLayerY) döşemeye çalışır. Hedefsiz (tamamen prefilled) üst
+    // katmanları otomatik atlar; en üst katman da bittiyse FinalizeLayerByLayerGeneration'ı
+    // tetikler. pieceSplitList'in kuyruğundaki önceki (henüz onaylanmamış) deneme varsa önce
+    // temizler — hem "Yeniden Üret" hem de bu metodun kendisi tarafından güvenle çağrılabilir.
+    internal void GenerateCurrentLayerPieces()
+    {
+        layerGenError = null;
+
+        if (pendingLayerPieceCount > 0)
+        {
+            pieceSplitList.RemoveRange(pieceSplitList.Count - pendingLayerPieceCount, pendingLayerPieceCount);
+            pendingLayerPieceCount = 0;
+        }
+
+        int maxY = occupiedCells.Count > 0 ? occupiedCells.Max(c => c.y) : -1;
+
+        // Hedef hücresi olmayan (tamamen prefilled) katmanları otomatik atla. DİKKAT: buz
+        // (frozen) hücreler burada "hedefsiz" sayılmaz — onlar aşağıda ayrıca ele alınıyor,
+        // çünkü "tamamen buzlu bir katman" gerçek bir üretim hatasıdır (o katmana hiçbir parça
+        // asla yerleştirilemez), sessizce atlanacak zararsız bir durum değil.
+        while (genCurrentLayerY <= maxY && !occupiedCells.Any(c => c.y == genCurrentLayerY && !prefilledCells.Contains(c)))
+        {
+            genCurrentLayerY++;
+        }
+
+        if (genCurrentLayerY > maxY)
+        {
+            FinalizeLayerByLayerGeneration();
+            return;
+        }
+
+        activeLayer = genCurrentLayerY;
+
+        // Buz hücreleri prefilled gibi döşeme hedefinden ÇIKARILIR — aksi halde SolutionFirstBuilder
+        // buza dokunan bir parça üretebilir ve o parça buz erimeden ASLA yerleştirilemez (gerçek
+        // CanPlace/CanPlaceOnLayer buzlu hücreye izin vermiyor). Bu, açık hücreleri buzla birlikte
+        // "tek parça" olarak yutup açık bölgeyi parçasız bırakabiliyordu (bkz. oyun-içi teşhis
+        // logu: iki bağlantısız 2'lik açık ada, elde sadece 3-4 hücrelik parçalar). Buz hücreleri
+        // hâlâ toplam hedefin bir parçası — onlar için FinalizeLayerByLayerGeneration'daki ayrı
+        // güvenlik payı (buz başına yedek parça) mekanizması kullanılıyor.
+        var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
+        layerCells.ExceptWith(prefilledCells);
+        layerCells.ExceptWith(frozenCells);
+
+        if (layerCells.Count == 0)
+        {
+            // Bu katmanda prefilled olmayan TÜM hücreler buzlu — hiçbir parça bu katmana asla
+            // yerleştirilemez (buz komşu bir yerleşimle erimeden), üretim tekrar denemekle
+            // düzelmez. Kullanıcının katmanı/oturumu yeniden başlatması gerekir.
+            layerGenError = $"⚠️ Katman Y={genCurrentLayerY}'deki tüm boş hücreler buzlu — bu katmana hiçbir parça " +
+                             "yerleştirilemez. Buz oranını düşürüp 'Katmanları Baştan Üret' ile tekrar deneyin.";
+            Repaint();
+            return;
+        }
+
+        var library = LoadPieceLibrary();
+        if (library.Count == 0)
+        {
+            layerGenError = "⚠️ Assets/PieceDefinitions/ altında hiç PieceDefinition bulunamadı — önce parça kütüphanesini kurun.";
+            Repaint();
+            return;
+        }
+
+        int layerVolume = layerCells.Count;
+        int stateLimit = layerVolume < 20 ? 15000 : layerVolume < 40 ? 30000 : 50000;
+        int timeLimitMs = layerVolume < 20 ? 800 : layerVolume < 40 ? 1500 : 2500;
+
+        const int maxAttempts = 5;
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var pool = SampleEligiblePool(library);
+            bool built = SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit, timeLimitMs, out var resultPieces);
+
+            if (built)
+            {
+                pieceSplitList.AddRange(resultPieces);
+                pendingLayerPieceCount = resultPieces.Count;
+                Repaint();
+                return;
+            }
+        }
+
+        layerGenError = $"⚠️ Katman Y={genCurrentLayerY} mevcut kütüphaneyle döşenemedi ({maxAttempts} deneme). " +
+                         "Tekrar deneyin veya parça kütüphanesini genişletin.";
         Repaint();
-        Debug.Log($"🤖 Yapay Zeka: '{levelName}' seviyesi procedurally oluşturuldu. Küp: {occupiedCells.Count}, Parça: {pieceSplitList.Count}");
+    }
+
+    // Geçerli katmanı kilitler (kuyruktan çıkarılamaz hale getirir) ve bir sonraki katmana geçer.
+    internal void ApproveCurrentLayerAndAdvance()
+    {
+        pendingLayerPieceCount = 0;
+        genCurrentLayerY++;
+        GenerateCurrentLayerPieces();
+    }
+
+    // Geçerli katmanı (henüz onaylanmamış kuyruk parçalarını) yeni bir rastgele havuzla
+    // yeniden dener — GenerateCurrentLayerPieces zaten kendi başında eski denemeyi temizliyor.
+    internal void RegenerateCurrentLayer()
+    {
+        GenerateCurrentLayerPieces();
+    }
+
+    // Tüm katmanlar onaylandıktan sonra: buz güvenlik marjı parçalarını ekler (mevcut atomik
+    // yoldaki SplitShapeWithSolutionFirstLibrary ile BİREBİR aynı mantık) ve bütünsel LevelSolver
+    // doğrulamasını (renk/buz erime sırası dahil — bu, katman bazlı SolutionFirstBuilder'ın
+    // KONTROL ETMEDİĞİ tek şey, bkz. SolutionFirstBuilder.cs üstündeki açıklama) çalıştırır.
+    private void FinalizeLayerByLayerGeneration()
+    {
+        if (frozenCells != null && frozenCells.Count > 0)
+        {
+            for (int i = 0; i < frozenCells.Count; i++)
+                pieceSplitList.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
+        }
+
+        layerGenActive = false;
+
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+        int timeoutMs = gridVolume < 50 ? 1500 : gridVolume < 100 ? 2500 : 4000;
+        lastSolverResult = TestCurrentPiecesWithSolver(timeoutMs);
+        solverRan = true;
+
+        Debug.Log($"🧩 Katman katman üretim tamamlandı: Parça={pieceSplitList.Count}, " +
+                  $"Çözülebilir={lastSolverResult.isSolvable}, Zorluk={lastSolverResult.difficultyLabel}");
+
+        Repaint();
     }
 
     // occupiedCells'i W×H×D'lik tam dolu bir kutuyla doldurur. Şablon seçilmediği/boş olduğu
@@ -1428,6 +1681,17 @@ public class AILevelDesignerWindow : EditorWindow
     // occupiedCells zaten dolduktan sonra: buz/prefilled dağıtımı + akıllı parça bölme.
     // GenerateLevelProcedurally ve GenerateAndExportAIBatchDataset tarafından ortak kullanılır.
     private void ApplyObstaclesAndSplitPieces(int W, int H, int D)
+    {
+        DistributeObstacles(W, H, D);
+
+        // 3. Akıllı Parça Üretimi: Birden fazla strateji dene, en iyisini seç
+        SmartPieceSplitting();
+    }
+
+    // ApplyObstaclesAndSplitPieces'in buz/prefilled dağıtım kısmı — StartLayerByLayerGeneration
+    // (katman katman üretim akışı) tarafından da SmartPieceSplitting'i tetiklemeden ayrıca
+    // kullanılabilmesi için ayrı bir metoda çıkarıldı. Davranış AYNI, sadece taşındı.
+    private void DistributeObstacles(int W, int H, int D)
     {
         // 2. AI Parametreleri: Renkli Küpler (Prefilled) ve Buzları Dağıt
         List<Vector3Int> finalOccupied = occupiedCells.ToList();
@@ -1477,9 +1741,6 @@ public class AILevelDesignerWindow : EditorWindow
             prefilledMatIdx.Add(colorIdx);
             prefilledDone++;
         }
-
-        // 3. Akıllı Parça Üretimi: Birden fazla strateji dene, en iyisini seç
-        SmartPieceSplitting();
     }
 
     private bool EvaluateShapeFormula(Vector3Int c, int W, int H, int D)
@@ -1627,6 +1888,7 @@ public class AILevelDesignerWindow : EditorWindow
     internal void RefreshPieceLibrary()
     {
         pieceLibraryCache = null;
+        pieceLibraryVersion++;
         LoadPieceLibrary();
     }
 
@@ -1687,6 +1949,25 @@ public class AILevelDesignerWindow : EditorWindow
         return false;
     }
 
+    // Zorluk profiline uyan (difficultyTags), TAZE rastgele karıştırılmış bir parça havuzu
+    // örnekler (spawnWeight'e göre ağırlıklandırma SolutionFirstBuilder'ın kendi sıralamasında
+    // yapılıyor, burada sadece havuzun İÇERİĞİ seçiliyor). SplitShapeWithSolutionFirstLibrary
+    // (şekil bazlı) ve GenerateCurrentLayerPieces (katman bazlı) tarafından ortak kullanılır —
+    // ikisi de aynı örnekleme mantığına güveniyor, sadece cellsToFill kapsamları farklı.
+    private List<PieceDefinition> SampleEligiblePool(List<PieceDefinition> library)
+    {
+        string profileTag = selectedDifficulty.ToString();
+        var eligible = library
+            .Where(d => d.difficultyTags == null || d.difficultyTags.Count == 0 || d.difficultyTags.Contains(profileTag))
+            .ToList();
+        if (eligible.Count == 0) eligible = library;
+
+        int idealCount = DifficultySpecs.TryGetValue(selectedDifficulty, out var spec) ? spec.idealPieceCount : 5;
+        int poolSize = Mathf.Clamp(idealCount + 2, 3, eligible.Count);
+
+        return eligible.OrderBy(_ => Random.value).Take(poolSize).ToList();
+    }
+
     // "Kütüphane / Solution-First" modu: SmartPieceSplitting'in mevcut çok-denemeli
     // döngüsündeki her attempt için Assets/PieceDefinitions/ altından TAZE, rastgele bir
     // parça havuzu örnekler (spawnWeight'e göre ağırlıklı, difficultyTags'e göre filtrelenmiş)
@@ -1703,25 +1984,20 @@ public class AILevelDesignerWindow : EditorWindow
             return new List<List<Vector3Int>>();
         }
 
-        // Zorluk profiline uyan parçalar: difficultyTags boşsa (henüz hiç etiketlenmemiş,
-        // Faz 1 migration'ının varsayılan durumu) her zorlukta kullanılabilir sayılır.
-        string profileTag = selectedDifficulty.ToString();
-        var eligible = library
-            .Where(d => d.difficultyTags == null || d.difficultyTags.Count == 0 || d.difficultyTags.Contains(profileTag))
-            .ToList();
-        if (eligible.Count == 0) eligible = library;
-
-        // Doldurulması gereken hücreler: prefilled hariç tüm hedef hücreler (frozen dahil —
-        // buz erimesi sırası SolutionFirstBuilder'da değil, sonradan gerçek LevelSolver'da
-        // doğrulanır, bkz. SolutionFirstBuilder.cs üstündeki açıklama).
+        // Doldurulması gereken hücreler: prefilled VE frozen hariç. [DÜZELTİLDİ, oyun-içi
+        // teşhis: buz hücreleri eskiden dahil ediliyordu ("erime sırası sonradan LevelSolver'da
+        // doğrulanır" varsayımıyla) — ama bu, SolutionFirstBuilder'ın açık bir hücreyle bitişik
+        // bir buz hücresini TEK bir parçaya birlikte atamasına izin veriyordu. Öyle bir parça
+        // gerçek oyunda ASLA yerleştirilemez (CanPlace/CanPlaceOnLayer buzlu hücreyi reddeder),
+        // bu da açık hücreleri parçasız/döşenmemiş bırakıp (özellikle küçük, birbirinden kopuk
+        // açık adacıklar oluştuğunda) oyunun daha ilk katmanda "hamle yok" diye kilitlenmesine
+        // yol açabiliyordu. Buz hücreleri hâlâ toplam hedefin bir parçası — onlar için aşağıdaki
+        // "buz güvenlik payı" (buz başına yedek parça) mekanizması kullanılıyor.
         var cellsToFill = new HashSet<Vector3Int>(occupiedCells);
         cellsToFill.ExceptWith(prefilledCells);
+        cellsToFill.ExceptWith(frozenCells);
 
-        int idealCount = DifficultySpecs.TryGetValue(selectedDifficulty, out var spec) ? spec.idealPieceCount : 5;
-        int poolSize = Mathf.Clamp(idealCount + 2, 3, eligible.Count);
-
-        var shuffledEligible = eligible.OrderBy(_ => Random.value).ToList();
-        var pool = shuffledEligible.Take(poolSize).ToList();
+        var pool = SampleEligiblePool(library);
 
         int gridVolume = gridSize.x * gridSize.y * gridSize.z;
         int stateLimit = gridVolume < 50 ? 30000 : gridVolume < 100 ? 50000 : 80000;
@@ -1734,20 +2010,19 @@ public class AILevelDesignerWindow : EditorWindow
 
         if (built && frozenCells != null && frozenCells.Count > 0)
         {
-            // [2026-07-14, ekip kararıyla, 2. revizyon] Buz erimesini tetikleyen 2 aynı renkli
-            // komşu parça anında yok oluyor (bkz. GridManager.CheckAndResolveFrozenCells) — o
-            // hücreler tekrar doldurulmalı. Havuz normalde hedefe TAM eşit hacimde üretildiği
-            // için yedek parça yok; her buz hücresi en fazla BİR kez erir ve en fazla 2 hücre
-            // yok eder, bu yüzden buz başına 2 hücrelik toplam pay ekliyoruz — AMA bunu 2 AYRI
-            // tek-küplük parça yerine TEK bir 2-hücrelik "domino" parçası olarak ekliyoruz
-            // (toplam hacim/güvenlik payı birebir aynı kalır, sadece parça SAYISI yarıya iner
-            // ve hiçbiri tekli küp olmaz). İlk denemede tek-küplük yedekler kullanılmıştı ama
-            // bu, levellerin tekli parçaya boğulmasına katkıda bulunduğu için domino'ya çevrildi
-            // — LevelSolver.SolveFromPrefabs'teki `maxExtraForIce = frozenCells.Count * 2` üst
-            // sınırı hâlâ geçerli (hacim aynı, sadece parçalanma şekli değişti). Hiç yok-olma
+            // [2026-07-14, ekip kararıyla, eski mantığa dönüş] Buza değen hücreden başlayan
+            // BAĞLANTILI aynı renk grubu (≥2 üyeli) artık TAMAMEN buzla birlikte yok oluyor
+            // (bkz. GridManager.CheckAndResolveFrozenCells/FloodFillSameColor) — grup büyüklüğü
+            // artık sabit-2 değil, keyfi olabilir (teorik üst sınırı YOK). Bu yüzden buz başına
+            // sabit bir "güvenli" yedek hacmi hesaplamak artık MÜMKÜN DEĞİL — burada sadece
+            // MAKUL bir güvenlik payı (buz başına 3 hücre, üç ayrı tek-hücrelik parça yerine TEK
+            // 3-hücrelik "L" parçası — hiçbiri tekli küp olmasın diye) ekleniyor. Bu KESİN bir
+            // garanti değildir: nadir durumlarda (çok büyük aynı-renk grubu patlarsa) yedek
+            // yetmeyip seviye fiilen tamamlanamaz hale gelebilir — renk zaten rastgele atandığı
+            // için bu risk kasıtlı olarak kabul edildi (bkz. v2.md Bölüm 2.2). Hiç patlama
             // yaşanmazsa bu parçalar seviyeyi tamamlamadan önce hiç çekilmez, zararsız kalır.
             for (int i = 0; i < frozenCells.Count; i++)
-                resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0) });
+                resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
         }
 
         return built ? resultPieces : new List<List<Vector3Int>>();
@@ -2067,7 +2342,11 @@ public class AILevelDesignerWindow : EditorWindow
             return;
         }
 
-        if (!(solverRan && lastSolverResult != null && lastSolverResult.isSolvable))
+        // timedOut da geçerli sayılır: arama limiti aşımı "çözülemez" KANITLAMAZ, sadece bu
+        // bütçede bulunamadı demektir (bkz. LevelSolver.SolverResult.timedOut). Sadece kanıtlanmış
+        // (gerçek) çözülemezlik export'u engellemeli.
+        bool validatedOk = solverRan && lastSolverResult != null && (lastSolverResult.isSolvable || lastSolverResult.timedOut);
+        if (!validatedOk)
         {
             EditorUtility.DisplayDialog("Doğrulanmamış Seviye",
                 "Bu seviye solver tarafından ÇÖZÜLEBİLİR olarak doğrulanmadı, bu yüzden kaydedilemez " +
@@ -2099,7 +2378,8 @@ public class AILevelDesignerWindow : EditorWindow
         // (validated == false) hiçbir seviye kaydedilemez. Bu, tek gerçek kayıt noktası olduğu için
         // (ExportProceduralLevel VE GenerateAndExportAIBatchDataset ikisi de buraya çağrı yapıyor)
         // burada kontrol edilmesi, çağıran her yerin ayrı ayrı doğru davranmasına güvenmekten daha güvenli.
-        if (!(solverRan && lastSolverResult != null && lastSolverResult.isSolvable))
+        // timedOut da geçerli sayılır — bkz. ExportProceduralLevel'daki aynı gerekçe.
+        if (!(solverRan && lastSolverResult != null && (lastSolverResult.isSolvable || lastSolverResult.timedOut)))
         {
             Debug.LogWarning($"⛔ '{targetLevelName}' kaydedilmedi: solver tarafından doğrulanmamış/çözülemez.");
             return null;

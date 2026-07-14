@@ -1649,18 +1649,17 @@ public class GridManager : MonoBehaviour
     }
 
     // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
-    // DÜZELTİLDİ (renksiz sisteme geçiş, 3 aşama):
+    // DÜZELTİLDİ (renksiz sisteme geçiş, 4 aşama):
     // 1) Önce katman monokromluğu tamamen kaldırılırken buz da "herhangi bir temas = erime"
     //    diye basitleştirilmişti (hiçbir renk şartı yoktu).
     // 2) Sonra ekip kararıyla buz için renk şartı KISMEN geri getirildi: buz hücresine komşu
     //    olan hücrelerden EN AZ İKİSİ aynı renkteyse buz erir.
-    // 3) [2026-07-14, ekip kararıyla güncellendi] Erimeyi tetikleyen o 2 aynı renkli komşu
-    //    parça artık ANINDA YOK OLUYOR (hücreleri boşalıyor, tekrar bir parçayla
-    //    doldurulması gerekiyor). Bu, "buz vergisi" kavramını kısmen geri getiriyor — ama
-    //    sadece buz içeren seviyelerde ve sadece tetikleyici çift için (genel patlama/grup
-    //    mekaniği YOK). Renk zaten rastgele atandığından bu mekanik tamamen şansa bağlı
-    //    kabul edildi; parça havuzuna bu ihtimali karşılayacak fazladan hacim eklenir
-    //    (bkz. Editor tarafındaki seviye üretim kodu) — LevelSolver yine de KESİN garanti
+    // 3) Erimeyi tetikleyen SADECE İKİ komşu hücre yok oluyordu (genel grup/patlama yoktu).
+    // 4) [2026-07-14, ekip kararıyla, eski mantığa dönüş] Artık buza değen hücreden başlayarak
+    //    BAĞLANTILI aynı renkteki TÜM grup hesaplanıyor (flood-fill/BFS) — grup büyüklüğü
+    //    ≥2 ise grubun TAMAMI buzla birlikte patlıyor (yok oluyor, hücreleri yeniden
+    //    doldurulmalı). Grup büyüklüğü artık sabit-2 değil, keyfi olabilir. Renk hâlâ
+    //    rastgele atandığından bu mekanik tamamen şansa bağlı; LevelSolver KESİN garanti
     //    veremez, sadece best-effort simüle eder (bkz. LevelSolver.cs'teki ilgili not).
 
     public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
@@ -1676,15 +1675,20 @@ public class GridManager : MonoBehaviour
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        // Sadece yeni yerleşen hücrelere komşu olan buz hücrelerini kontrol etmek yeterli —
-        // durumu bu yerleşimden etkilenmeyen başka bir buz hücresi zaten değişmemiştir.
+        // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreleri ve etkilenen
+        // buz hücrelerini bul.
+        var touchingCells = new HashSet<Vector3Int>();
         var candidateFrozenCells = new HashSet<Vector3Int>();
         foreach (var cell in newlyPlacedCells)
         {
             foreach (var offset in horizontalNeighbors)
             {
                 Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor)) candidateFrozenCells.Add(neighbor);
+                if (frozenCells.Contains(neighbor))
+                {
+                    touchingCells.Add(cell);
+                    candidateFrozenCells.Add(neighbor);
+                }
             }
         }
 
@@ -1697,42 +1701,18 @@ public class GridManager : MonoBehaviour
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
 
-        foreach (var frozenCell in candidateFrozenCells)
+        foreach (var touchCell in touchingCells)
         {
-            // Rengi eşleşen komşuları gruplar halinde topla — kazanan grup (≥2 üyeli) hem
-            // erimeyi tetikler hem de o grubun İLK İKİ üyesi yok olacak parçalardır.
-            var colorGroups = new List<(Color color, List<Vector3Int> cells)>();
+            if (!GetCellColor(touchCell, out Color touchColor)) continue;
 
+            var group = FloodFillSameColor(touchCell, touchColor, horizontalNeighbors);
+            if (group.Count < 2) continue;
+
+            cellsToDestroy.UnionWith(group);
             foreach (var offset in horizontalNeighbors)
             {
-                Vector3Int neighbor = frozenCell + offset;
-                if (!occupiedCells.Contains(neighbor)) continue;
-                if (!GetCellColor(neighbor, out Color col)) continue;
-
-                bool addedToGroup = false;
-                for (int i = 0; i < colorGroups.Count; i++)
-                {
-                    if (ColorsApproxEqual(col, colorGroups[i].color))
-                    {
-                        colorGroups[i].cells.Add(neighbor);
-                        addedToGroup = true;
-                        break;
-                    }
-                }
-                if (!addedToGroup) colorGroups.Add((col, new List<Vector3Int> { neighbor }));
-            }
-
-            List<Vector3Int> winningGroup = null;
-            foreach (var group in colorGroups)
-            {
-                if (group.cells.Count >= 2) { winningGroup = group.cells; break; }
-            }
-
-            if (winningGroup != null)
-            {
-                cellsToThaw.Add(frozenCell);
-                cellsToDestroy.Add(winningGroup[0]);
-                cellsToDestroy.Add(winningGroup[1]);
+                Vector3Int neighbor = touchCell + offset;
+                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
             }
         }
 
@@ -1744,6 +1724,33 @@ public class GridManager : MonoBehaviour
 
         StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToDestroy, () => onComplete?.Invoke(true)));
         return true;
+    }
+
+    // start hücresinden başlayarak, occupiedCells içinde 'color' ile aynı renkte olan ve
+    // yatay komşuluk üzerinden birbirine bağlı tüm hücreleri (start dahil) döndürür.
+    private HashSet<Vector3Int> FloodFillSameColor(Vector3Int start, Color color, Vector3Int[] horizontalNeighbors)
+    {
+        var visited = new HashSet<Vector3Int> { start };
+        var stack = new Stack<Vector3Int>();
+        stack.Push(start);
+
+        while (stack.Count > 0)
+        {
+            var cur = stack.Pop();
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = cur + offset;
+                if (visited.Contains(neighbor)) continue;
+                if (!occupiedCells.Contains(neighbor)) continue;
+                if (!GetCellColor(neighbor, out Color col)) continue;
+                if (!ColorsApproxEqual(col, color)) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
+            }
+        }
+
+        return visited;
     }
 
     // Bir Renderer'ı (var olan bir hedef ghost'u ya da patlamış bir prefilled küpü) normal,
@@ -1769,11 +1776,10 @@ public class GridManager : MonoBehaviour
         RefreshLayerVisibility();
     }
 
-    // DÜZELTİLDİ (renksiz sisteme geçiş, 3. aşama): eriyen buz hücreleri normal boş hedef
-    // hücreye dönerken, erimeyi tetikleyen 2 aynı renkli komşu parça da ANINDA YOK OLUR —
-    // onların hücreleri de boşalır ve tekrar bir parçayla doldurulması gerekir (bkz.
-    // CheckAndResolveFrozenCells başındaki not). Genel bir "patlama/grup" mekaniği YOK,
-    // sadece bu iki spesifik tetikleyici hücre.
+    // DÜZELTİLDİ (renksiz sisteme geçiş, 4. aşama): eriyen buz hücreleri normal boş hedef
+    // hücreye dönerken, buza değen hücreden başlayan BAĞLANTILI aynı renk grubu (≥2 üyeli)
+    // da ANINDA YOK OLUR — grubun tüm hücreleri boşalır ve tekrar bir parçayla doldurulması
+    // gerekir (bkz. CheckAndResolveFrozenCells başındaki not / FloodFillSameColor).
     private IEnumerator AnimateThawAndDestroy(HashSet<Vector3Int> cellsToThaw, HashSet<Vector3Int> cellsToDestroy, System.Action onComplete)
     {
         foreach (var cell in cellsToThaw)

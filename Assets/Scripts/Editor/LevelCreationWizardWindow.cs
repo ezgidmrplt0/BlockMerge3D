@@ -237,10 +237,19 @@ public class LevelCreationWizardWindow : EditorWindow
     // ── Adım 3 ───────────────────────────────────────────────────
     private void DrawStep3()
     {
-        GUILayout.Label("ADIM 3 — SEVİYE ÜRETİMİ VE SOLVER TESTİ", styleHeader);
+        GUILayout.Label("ADIM 3 — KATMAN KATMAN ÜRETİM VE SOLVER TESTİ", styleHeader);
         EditorGUILayout.HelpBox(
-            "Seçilen şablon, zorluk ve kütüphaneye göre seviye oluşturulur ve otomatik solver ile test edilir.", MessageType.Info);
+            "Seviye Y ekseninde katman katman üretilir: her katmanın parçalarını inceleyip onaylayın " +
+            "ya da beğenmediyseniz sadece o katmanı yeniden üretin. Tüm katmanlar onaylandıktan sonra " +
+            "bütünsel solver testi otomatik çalışır.", MessageType.Info);
         EditorGUILayout.Space(6);
+
+        // Adım 1/2'de bir şey değiştiyse (şablon, zorluk, kütüphane) devam eden bir oturum artık
+        // tutarsız — sessizce iptal et ve nedenini kullanıcıya bırak (bkz. layerGenError).
+        if (aiDesigner.IsLayerGenSignatureStale())
+        {
+            aiDesigner.CancelStaleLayerGenSession();
+        }
 
         // Parameters Summary Panel
         GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
@@ -248,7 +257,7 @@ public class LevelCreationWizardWindow : EditorWindow
         GUI.backgroundColor = Color.white;
 
         GUILayout.Label("📋  AKTİF ÜRETİM PARAMETRELERİ", EditorStyles.boldLabel);
-        
+
         string templateName = aiDesigner.selectedTemplate != null ? aiDesigner.selectedTemplate.templateName : "—";
         EditorGUILayout.LabelField($"• Şablon (Template): {templateName}", EditorStyles.miniBoldLabel);
         EditorGUILayout.LabelField($"• Zorluk Modu: {aiDesigner.selectedDifficulty}", EditorStyles.miniBoldLabel);
@@ -256,25 +265,82 @@ public class LevelCreationWizardWindow : EditorWindow
 
         EditorGUILayout.Space(8);
 
-        // Big visual generate button
-        GUI.backgroundColor = new Color(0.15f, 0.60f, 0.90f);
         var genBtnStyle = new GUIStyle(GUI.skin.button)
         {
             fontSize = 12,
             fontStyle = FontStyle.Bold,
             normal = { textColor = Color.white }
         };
-        if (GUILayout.Button("🎲  SEVİYEYİ RASTGELE ÜRET VE DOĞRULA", genBtnStyle, GUILayout.Height(38)))
-        {
-            aiDesigner.GenerateLevelProcedurally();
-        }
-        GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.Space(8);
-        aiDesigner.DrawSolverResultSection();
+        if (!aiDesigner.layerGenActive && !aiDesigner.solverRan)
+        {
+            GUI.backgroundColor = new Color(0.15f, 0.60f, 0.90f);
+            if (GUILayout.Button("▶️  KATMAN KATMAN ÜRETİMİ BAŞLAT", genBtnStyle, GUILayout.Height(38)))
+            {
+                aiDesigner.StartLayerByLayerGeneration();
+            }
+            GUI.backgroundColor = Color.white;
+        }
+
         EditorGUILayout.EndVertical();
 
-        bool isValidated = aiDesigner.solverRan && aiDesigner.lastSolverResult != null && aiDesigner.lastSolverResult.isSolvable;
+        if (aiDesigner.layerGenActive)
+        {
+            EditorGUILayout.Space(8);
+            GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            GUI.backgroundColor = Color.white;
+
+            int maxY = aiDesigner.gridSize.y;
+            GUILayout.Label($"🧱  KATMAN {aiDesigner.genCurrentLayerY + 1} / {maxY} İNCELENİYOR", EditorStyles.boldLabel);
+
+            if (!string.IsNullOrEmpty(aiDesigner.layerGenError))
+            {
+                EditorGUILayout.HelpBox(aiDesigner.layerGenError, MessageType.Warning);
+            }
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f);
+            EditorGUI.BeginDisabledGroup(!string.IsNullOrEmpty(aiDesigner.layerGenError));
+            if (GUILayout.Button("✅  Katmanı Onayla & Devam Et", genBtnStyle, GUILayout.Height(32)))
+            {
+                aiDesigner.ApproveCurrentLayerAndAdvance();
+            }
+            EditorGUI.EndDisabledGroup();
+            GUI.backgroundColor = Color.white;
+
+            GUILayout.Space(8);
+
+            GUI.backgroundColor = new Color(0.24f, 0.24f, 0.28f);
+            if (GUILayout.Button("🔁  Bu Katmanı Yeniden Üret", genBtnStyle, GUILayout.Height(32)))
+            {
+                aiDesigner.RegenerateCurrentLayer();
+            }
+            GUI.backgroundColor = Color.white;
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(6);
+
+            aiDesigner.DrawCenterGrid();
+
+            EditorGUILayout.EndVertical();
+        }
+
+        if (aiDesigner.solverRan)
+        {
+            EditorGUILayout.Space(8);
+            aiDesigner.DrawSolverResultSection(
+                onRetry: aiDesigner.StartLayerByLayerGeneration,
+                retryLabel: "🔁  Katmanları Baştan Üret");
+        }
+
+        // timedOut da geçerli sayılır: arama limiti aşımı "çözülemez" KANITLAMAZ, sadece bu
+        // bütçede bulunamadı demektir — katmanları zaten tek tek elle onayladınız, bu yüzden
+        // yalnızca kanıtlanmış (gerçek) çözülemezlik İLERİ'yi engellemeli (bkz. DrawSolverResultSection).
+        bool isValidated = aiDesigner.solverRan && aiDesigner.lastSolverResult != null &&
+                            (aiDesigner.lastSolverResult.isSolvable || aiDesigner.lastSolverResult.timedOut);
         DrawNavigation(canGoNext: isValidated);
     }
 
@@ -299,7 +365,11 @@ public class LevelCreationWizardWindow : EditorWindow
         aiDesigner.DrawSolverResultSection();
 
         EditorGUILayout.Space(8);
-        bool isValidated = aiDesigner.solverRan && aiDesigner.lastSolverResult != null && aiDesigner.lastSolverResult.isSolvable;
+        // timedOut da geçerli sayılır: arama limiti aşımı "çözülemez" KANITLAMAZ, sadece bu
+        // bütçede bulunamadı demektir — katmanları zaten tek tek elle onayladınız, bu yüzden
+        // yalnızca kanıtlanmış (gerçek) çözülemezlik İLERİ'yi engellemeli (bkz. DrawSolverResultSection).
+        bool isValidated = aiDesigner.solverRan && aiDesigner.lastSolverResult != null &&
+                            (aiDesigner.lastSolverResult.isSolvable || aiDesigner.lastSolverResult.timedOut);
         
         EditorGUI.BeginDisabledGroup(!isValidated);
         GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f);
