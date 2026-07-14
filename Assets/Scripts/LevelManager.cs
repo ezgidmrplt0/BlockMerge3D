@@ -436,21 +436,26 @@ public class LevelManager : MonoBehaviour
             newlyPlacedCells.Add(cell + boardOffset);
         }
 
+        // Parçanın gerçekte hangi katmana yerleştiği — artık ActiveLayerY ile aynı olmak zorunda
+        // değil (herhangi bir katmana yerleştirilebiliyor, bkz. GridManager.CanPlace). Tüm
+        // hücreler aynı Y'yi paylaşır (GridManager.CanPlace bunu zorunlu kılıyor).
+        int placedLayerY = newlyPlacedCells.Count > 0 ? newlyPlacedCells[0].y : gridManager.ActiveLayerY;
+
         // Check if there are frozen cells to thaw
         gridManager.CheckAndResolveFrozenCells(newlyPlacedCells, onComplete: (iceResolved) =>
         {
             var lpc = FindObjectOfType<LayerPanelController>();
 
-            if (gridManager.IsLayerComplete())
+            if (gridManager.IsLayerComplete(placedLayerY))
             {
                 if (lpc != null)
                 {
-                    lpc.ClosePanel(() => 
+                    lpc.ClosePanel(() =>
                     {
-                        gridManager.ExplodeActiveLayer(
+                        gridManager.ExplodeLayer(placedLayerY,
                             onLayerComplete: () => {
                                 lpc.BuildLayerButtons();
-                                HandlePostPiecePlaced();
+                                HandlePostPiecePlaced(placedLayerY);
                             },
                             onLevelComplete: () => {
                                 GameManager.Instance?.CheckWin();
@@ -460,9 +465,9 @@ public class LevelManager : MonoBehaviour
                 }
                 else
                 {
-                    gridManager.ExplodeActiveLayer(
+                    gridManager.ExplodeLayer(placedLayerY,
                         onLayerComplete: () => {
-                            HandlePostPiecePlaced();
+                            HandlePostPiecePlaced(placedLayerY);
                         },
                         onLevelComplete: () => {
                             GameManager.Instance?.CheckWin();
@@ -474,29 +479,29 @@ public class LevelManager : MonoBehaviour
             {
                 // Buz kırıldı ama katman henüz tamamlanmadı
                 // Panel modda kalıyoruz, sadece piece spawn'ı yapıyoruz
-                HandlePostPiecePlaced();
+                HandlePostPiecePlaced(placedLayerY);
             }
             else
             {
-                HandlePostPiecePlaced();
+                HandlePostPiecePlaced(placedLayerY);
             }
         });
     }
 
-    private void HandlePostPiecePlaced()
+    private void HandlePostPiecePlaced(int placedLayerY)
     {
         // Tüketilen parçanın (boşalan kartın) yerine hemen yenisini getir
         SpawnRandomPiece();
 
-        CheckGameOver();
+        CheckGameOver(placedLayerY);
     }
 
-    private void CheckGameOver()
+    private void CheckGameOver(int placedLayerY)
     {
         if (gridManager == null) return;
 
         // Level tamamlanmışsa kayıp değil, kazanma/katman geçişi akışı çalışmalıdır.
-        if (gridManager.IsComplete() || gridManager.IsLayerComplete())
+        if (gridManager.IsComplete() || gridManager.IsLayerComplete(placedLayerY))
         {
             return;
         }
@@ -517,40 +522,49 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // GEÇİCİ TEŞHİS LOGU: gerçek "level fail" tetiklenmeden hemen önce aktif katmanın tam
-        // durumunu döker — özellikle katmanın buzla ne kadar kaplı olduğunu görmek için (bkz.
-        // buz/renk patlama mekanizmasının "kesin garanti değildir" notu, GridManager.cs). Teşhis
-        // sonrası kaldırılabilir.
+        // GEÇİCİ TEŞHİS LOGU: gerçek "level fail" tetiklenmeden hemen önce TÜM katmanların tam
+        // durumunu döker — özellikle hangi katmanların buzla ne kadar kaplı olduğunu görmek için
+        // (bkz. buz/renk patlama mekanizmasının "kesin garanti değildir" notu, GridManager.cs).
+        // Teşhis sonrası kaldırılabilir.
         LogGameOverDiagnostics();
 
-        // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin
-        // hiçbirinde aktif katmandaki boş hücrelere yerleşemiyorsa gelir.
+        // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin hiçbirinde HİÇBİR
+        // katmandaki boş hücrelere yerleşemiyorsa gelir (bkz. CanShapeFitAnyOpenLayer).
         GameManager.Instance?.GameOver();
     }
 
+    // Artık fail HERHANGİ bir katmana sığmamaya bağlı olduğu için, tek bir katman değil TÜM
+    // katmanlar (gridMinY..gridMaxY) taranıyor.
     private void LogGameOverDiagnostics()
     {
-        int y = gridManager.ActiveLayerY;
+        Debug.LogWarning("🚫 GAME OVER TEŞHİSİ — Tüm katmanların durumu:");
 
-        int totalInLayer = 0, occupiedInLayer = 0, emptyFrozen = 0, emptyOpen = 0;
-        var openCells = new List<Vector3Int>();
-        var frozenCellsInLayer = new List<Vector3Int>();
-        var occupiedCellsInLayer = new List<Vector3Int>();
-        foreach (var c in gridManager.targetCells)
+        for (int y = gridManager.GridMinY; y <= gridManager.GridMaxY; y++)
         {
-            if (c.y != y) continue;
-            totalInLayer++;
-            if (gridManager.occupiedCells.Contains(c)) { occupiedInLayer++; occupiedCellsInLayer.Add(c); continue; }
-            if (gridManager.frozenCells.Contains(c)) { emptyFrozen++; frozenCellsInLayer.Add(c); }
-            else { emptyOpen++; openCells.Add(c); }
-        }
+            int totalInLayer = 0, occupiedInLayer = 0, emptyFrozen = 0, emptyOpen = 0;
+            var openCells = new List<Vector3Int>();
+            var frozenCellsInLayer = new List<Vector3Int>();
+            var occupiedCellsInLayer = new List<Vector3Int>();
+            foreach (var c in gridManager.targetCells)
+            {
+                if (c.y != y) continue;
+                totalInLayer++;
+                if (gridManager.occupiedCells.Contains(c)) { occupiedInLayer++; occupiedCellsInLayer.Add(c); continue; }
+                if (gridManager.frozenCells.Contains(c)) { emptyFrozen++; frozenCellsInLayer.Add(c); }
+                else { emptyOpen++; openCells.Add(c); }
+            }
 
-        Debug.LogWarning($"🚫 GAME OVER TEŞHİSİ — Aktif Katman Y={y} | " +
-                          $"Katmandaki toplam hücre={totalInLayer}, dolu={occupiedInLayer}, " +
-                          $"boş+buzlu(yerleştirilemez)={emptyFrozen}, boş+açık(teorik yerleştirilebilir)={emptyOpen}");
-        Debug.LogWarning($"   Dolu hücreler (X,Z): {string.Join(" | ", occupiedCellsInLayer.Select(c => $"({c.x},{c.z})"))}");
-        Debug.LogWarning($"   Buzlu hücreler (X,Z): {string.Join(" | ", frozenCellsInLayer.Select(c => $"({c.x},{c.z})"))}");
-        Debug.LogWarning($"   AÇIK boş hücreler (X,Z): {string.Join(" | ", openCells.Select(c => $"({c.x},{c.z})"))}");
+            if (totalInLayer == 0) continue; // bu Y'de hiç hedef hücre yok
+
+            Debug.LogWarning($"   Katman Y={y} | toplam={totalInLayer}, dolu={occupiedInLayer}, " +
+                              $"boş+buzlu(yerleştirilemez)={emptyFrozen}, boş+açık(teorik yerleştirilebilir)={emptyOpen} — " +
+                              $"Açık(X,Z): {string.Join(" | ", openCells.Select(c => $"({c.x},{c.z})"))}");
+
+            if (emptyOpen == 0 && emptyFrozen > 0)
+            {
+                Debug.LogWarning($"   ⚠️ TEŞHİS: Katman Y={y}'deki TÜM boş hücreler buzlu — hiçbir parça buz eritilmeden yerleştirilemez.");
+            }
+        }
 
         for (int i = 0; i < activePieces.Count; i++)
         {
@@ -560,12 +574,7 @@ public class LevelManager : MonoBehaviour
             if (holder == null) continue;
             string cellsStr = string.Join(" | ", holder.occupiedCells.Select(c => $"({c.x},{c.y},{c.z})"));
             Debug.LogWarning($"   Elde parça #{i}: {pieceGO.name}, hücre sayısı={holder.occupiedCells.Count}, " +
-                              $"yerel şekil=[{cellsStr}], yerleştirilebilir=HAYIR (aktif katmana göre)");
-        }
-
-        if (emptyOpen == 0 && emptyFrozen > 0)
-        {
-            Debug.LogWarning("   ⚠️ TEŞHİS: Katmandaki TÜM boş hücreler buzlu — hiçbir parça buz eritilmeden yerleştirilemez.");
+                              $"yerel şekil=[{cellsStr}], yerleştirilebilir=HAYIR (hiçbir açık katmana göre)");
         }
     }
 
@@ -585,9 +594,12 @@ public class LevelManager : MonoBehaviour
             placedPositions.Add(c + offset);
         }
 
+        // Artık ActiveLayerY değil, BU yerleştirmenin gerçek katmanı esas alınıyor — parçalar
+        // herhangi bir katmana yerleştirilebiliyor (bkz. GridManager.CanPlace).
+        int placementLayerY = placedPositions.Count > 0 ? placedPositions[0].y : gridManager.ActiveLayerY;
         foreach (var frozenCell in gridManager.frozenCells)
         {
-            if (frozenCell.y != gridManager.ActiveLayerY) continue;
+            if (frozenCell.y != placementLayerY) continue;
             List<Vector3Int> inLayer = new List<Vector3Int>();
             foreach (var cell in placedPositions)
             {
@@ -819,28 +831,25 @@ public class LevelManager : MonoBehaviour
             col.enabled = true;
     }
 
-    // DÜZELTİLDİ: eskiden temizlenmemiş TÜM katmanları tarıyordu ("şu an aktif olmayan ama
-    // ileride sığacağı bir katman var" → "yerleştirilebilir" sayılıyordu). Ama GridManager.CanPlace
-    // SADECE ActiveLayerY'ye yerleştirmeye izin veriyor — yani oyuncu, geleceğe ait bir katmanda
-    // "ilerleyemiyor", katmanlar kesin sırayla (alttan üste) işleniyor. Eski davranış şu sessiz
-    // kilitlenmeye yol açıyordu: elindeki TÜM kartlar henüz aktif olmayan bir katmana ait olabilir
-    // (SpawnRandomPiece kart seçerken katman gözetmiyordu) — CheckGameOver bunu "hâlâ oynanabilir"
-    // sanıp asla "Kaybettin" göstermiyordu, oyun sonsuza dek donuyordu. Artık sadece ActiveLayerY'ye
-    // gerçekten sığıp sığmadığına bakıyor — CanPlace ile birebir tutarlı.
+    // Gerçek yerleştirme HÂLÂ sadece o an odaklanılan katmana (ActiveLayerY) izin veriyor —
+    // oyuncu başka bir katmanda çalışmak için panelden o katmana GEÇMELİ (bkz. GridManager.CanPlace
+    // notu). Ama "yerleştirilebilir mi" (deadlock/fail) sorusu farklı: oyuncu istediği zaman
+    // panelden başka bir açık katmana geçebildiği için, elindeki bir parça o an odaklanılan
+    // katmana sığmasa bile BAŞKA bir katmana sığıyorsa gerçekten "sıkışmış" sayılmamalı.
     private bool IsShapePlaceable(GameObject shapePrefabOrGO)
     {
-        return CanShapeFitActiveLayer(shapePrefabOrGO);
+        return CanShapeFitAnyOpenLayer(shapePrefabOrGO);
     }
 
-    // PrepareNextPieceIndex (aktif katmana uyan parçaları önceliklendirmek için) ve IsShapePlaceable
-    // (gerçek deadlock kontrolü için) tarafından paylaşılan tek doğru kaynak.
-    private bool CanShapeFitActiveLayer(GameObject shapePrefabOrGO)
+    // PrepareNextPieceIndex (uygun parçaları önceliklendirmek için) ve IsShapePlaceable (gerçek
+    // deadlock kontrolü için) tarafından paylaşılan tek doğru kaynak. Panelden geçilebilecek HER
+    // katmanı tek tek dener (GetPossibleOffsetsOnLayer) — GetPossibleOffsets/CanPlace KULLANMAZ,
+    // çünkü onlar gerçek yerleştirme kuralına (sadece ActiveLayerY) bağlı.
+    private bool CanShapeFitAnyOpenLayer(GameObject shapePrefabOrGO)
     {
         if (shapePrefabOrGO == null || gridManager == null) return false;
         var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
         if (h == null) return false;
-
-        int activeLayer = gridManager.ActiveLayerY;
 
         Quaternion[] rots = {
             Quaternion.identity,
@@ -851,11 +860,14 @@ public class LevelManager : MonoBehaviour
             Quaternion.Euler(270, 0, 0)
         };
 
-        foreach (var r in rots)
+        for (int layerY = gridManager.GridMinY; layerY <= gridManager.GridMaxY; layerY++)
         {
-            var rotated = GridManager.RotateCells(h.occupiedCells, r);
-            var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, activeLayer);
-            if (offsets.Count > 0) return true;
+            foreach (var r in rots)
+            {
+                var rotated = GridManager.RotateCells(h.occupiedCells, r);
+                var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, layerY);
+                if (offsets.Count > 0) return true;
+            }
         }
 
         return false;
@@ -1145,22 +1157,21 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // DÜZELTİLDİ: eskiden availableIndices içinden TAMAMEN rastgele seçiliyordu — katman
-        // gözetmeden. Bu, oyuncuya art arda "henüz aktif olmayan katmana ait" kartlar dağıtıp
-        // (bkz. IsShapePlaceable'daki fix notu) sessiz bir kilitlenmeye yol açabiliyordu. Şimdi,
-        // mevcut havuzdan aktif katmana GERÇEKTEN sığan parçalar varsa seçim onların arasından
-        // yapılıyor — hâlâ rastgele (çeşitlilik korunuyor), ama artık "boşa" bir kart asla
-        // dağıtılmıyor. Aktif katmana sığan hiçbir parça kalmadıysa (o katman için gereken tüm
-        // parçalar zaten dağıtılmış/yerleştirilmiş demektir) eski tam-rastgele davranışa düşülür.
-        List<int> fitsActiveLayer = new List<int>();
+        // DÜZELTİLDİ: eskiden availableIndices içinden TAMAMEN rastgele seçiliyordu — hiçbir
+        // katmana sığmayan kartlar da dağıtılabiliyordu. Şimdi, mevcut havuzdan HERHANGİ bir açık
+        // katmana GERÇEKTEN sığan parçalar varsa seçim onların arasından yapılıyor — hâlâ rastgele
+        // (çeşitlilik korunuyor), ama artık "boşa" bir kart asla dağıtılmıyor. Hiçbir açık katmana
+        // sığan parça kalmadıysa (tüm gerekli parçalar zaten dağıtılmış/yerleştirilmiş demektir)
+        // eski tam-rastgele davranışa düşülür.
+        List<int> fitsAnyLayer = new List<int>();
         foreach (int i in availableIndices)
         {
-            if (CanShapeFitActiveLayer(allPiecePrefabs[i]))
+            if (CanShapeFitAnyOpenLayer(allPiecePrefabs[i]))
             {
-                fitsActiveLayer.Add(i);
+                fitsAnyLayer.Add(i);
             }
         }
-        List<int> pickFrom = fitsActiveLayer.Count > 0 ? fitsActiveLayer : availableIndices;
+        List<int> pickFrom = fitsAnyLayer.Count > 0 ? fitsAnyLayer : availableIndices;
 
         nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
         // Bu parçanın (kozmetik) rengi ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de

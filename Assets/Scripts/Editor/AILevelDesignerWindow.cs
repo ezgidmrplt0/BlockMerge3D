@@ -1575,7 +1575,7 @@ public class AILevelDesignerWindow : EditorWindow
 
         // Buz hücreleri prefilled gibi döşeme hedefinden ÇIKARILIR — aksi halde SolutionFirstBuilder
         // buza dokunan bir parça üretebilir ve o parça buz erimeden ASLA yerleştirilemez (gerçek
-        // CanPlace/CanPlaceOnLayer buzlu hücreye izin vermiyor). Bu, açık hücreleri buzla birlikte
+        // CanPlace buzlu hücreye izin vermiyor). Bu, açık hücreleri buzla birlikte
         // "tek parça" olarak yutup açık bölgeyi parçasız bırakabiliyordu (bkz. oyun-içi teşhis
         // logu: iki bağlantısız 2'lik açık ada, elde sadece 3-4 hücrelik parçalar). Buz hücreleri
         // hâlâ toplam hedefin bir parçası — onlar için FinalizeLayerByLayerGeneration'daki ayrı
@@ -1988,7 +1988,7 @@ public class AILevelDesignerWindow : EditorWindow
         // teşhis: buz hücreleri eskiden dahil ediliyordu ("erime sırası sonradan LevelSolver'da
         // doğrulanır" varsayımıyla) — ama bu, SolutionFirstBuilder'ın açık bir hücreyle bitişik
         // bir buz hücresini TEK bir parçaya birlikte atamasına izin veriyordu. Öyle bir parça
-        // gerçek oyunda ASLA yerleştirilemez (CanPlace/CanPlaceOnLayer buzlu hücreyi reddeder),
+        // gerçek oyunda ASLA yerleştirilemez (CanPlace buzlu hücreyi reddeder),
         // bu da açık hücreleri parçasız/döşenmemiş bırakıp (özellikle küçük, birbirinden kopuk
         // açık adacıklar oluştuğunda) oyunun daha ilk katmanda "hamle yok" diye kilitlenmesine
         // yol açabiliyordu. Buz hücreleri hâlâ toplam hedefin bir parçası — onlar için aşağıdaki

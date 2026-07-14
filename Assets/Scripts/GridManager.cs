@@ -399,14 +399,17 @@ public class GridManager : MonoBehaviour
     // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden bir katmanın tamamlanması için tüm hücrelerin
     // dolu OLMASI YETMEZ, hepsi aynı renk/materyal olması da şarttı. Bu monokromluk şartı
     // kaldırıldı — katman artık sadece doluluğa göre tamamlanır. Renk artık tamamen kozmetik.
-    public bool IsLayerComplete()
+    // layerY parametresi alır — artık SADECE ActiveLayerY değil, oyuncunun az önce yerleştirdiği
+    // parçanın gerçekte bulunduğu katman kontrol edilmeli (bkz. LevelManager.OnPiecePlaced),
+    // çünkü artık herhangi bir katmana yerleştirme yapılabiliyor.
+    public bool IsLayerComplete(int layerY)
     {
         int cellsInLayer    = 0;
         int occupiedInLayer = 0;
 
         foreach (var c in allShapeCells)
         {
-            if (c.y == ActiveLayerY)
+            if (c.y == layerY)
             {
                 cellsInLayer++;
                 if (occupiedCells.Contains(c)) occupiedInLayer++;
@@ -448,19 +451,24 @@ public class GridManager : MonoBehaviour
         return false;
     }
 
-    public void ExplodeActiveLayer(System.Action onLayerComplete, System.Action onLevelComplete)
+    // layerY: patlatılacak (tamamlanmış) katman — artık her zaman ActiveLayerY olmak zorunda
+    // değil, oyuncu herhangi bir katmanı tamamlamış olabilir (bkz. LevelManager.OnPiecePlaced).
+    // Çökme matematiği zaten Y-göreceli (clearedY'nin üstündeki her şey 1 aşağı kayar), tek
+    // fark ActiveLayerY'nin artık "hangi katman patladı" değil "kamera/panel hangi katmana
+    // odaklanmış" anlamına gelmesi — bu yüzden patlamadan sonra ayrıca güncelleniyor (aşağıda).
+    public void ExplodeLayer(int layerY, System.Action onLayerComplete, System.Action onLevelComplete)
     {
         List<Vector3Int> cellsToRemove = new List<Vector3Int>();
         foreach (var c in targetCells)
         {
-            if (c.y == ActiveLayerY)
+            if (c.y == layerY)
             {
                 cellsToRemove.Add(c);
             }
         }
         foreach (var c in occupiedCells)
         {
-            if (c.y == ActiveLayerY && !cellsToRemove.Contains(c))
+            if (c.y == layerY && !cellsToRemove.Contains(c))
             {
                 cellsToRemove.Add(c);
             }
@@ -494,7 +502,7 @@ public class GridManager : MonoBehaviour
 
         List<GameObject> blocksToAnimate = new List<GameObject>();
 
-        int clearedY = ActiveLayerY;
+        int clearedY = layerY;
 
         foreach (var cell in cellsToRemove)
         {
@@ -637,10 +645,24 @@ public class GridManager : MonoBehaviour
         }
         else
         {
-            if (TryFindFirstIncompleteLayer(out int nextLayer))
-                ActiveLayerY = nextLayer;
-            else
-                ActiveLayerY = gridMinY;
+            // ActiveLayerY artık "hangi katman patladı" değil, "kamera/panel şu an hangi
+            // katmana odaklanmış" anlamına geliyor — patlayan katman (clearedY) bunun ÜSTÜNDEYSE
+            // kamera odağı hiç etkilenmez; AYNISIYSA kamera izlediği katman az önce yok oldu,
+            // eski davranışla aynı şekilde bir sonraki tamamlanmamış katmana düşülür; ALTINDAYSA
+            // (kamera daha alçak/farklı bir katmana bakıyorken başka bir katman patladıysa) sadece
+            // üstündeki her şeyin 1 aşağı kaydığı çökmeye göre indeks 1 azaltılır.
+            if (ActiveLayerY == clearedY)
+            {
+                if (TryFindFirstIncompleteLayer(out int nextLayer))
+                    ActiveLayerY = nextLayer;
+                else
+                    ActiveLayerY = gridMinY;
+            }
+            else if (ActiveLayerY > clearedY)
+            {
+                ActiveLayerY--;
+            }
+            // ActiveLayerY < clearedY: değişmez.
 
             RefreshLayerVisibility();
             onLayerComplete?.Invoke();
@@ -1068,7 +1090,7 @@ public class GridManager : MonoBehaviour
                     }
                     
                     Vector3Int snapOff = targetAnchorCell - cells[closestIndex];
-                    
+
                     // Check if this snap offset keeps the entire piece within target boundaries
                     bool outOfBounds = false;
                     foreach (var cell in cells)
@@ -1166,6 +1188,14 @@ public class GridManager : MonoBehaviour
         return false;
     }
 
+    // [GERİ ALINDI] "Herhangi bir katmana yerleştir" denemesi kötü bir UX'e yol açtı: sürükle-bırak,
+    // o an bakılan katmana sığmayan bir parçayı sessizce BAŞKA (uzak, görünmeyen) bir katmana
+    // "ışınlıyordu". Gerçek istek bu değildi — oyuncu HANGİ katmandaysa SADECE o katmanda işlem
+    // yapabilmeli, başka bir katmanda çalışmak için panelden o katmana GEÇMELİ (bu zaten serbestti,
+    // bkz. LayerPanelController.OpenPanel). Bu yüzden gerçek yerleştirme kuralı yine SADECE
+    // ActiveLayerY'ye izin veriyor. "Elimdeki hiçbir parça hiçbir katmana sığmıyor mu" sorusu
+    // (fail kontrolü/kart önceliklendirme) ayrı bir sorgu — bkz. GetPossibleOffsetsOnLayer/
+    // CanPlaceOnLayer ve LevelManager.CanShapeFitAnyOpenLayer.
     public bool CanPlace(List<Vector3Int> cells, Vector3Int offset)
     {
         foreach (var c in cells)
@@ -1305,6 +1335,11 @@ public class GridManager : MonoBehaviour
         return valid;
     }
 
+    // CanPlace/GetPossibleOffsets'ten farklı olarak GERÇEK yerleştirme kuralını (ActiveLayerY
+    // kısıtı) uygulamaz — "bu parça, layerY'ye GEÇİLSEYDİ oraya sığar mıydı" sorusuna cevap verir.
+    // Sadece LevelManager.CanShapeFitAnyOpenLayer tarafından (fail kontrolü/kart önceliklendirme
+    // için, panelden başka bir katmana geçilebileceğini hesaba katmak amacıyla) kullanılır —
+    // gerçek yerleştirme HÂLÂ sadece ActiveLayerY'ye izin veriyor (bkz. CanPlace).
     public List<Vector3Int> GetPossibleOffsetsOnLayer(List<Vector3Int> cells, int layerY)
     {
         var valid = new List<Vector3Int>();
