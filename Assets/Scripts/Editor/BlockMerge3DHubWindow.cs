@@ -8,13 +8,11 @@ public class BlockMerge3DHubWindow : EditorWindow
         Wizard,
         LevelBuilder,
         PieceDesigner,
-        PieceSplitter,
         AILevelDesigner,
         ManualVoxelBuilder,
         PieceLibrary,
         CanvasSetup,
-        Aesthetics,
-        LegacyCubeShapeEditor
+        Aesthetics
     }
 
     private Tab activeTab = Tab.Wizard;
@@ -25,26 +23,22 @@ public class BlockMerge3DHubWindow : EditorWindow
         "🧭 Sihirbaz",
         "1. 🗂 Seviye Tasarımcısı",
         "2. 🧩 Parça Tasarımcısı",
-        "✂ Parça Bölücü",
         "🤖 AI Seviye Tasarımcısı",
         "🧱 3D Sahne Yapıcı",
         "🧬 Parça Kütüphanesi",
         "📺 Arayüz Kurulumu",
-        "🎨 Görsel & Kurulum",
-        "⚙ Eski Yapıcı"
+        "🎨 Görsel & Kurulum"
     };
 
     // Sub-window instances
     private LevelCreationWizardWindow wizard;
     private LevelBuilderWindow levelBuilder;
     private PieceDesignerWindow pieceDesigner;
-    private PieceSplitterWindow pieceSplitter;
     private AILevelDesignerWindow aiLevelDesigner;
     private ManualVoxelPieceBuilderWindow manualVoxelBuilder;
     private PieceDefinitionMigrationWindow pieceLibrary;
     private CanvasSetupWindow canvasSetup;
     private AestheticSetupTool aestheticSetup;
-    private CubeShapeEditorWindow legacyCubeShape;
 
     // Styles
     private GUIStyle headerStyle;
@@ -89,11 +83,6 @@ public class BlockMerge3DHubWindow : EditorWindow
             pieceDesigner = CreateInstance<PieceDesignerWindow>();
             pieceDesigner.onRepaintRequested = Repaint;
         }
-        if (pieceSplitter == null)
-        {
-            pieceSplitter = CreateInstance<PieceSplitterWindow>();
-            pieceSplitter.onRepaintRequested = Repaint;
-        }
         if (aiLevelDesigner == null)
         {
             aiLevelDesigner = CreateInstance<AILevelDesignerWindow>();
@@ -119,11 +108,6 @@ public class BlockMerge3DHubWindow : EditorWindow
             aestheticSetup = CreateInstance<AestheticSetupTool>();
             aestheticSetup.onRepaintRequested = Repaint;
         }
-        if (legacyCubeShape == null)
-        {
-            legacyCubeShape = CreateInstance<CubeShapeEditorWindow>();
-            legacyCubeShape.onRepaintRequested = Repaint;
-        }
     }
 
     private void DestroySubWindows()
@@ -131,26 +115,16 @@ public class BlockMerge3DHubWindow : EditorWindow
         if (wizard != null) DestroyImmediate(wizard);
         if (levelBuilder != null) DestroyImmediate(levelBuilder);
         if (pieceDesigner != null) DestroyImmediate(pieceDesigner);
-        if (pieceSplitter != null) DestroyImmediate(pieceSplitter);
         if (aiLevelDesigner != null) DestroyImmediate(aiLevelDesigner);
         if (manualVoxelBuilder != null) DestroyImmediate(manualVoxelBuilder);
         if (pieceLibrary != null) DestroyImmediate(pieceLibrary);
         if (canvasSetup != null) DestroyImmediate(canvasSetup);
         if (aestheticSetup != null) DestroyImmediate(aestheticSetup);
-        if (legacyCubeShape != null) DestroyImmediate(legacyCubeShape);
     }
 
     private void DisableActiveTab(Tab tab)
     {
-        if (tab == Tab.PieceSplitter && pieceSplitter != null)
-        {
-            pieceSplitter.OnDisable();
-        }
-        else if (tab == Tab.LegacyCubeShapeEditor && legacyCubeShape != null)
-        {
-            legacyCubeShape.OnDisable();
-        }
-        else if (tab == Tab.ManualVoxelBuilder && manualVoxelBuilder != null)
+        if (tab == Tab.ManualVoxelBuilder && manualVoxelBuilder != null)
         {
             // We can call its OnDisable manually to unsubscribe from SceneView
             var method = manualVoxelBuilder.GetType().GetMethod("OnDisable", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
@@ -160,15 +134,7 @@ public class BlockMerge3DHubWindow : EditorWindow
 
     private void EnableActiveTab(Tab tab)
     {
-        if (tab == Tab.PieceSplitter && pieceSplitter != null)
-        {
-            pieceSplitter.OnEnable();
-        }
-        else if (tab == Tab.LegacyCubeShapeEditor && legacyCubeShape != null)
-        {
-            legacyCubeShape.OnEnable();
-        }
-        else if (tab == Tab.ManualVoxelBuilder && manualVoxelBuilder != null)
+        if (tab == Tab.ManualVoxelBuilder && manualVoxelBuilder != null)
         {
             // We can call its OnEnable manually to subscribe to SceneView
             var method = manualVoxelBuilder.GetType().GetMethod("OnEnable", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
@@ -213,10 +179,10 @@ public class BlockMerge3DHubWindow : EditorWindow
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUILayout.LabelField("BLOCKMERGE 3D  •  GELİŞTİRİCİ MERKEZİ", headerStyle);
         EditorGUILayout.LabelField("Tüm tasarım, seviye düzenleme ve kurulum araçları tek bir yerde toplandı.", subHeaderStyle);
-        
+
         EditorGUILayout.BeginHorizontal();
         GUILayout.FlexibleSpace();
-        
+
         GUI.backgroundColor = new Color(0.3f, 0.8f, 0.5f, 0.9f);
         if (GUILayout.Button("3. 📋 Seviye Sıralama Penceresini Aç", GUILayout.Width(260), GUILayout.Height(26)))
         {
@@ -266,9 +232,6 @@ public class BlockMerge3DHubWindow : EditorWindow
             case Tab.PieceDesigner:
                 if (pieceDesigner != null) pieceDesigner.OnGUI();
                 break;
-            case Tab.PieceSplitter:
-                if (pieceSplitter != null) pieceSplitter.OnGUI();
-                break;
             case Tab.AILevelDesigner:
                 if (aiLevelDesigner != null) aiLevelDesigner.OnGUI();
                 break;
@@ -283,9 +246,6 @@ public class BlockMerge3DHubWindow : EditorWindow
                 break;
             case Tab.Aesthetics:
                 if (aestheticSetup != null) aestheticSetup.OnGUI();
-                break;
-            case Tab.LegacyCubeShapeEditor:
-                if (legacyCubeShape != null) legacyCubeShape.OnGUI();
                 break;
         }
     }

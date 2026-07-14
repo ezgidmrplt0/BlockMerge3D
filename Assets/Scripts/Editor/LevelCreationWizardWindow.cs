@@ -9,10 +9,10 @@ using UnityEditor;
 //  Bu pencere AILevelDesignerWindow/PieceDefinitionMigrationWindow'un
 //  üretim/export/migration MANTIĞINI kopyalamaz — onların birer arka
 //  plan instance'ını tutar (Hub'ın zaten yaptığı gibi) ve o pencerelerin
-//  artık 'internal' olan alan/metotlarını doğrudan çağırır. Sadece
-//  ÇEKİRDEK, DOĞRULANMIŞ (Faz 1-3) akışı gösterir — eski üretim modları
-//  (BFS/Geometrik/Tetromino carve) bu sihirbazda hiç seçenek olarak
-//  sunulmaz, "Kütüphane / Solution-First" modu otomatik sabitlenir.
+//  artık 'internal' olan alan/metotlarını doğrudan çağırır. Eski üretim
+//  modları (BFS/Geometrik/Tetromino carve) proje temizliği sırasında
+//  AILevelDesignerWindow.cs'den tamamen kaldırıldı — Solution-First
+//  (kütüphaneden geri izlemeli yerleştirme) artık TEK üretim yolu.
 // ═══════════════════════════════════════════════════════════════════
 
 public class LevelCreationWizardWindow : EditorWindow
@@ -130,11 +130,9 @@ public class LevelCreationWizardWindow : EditorWindow
         GUILayout.Label("ADIM 2 — PARÇA KÜTÜPHANESİ", styleHeader);
         EditorGUILayout.HelpBox(
             "Üretim Assets/PieceDefinitions/ altındaki gerçek parçalardan yapılacak " +
-            "(Kütüphane / Solution-First modu). Eski üretim modları (BFS/Geometrik/Tetromino) " +
-            "bu sihirbazda kasıtlı olarak gösterilmiyor.", MessageType.Info);
+            "(Solution-First backtracking) — bu artık projedeki tek üretim yolu.", MessageType.Info);
         EditorGUILayout.Space(6);
 
-        aiDesigner.pieceGenMode = AILevelDesignerWindow.PieceGenMode.Kutuphane_SolutionFirst;
         var library = aiDesigner.LoadPieceLibrary();
 
         EditorGUILayout.BeginVertical(styleBox);
