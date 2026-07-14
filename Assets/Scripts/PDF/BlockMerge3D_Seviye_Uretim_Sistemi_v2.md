@@ -16,7 +16,7 @@
 | Merge/hint sistemi | Hiç bahsi yok | `LevelManager.FindBestPieceIndex()` + `GridManager.GetMergeColor()` — otomatik ipucu/kolaylaştırma katmanı var | Bölüm 9'a yeni bölüm olarak eklendi |
 | Puanlama | `cellsCleared * pointsPerCell` her temizlemede işliyor varsayıldı | `lineClearEnabled = false` layer-mode'da sürekli kapalı; `ExplodeActiveLayer()` hiç skor eklemiyor — **puanlama şu an kopuk** | Zorluk skoru ile oyun-içi puan ayrıştırıldı, Bölüm 11'de not edildi |
 | Game Over / deadlock | Sadece aktif katman | `CheckGameOver()` **temizlenmemiş tüm katmanları** tarıyor, sadece görünen katmanı değil | Bölüm 8'e deadlock tanımı olarak eklendi |
-| **(2026-07-13, aynı gün içinde 2 aşama)** Buz eritme | "Bedava" — sadece erir, hiçbir şey kaybolmaz varsayılıyordu | Önce `GridManager.AnimateExplodeAndThaw`'ın erimeyi tetikleyen ≥2 hücrelik aynı-renk grubu da PATLATTIĞI bulundu (Solver'da hiç simüle edilmiyordu — düzeltildi). Sonra renk/monokromluk kuralının kendisi TAMAMEN kaldırılınca, "grup/renk" kavramı da anlamsızlaştığı için buz mekaniği baştan basitleştirildi: artık sadece **temas = anlık erime**, patlama/hücre kaybı yok | Bölüm 2.2'de güncel kural olarak belgeleniyor; ara aşama (patlama simülasyonu + "buz vergisi") artık geçerli değil, sadece git geçmişinde kayıtlı |
+| **(2026-07-13/14, 4 aşamalı evrim)** Buz eritme | "Bedava" — sadece erir, hiçbir şey kaybolmaz varsayılıyordu | (1) `AnimateExplodeAndThaw`'ın ≥2 hücrelik aynı-renk grubu PATLATTIĞI bulundu, Solver'a eklendi. (2) Renk/monokromluk tamamen kaldırılınca buz "herhangi bir temas = erime"ye basitleştirildi. (3) Ekip kararıyla buz için renk şartı KISMEN geri getirildi: ≥2 komşu aynı renkteyse erir (patlama hâlâ yok, şansa bağlı). (4) Ekip kararıyla erimeyi tetikleyen o 2 komşu da ANINDA YOK OLUR — hücreleri yeniden doldurulmalı; üretim tarafı buz başına 2 yedek parça ekler (bkz. 2.2) | Bölüm 2.2'de güncel (4. aşama) kural olarak belgeleniyor |
 
 ---
 
@@ -61,19 +61,41 @@ public bool IsLayerComplete()
 }
 ```
 
-Renk hâlâ var ama tamamen **kozmetik**: her parça spawn edilirken paletten düz rastgele bir renk
-alır (`LevelManager.PickCosmeticPieceColor`), hiçbir oynanış kararını etkilemez.
+Renk hâlâ var ama katman tamamlama açısından tamamen **kozmetik**: her parça spawn edilirken
+paletten düz rastgele bir renk alır (`LevelManager.PickCosmeticPieceColor`), katmanın dolup
+dolmadığı kararını hiç etkilemez.
 
-**Buz da basitleşti:** artık grup/renk/boyut şartı yok — yeni yerleşen HERHANGİ bir hücre buza
-yatay komşu olduğu an buz erir, hiçbir hücre kaybolmuz/patlamıyor:
+**Buz — TEK istisna [2026-07-14, ekip kararıyla güncellendi, 2 aşamada]:** Katman tamamlama
+renksiz olsa da, buz erimesi kasıtlı olarak KISMEN renk-bağımlı bırakıldı: bir buz hücresinin
+yatay komşularından **EN AZ İKİSİ aynı renkteyse** buz erir:
 
 ```csharp
-// GridManager.CheckAndResolveFrozenCells (redesign)
-// newlyPlacedCells içindeki her hücrenin yatay komşularını tara; frozenCells içindeyse thaw et.
+// GridManager.CheckAndResolveFrozenCells (güncel)
+// Buz hücresinin ≤4 yatay komşusu arasında, aynı renkte olan ≥2 tanesi varsa buz erir.
 ```
 
-Bu sayede "buz vergisi" kavramı tamamen ortadan kalktı — buzlu bir seviyenin gereken parça hacmi
-artık HER ZAMAN ham hedef hücre sayısına TAM eşit (buzsuz seviyelerle aynı kural).
+**[2026-07-14, ikinci güncelleme] Tetikleyen çift de anında yok olur:** erimeyi tetikleyen o 2
+aynı renkli komşu hücre (parça ya da prefilled blok) **ANINDA YOK OLUR** — hücreleri boşalır ve
+tekrar bir parçayla doldurulması gerekir. Bu, "buz vergisi" kavramını KISMEN geri getiriyor, ama
+eski genel patlama/grup mekaniğinden farklı: sadece bu 2 spesifik tetikleyici hücre etkilenir,
+başka hiçbir hücre kaybolmaz. Sonuç: buz içeren bir seviyede toplam parça hacmi artık ham hedef
+hücre sayısına TAM eşit olmak ZORUNDA değil — üretim tarafı (`AILevelDesignerWindow.
+SplitShapeWithSolutionFirstLibrary`) her buz hücresi için **2 fazladan tek-hücrelik "yedek"
+parça** ekler (her buz hücresi en fazla BİR kez erir ve en fazla 2 hücre yok eder varsayımıyla).
+Hiç yok-olma yaşanmazsa bu yedek parçalar seviye tamamlanmadan önce hiç çekilmez, zararsız kalır.
+
+**Önemli kısıt:** parça rengi RASTGELE atandığı için bu mekanik kasıtlı olarak **şansa bağlı** —
+Solver bunu KESİN garanti EDEMEZ, sadece `pieceIndex`-tabanlı bir vekil (proxy) renkle best-effort
+simüle eder (bkz. `LevelSolver.currentMatIndex`). Prefilled hücrelerin rengi ise tasarımcı
+tarafından SABİT belirlendiği için (rastgele değil) bu konuda gerçek oyunla birebir tutarlıdır —
+buza komşu bir prefilled hücre, solver'ın hesabına güvenilir şekilde katılır (ve tetikleyici
+olursa, prefilled blok da diğerleri gibi yok olabilir). Ayrıca: proxy renk artık `pieceIndex`'e
+bağlı olduğundan, aynı geometrik şekle sahip iki parça artık FONKSİYONEL OLARAK ÖZDEŞ DEĞİL (farklı
+erime/yok-olma sonucu doğurabilirler) — bu yüzden `BacktrackingSolve`'daki "aynı şekli tek kez
+dene" performans budaması, buz içeren seviyelerde OTOMATİK OLARAK DEVRE DIŞI kalır (daha pahalı
+ama doğru arama; buzsuz seviyelerde hâlâ aktif). Sonuç: buzsuz bir seviyenin "solvable" raporu
+KESİN bir garantidir, ama buz içeren bir seviyenin raporu SADECE "uygun renk şansı tutarsa ve
+yedek parçalar yeterli gelirse çözülebilir" anlamına gelir.
 
 ### 2.3. Üretim Akışı (güncellendi)
 1. Zorluk profili seçilir (Kolay/Orta/Zor/Uzman)
@@ -148,7 +170,10 @@ Aralıklar: 0-24 Kolay · 25-49 Orta · 50-74 Zor · 75-100 Uzman
 Zorluk profiline göre başlangıç hacim ve grid boyutu belirlenir. Renk/materyal ataması bu aşamada YOK — tamamen kozmetik, üretim mantığını etkilemiyor.
 
 **Aşama 2 — 3D Uyumlu Parça Seçimi:**
-Toplam hacmi hedefe TAM eşitleyecek aday parçalar seçilir (buz hücresi olsun olmasın hacim her zaman tam eşit — bkz. Bölüm 2.2).
+Toplam hacmi hedefe TAM eşitleyecek aday parçalar seçilir (Solution-First backtracking). Buz varsa
+bunun ÜZERİNE, her buz hücresi için 2 fazladan tek-hücrelik "yedek" parça eklenir — tetikleyen
+çiftin yok olup yeniden doldurulması ihtimaline karşı (bkz. Bölüm 2.2, "Tetikleyen çift de anında
+yok olur"). Buzsuz seviyelerde hacim hâlâ TAM eşit.
 
 **Aşama 3 — Çözülmüş Şeklin Kurulması:**
 Backtracking, "en az yerleşim seçeneği olan büyük/düzensiz parçalar önce" kuralıyla çalışır. İzole boşluk oluşursa dal erken kesilir. Katman-renk kombinasyonu diye bir kısıt yok — sadece geometri.
@@ -259,7 +284,8 @@ Telemetri tabloları (medyan çözüm süresi, restart oranı, ipucu kullanımı
 | Deadlock'u tüm temizlenmemiş katmanlara göre değerlendirmek (gerçekte sadece aktif katmana erişilebiliyor) | Sadece aktif katmana göre değerlendir (Bölüm 8 — 2026-07-13'te düzeltilen gerçek bug) |
 | Solver doğrulaması olmadan seviyeyi onaylamak | Her seviye için collapse-aware Solver çalıştır |
 | Timeout/hata durumunda seviyeyi yayına almak | Timeout'u "Belirsiz" kabul et, reddet |
-| Buz hücresini renk/grup bazlı bir mekanik sanmak | Basit temas kuralı (Bölüm 2.2) — grup/renk/patlama yok |
+| Buzlu bir seviyenin Solver "solvable" raporunu buzsuz bir seviyeninkiyle AYNI güvenilirlikte saymak | Buz erimesi renk şansına bağlı VE erimeyi tetikleyen çift yok olup yeniden doldurulması gerekebilir (Bölüm 2.2) — buzlu seviyelerin raporu "kesin" değil, "uygun şans + yeterli yedek parça varsa" anlamına gelir |
+| Buzlu bir seviyede parça hacminin hedefe TAM eşit olması gerektiğini varsaymak (buzsuz seviyelerdeki kural) | Buz varsa üretim, her buz hücresi için 2 fazladan tek-hücrelik yedek parça ekler — hacim hedeften FAZLA olabilir, bu kasıtlı (Bölüm 2.2) |
 
 **Zorunlu Koruma Kuralları:**
 1. Doğrulanmamış (`validated == false`) hiçbir seviye oyuna dahil edilemez
@@ -282,7 +308,7 @@ Telemetri tabloları (medyan çözüm süresi, restart oranı, ipucu kullanımı
 
 ## Ek B. Seviye Kabul Kontrol Listesi (güncellendi)
 
-- [ ] Parçaların toplam hacmi hedef şeklin hacmine TAM eşit mi? (buz olsun olmasın, artık her zaman tam eşit — bkz. Bölüm 2.2)
+- [ ] Parçaların toplam hacmi hedef şeklin hacmine TAM eşit mi? (buzsuz seviyelerde her zaman tam eşit; buzlu seviyelerde hedef + buz-başına-2-yedek üst sınırı içinde kalmalı — bkz. Bölüm 2.2)
 - [ ] Kayıtlı çözüm izi, collapse davranışı dahil gerçek oyun kurallarıyla tamamlanabiliyor mu?
 - [ ] Bağımsız Solver en az bir geçerli çözüm buluyor mu?
 - [ ] (Yalnızca Uzman) Alternatif ikinci bir çözümün olmadığı onaylandı mı?

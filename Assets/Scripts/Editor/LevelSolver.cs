@@ -5,7 +5,8 @@ using System.Linq;
 
 // ═══════════════════════════════════════════════════════════════════
 //  LEVEL SOLVER  —  Seviye Çözülebilirlik ve Zorluk Analizi
-//  BlockMerge3D  •  Backtracking ile saf geometrik çözülebilirlik (renk kısıtı yok)
+//  BlockMerge3D  •  Backtracking ile saf geometrik çözülebilirlik (renk kısıtı yok — TEK istisna:
+//  buz erimesi hâlâ kısmen renk-bağımlı, best-effort simüle edilir, bkz. currentMatIndex notu)
 // ═══════════════════════════════════════════════════════════════════
 
 public class LevelSolver
@@ -33,6 +34,12 @@ public class LevelSolver
 
     // ── Çözüm Durumu ──────────────────────────────────────────────
     private HashSet<Vector3Int> currentOccupied;
+    // Ekip kararıyla buz erimesi kısmen renk-bağımlı kaldı (bkz. ResolveFrozenCellsInSolver notu):
+    // buz hücresinin ≥2 komşusu aynı renkteyse erir. Gerçek oyunda parça rengi spawn anında
+    // RASTGELE atandığı için bu, solver'ın KESİN garanti VEREMEYECEĞİ tek mekanik — burada
+    // pieceIndex tabanlı basit bir vekil (proxy) renk kullanıyoruz, sadece best-effort bir
+    // simülasyon, gerçek oyundaki rastgele atamayı temsil etme iddiası yok.
+    private Dictionary<Vector3Int, int> currentMatIndex;
     private List<PlacementStep> currentSolution;
     private SolverResult bestResult;
 
@@ -92,15 +99,28 @@ public class LevelSolver
             };
         }
 
-        // Renksiz sisteme geçişle birlikte buz artık sadece anlık erime (bkz.
-        // ResolveFrozenCellsInSolver) — hiçbir hücre kaybolmuyor, "buz vergisi" diye bir şey
-        // kalmadı. Yani buz olsun olmasın, parça hacmi her zaman hedefe TAM eşit olmalı.
-        if (totalPieceCells > emptyTargetCells)
+        // [2026-07-14, ekip kararıyla] Buz erimesini tetikleyen 2 aynı renkli komşu parça artık
+        // anında yok oluyor (bkz. ResolveFrozenCellsInSolver) — bu yüzden buz içeren seviyelerde
+        // parça hacmi hedeften FAZLA olabilir (yok olan hücrelerin yeniden doldurulması gerekir).
+        // Buzsuz seviyelerde hiçbir hücre kaybolmadığı için hacim hâlâ TAM eşit olmalı — bu kesin
+        // bir kural, gevşetilmiyor. Buzlu seviyelerde üst sınır olarak "her buz hücresi en fazla
+        // BİR kez erir ve en fazla 2 hücre yok eder" varsayımı kullanılıyor (bkz. üretim tarafındaki
+        // eşleşen yedek-parça mantığı, AILevelDesignerWindow.SplitShapeWithSolutionFirstLibrary).
+        int maxExtraForIce = frozenCells.Count * 2;
+        if (frozenCells.Count == 0 && totalPieceCells > emptyTargetCells)
         {
             return new SolverResult
             {
                 isSolvable = false,
                 failureReason = $"Fazla hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells}"
+            };
+        }
+        if (frozenCells.Count > 0 && totalPieceCells > emptyTargetCells + maxExtraForIce)
+        {
+            return new SolverResult
+            {
+                isSolvable = false,
+                failureReason = $"Fazla hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells} (+buz yedeği={maxExtraForIce})"
             };
         }
 
@@ -110,6 +130,17 @@ public class LevelSolver
         searchTimedOut = false;
 
         currentOccupied = new HashSet<Vector3Int>(prefilledCells);
+        // Prefilled hücrelerin rengi tasarımcı tarafından BELİRLİ (rastgele değil) — bu yüzden
+        // buz-erime kontrolü için başlangıçta biliniyor sayılır (parçaların proxy rengi gibi
+        // "best-effort" değil, gerçek oyunla birebir tutarlı).
+        currentMatIndex = new Dictionary<Vector3Int, int>();
+        if (holder.prefilledCells != null && holder.prefilledMaterialIndices != null)
+        {
+            for (int i = 0; i < holder.prefilledCells.Count && i < holder.prefilledMaterialIndices.Count; i++)
+            {
+                currentMatIndex[holder.prefilledCells[i]] = holder.prefilledMaterialIndices[i];
+            }
+        }
         currentSolution = new List<PlacementStep>();
         bestResult = new SolverResult { isSolvable = false };
 
@@ -203,11 +234,17 @@ public class LevelSolver
         // (aynı geometri, aynı arama durumu) başarısız olacağı anlamına gelir — sadece BU dal için,
         // her recursion seviyesinde taze bir HashSet ile çalıştığı için farklı katman/derinliklerde
         // aynı şeklin ayrı kopyaları yine denenir.)
+        // [2026-07-14] BU GÜVENLİK VARSAYIMI buz varken artık GEÇERSİZ: ResolveFrozenCellsInSolver
+        // proxyColor = pieceIndex % 8 kullanıyor, yani aynı şekle sahip iki parça artık farklı
+        // pieceIndex'e sahip oldukları için farklı proxy renklere sahip olabilir ve erime/yok-olma
+        // sonucunu FARKLI etkileyebilir — artık "aynı geometri, aynı sonuç" garantisi yok. Bu
+        // yüzden buz içeren seviyelerde dedup'ı devre dışı bırakıyoruz (daha pahalı ama doğru arama);
+        // buzsuz seviyelerde performans için hâlâ aktif.
         var triedShapesAtThisLevel = new HashSet<string>();
         for (int i = 0; i < pieces.Count; i++)
         {
             if (pieces[i].used) continue;
-            if (pieces[i].shapeKey != null && !triedShapesAtThisLevel.Add(pieces[i].shapeKey)) continue;
+            if (frozenCells.Count == 0 && pieces[i].shapeKey != null && !triedShapesAtThisLevel.Add(pieces[i].shapeKey)) continue;
 
             pieces[i].used = true;
 
@@ -308,13 +345,18 @@ public class LevelSolver
 
         currentSolution.Add(step);
 
+        // pieceIndex tabanlı vekil (proxy) renk — sadece buz-erime simülasyonu için (bkz. alan
+        // yorumu). Gerçek oyunda parçanın rengi spawn anında rastgele atanır, bu SADECE solver'ın
+        // best-effort bir çözüm bulabilmesi için deterministik bir yer tutucu.
+        int proxyColor = pieceIndex % 8;
         foreach (var worldCell in worldCells)
         {
             currentOccupied.Add(worldCell);
+            currentMatIndex[worldCell] = proxyColor;
         }
 
-        // Buza komşu olan hücreler varsa an be an erit (bkz. GridManager.CheckAndResolveFrozenCells
-        // ile birebir eşleşmesi gereken kural: temas = erime, grup/renk şartı yok).
+        // Buza komşu hücreler varsa erimeyi dene (bkz. GridManager.CheckAndResolveFrozenCells ile
+        // birebir eşleşmesi gereken kural: buz hücresinin ≥2 komşusu aynı renkteyse erir).
         ResolveFrozenCellsInSolver(step);
 
         return true;
@@ -333,17 +375,29 @@ public class LevelSolver
             frozenCells.Add(cell);
         }
 
-        // 2. Remove placed piece's cells
+        // 2. Restore cells that were destroyed as a side effect of this step's thaw (bkz.
+        // ResolveFrozenCellsInSolver) — bu, adımın kendi yerleştirdiği bir hücreyi de kapsıyorsa
+        // (tetikleyici parça kendi yerleştirdiği hücreyse), aşağıdaki 3. adım onu tekrar
+        // kaldırarak doğru "hiç yerleştirilmemiş" durumuna döndürür.
+        foreach (var info in lastStep.destroyedCells)
+        {
+            currentOccupied.Add(info.cell);
+            currentMatIndex[info.cell] = info.matIndex;
+        }
+
+        // 3. Remove placed piece's cells
         foreach (var cell in lastStep.cells)
         {
             currentOccupied.Remove(cell);
+            currentMatIndex.Remove(cell);
         }
     }
 
     // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
-    // yeni yerleşen HERHANGİ bir hücre buza yatay komşuysa buz anında erir. Grup/renk/boyut
-    // şartı yok, hiçbir hücre kaybolmuyor (renksiz sisteme geçişle "buz vergisi" kavramı da
-    // tamamen kalktı — bkz. SolveFromPrefabs'taki hacim eşitliği kontrolü).
+    // buz hücresinin yatay komşularından EN AZ İKİSİ aynı renkteyse buz erir VE o iki tetikleyici
+    // komşu hücre de anında yok olur (hücreleri boşalır, bkz. PlacementStep.destroyedCells).
+    // Renk burada pieceIndex tabanlı bir vekil olduğu için bu KESİN bir garanti değil,
+    // best-effort — bkz. currentMatIndex alanının üstündeki not.
     private void ResolveFrozenCellsInSolver(PlacementStep step)
     {
         if (frozenCells.Count == 0) return;
@@ -356,13 +410,43 @@ public class LevelSolver
             new Vector3Int(0, 0, -1)
         };
 
-        var cellsToThaw = new HashSet<Vector3Int>();
+        var candidateFrozenCells = new HashSet<Vector3Int>();
         foreach (var cell in step.cells)
         {
             foreach (var offset in horizontalNeighbors)
             {
                 Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
+                if (frozenCells.Contains(neighbor)) candidateFrozenCells.Add(neighbor);
+            }
+        }
+
+        var cellsToThaw = new HashSet<Vector3Int>();
+        var cellsToDestroy = new HashSet<Vector3Int>();
+
+        foreach (var frozenCell in candidateFrozenCells)
+        {
+            var colorGroups = new Dictionary<int, List<Vector3Int>>();
+            List<Vector3Int> winningGroup = null;
+
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = frozenCell + offset;
+                if (!currentMatIndex.TryGetValue(neighbor, out int matIdx)) continue;
+
+                if (!colorGroups.TryGetValue(matIdx, out var list))
+                {
+                    list = new List<Vector3Int>();
+                    colorGroups[matIdx] = list;
+                }
+                list.Add(neighbor);
+                if (list.Count >= 2 && winningGroup == null) winningGroup = list;
+            }
+
+            if (winningGroup != null)
+            {
+                cellsToThaw.Add(frozenCell);
+                cellsToDestroy.Add(winningGroup[0]);
+                cellsToDestroy.Add(winningGroup[1]);
             }
         }
 
@@ -370,6 +454,16 @@ public class LevelSolver
         {
             frozenCells.Remove(cell);
             step.thawedCells.Add(cell);
+        }
+
+        foreach (var cell in cellsToDestroy)
+        {
+            if (currentMatIndex.TryGetValue(cell, out int prevMatIdx))
+            {
+                step.destroyedCells.Add(new DestroyedCellInfo { cell = cell, matIndex = prevMatIdx });
+            }
+            currentOccupied.Remove(cell);
+            currentMatIndex.Remove(cell);
         }
     }
 
@@ -527,6 +621,18 @@ public class PlacementStep
     public List<Vector3Int> cells;
 
     public List<Vector3Int> thawedCells = new List<Vector3Int>();
+
+    // [2026-07-14] Buz erimesini tetikleyen komşu hücreler de anında yok olur (bkz.
+    // ResolveFrozenCellsInSolver) — undo sırasında geri getirilebilmeleri için eski
+    // matIndex değerleriyle birlikte saklanır.
+    public List<DestroyedCellInfo> destroyedCells = new List<DestroyedCellInfo>();
+}
+
+[System.Serializable]
+public struct DestroyedCellInfo
+{
+    public Vector3Int cell;
+    public int matIndex;
 }
 
 public class PieceData

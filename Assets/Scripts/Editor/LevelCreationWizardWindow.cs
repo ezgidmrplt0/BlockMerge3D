@@ -113,15 +113,21 @@ public class LevelCreationWizardWindow : EditorWindow
     // ── Adım 1 ───────────────────────────────────────────────────
     private void DrawStep1()
     {
-        GUILayout.Label("ADIM 1 — ZORLUK & ŞABLON SEÇ", styleHeader);
-        EditorGUILayout.HelpBox("Önce bir seviye şablonu seç ve zorluk profilini belirle.", MessageType.Info);
+        GUILayout.Label("ADIM 1 — ZORLUK & ÜRETİM KAYNAĞI SEÇ", styleHeader);
+        EditorGUILayout.HelpBox("Önce bir seviye şablonu veya özel prefab seçin ve zorluk profilini belirleyin.", MessageType.Info);
         EditorGUILayout.Space(6);
 
         EditorGUILayout.BeginVertical(styleBox);
         aiDesigner.DrawTemplateAndDifficultySection();
         EditorGUILayout.EndVertical();
 
-        DrawNavigation(canGoNext: aiDesigner.selectedTemplate != null);
+        bool canGoNext = false;
+        if (aiDesigner.generationBaseType == AILevelDesignerWindow.GenerationBaseType.Template)
+            canGoNext = aiDesigner.selectedTemplate != null;
+        else
+            canGoNext = aiDesigner.customBasePrefab != null && aiDesigner.customBasePrefab.GetComponent<CubeShapeDataHolder>() != null;
+
+        DrawNavigation(canGoNext: canGoNext);
     }
 
     // ── Adım 2 ───────────────────────────────────────────────────

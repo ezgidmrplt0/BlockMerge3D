@@ -42,6 +42,9 @@ public class AILevelDesignerWindow : EditorWindow
     // NOT: Aşağıdaki bazı alanlar/enumlar 'internal' — LevelCreationWizardWindow bu pencerenin
     // arka planda tuttuğu bir instance'ı üzerinden bunlara doğrudan erişip mevcut üretim/export
     // mantığını (kopyalamadan) yeniden kullanıyor. Davranış AYNI, sadece görünürlük değişti.
+    public enum GenerationBaseType { Template, CustomPrefab }
+    internal GenerationBaseType generationBaseType = GenerationBaseType.Template;
+    internal GameObject customBasePrefab;
     internal LevelTemplate selectedTemplate; // Şablon bazlı üretim
     internal string levelName        = "AI_Level_1";
     internal float levelTime         = 75f;
@@ -215,27 +218,52 @@ public class AILevelDesignerWindow : EditorWindow
     // hem de LevelCreationWizardWindow'un 1. adımı bu AYNI metodu çağırıyor (kopya değil).
     internal void DrawTemplateAndDifficultySection()
     {
-        // ŞABLON SEÇİCİ (ÖNCELİKLİ)
-        GUILayout.Label("📐 ŞABLON BAZLI ÜRETİM", styleHeader);
+        // ŞABLON VEYA PREFAB SEÇİCİ
+        GUILayout.Label("📐 ÜRETİM KAYNAĞI", styleHeader);
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        EditorGUILayout.HelpBox("AI sıfırdan grid oluşturmaz. Hazır şablonlar üzerinden çalışır.", MessageType.Info);
+        EditorGUILayout.HelpBox("AI seviyeyi bir şablon veya özel prefab baz alarak oluşturur.", MessageType.Info);
 
-        LevelTemplate prevTemplate = selectedTemplate;
-        selectedTemplate = (LevelTemplate)EditorGUILayout.ObjectField("Level Şablonu", selectedTemplate, typeof(LevelTemplate), false);
+        generationBaseType = (GenerationBaseType)EditorGUILayout.EnumPopup("Üretim Kaynağı", generationBaseType);
+        EditorGUILayout.Space(5);
 
-        if (selectedTemplate != prevTemplate && selectedTemplate != null)
+        if (generationBaseType == GenerationBaseType.Template)
         {
-            LoadTemplateParameters();
-        }
+            LevelTemplate prevTemplate = selectedTemplate;
+            selectedTemplate = (LevelTemplate)EditorGUILayout.ObjectField("Level Şablonu", selectedTemplate, typeof(LevelTemplate), false);
 
-        if (selectedTemplate != null)
-        {
-            EditorGUILayout.LabelField($"📝 {selectedTemplate.templateName}", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(selectedTemplate.description, EditorStyles.wordWrappedMiniLabel);
+            if (selectedTemplate != prevTemplate && selectedTemplate != null)
+            {
+                LoadTemplateParameters();
+            }
+
+            if (selectedTemplate != null)
+            {
+                EditorGUILayout.LabelField($"📝 {selectedTemplate.templateName}", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(selectedTemplate.description, EditorStyles.wordWrappedMiniLabel);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("⚠️ Şablon seçilmedi. Assets/Templates/ klasöründen bir şablon seçin.", MessageType.Warning);
+            }
         }
         else
         {
-            EditorGUILayout.HelpBox("⚠️ Şablon seçilmedi. Assets/Templates/ klasöründen bir şablon seçin.", MessageType.Warning);
+            GameObject prevPrefab = customBasePrefab;
+            customBasePrefab = (GameObject)EditorGUILayout.ObjectField("Özel Prefab", customBasePrefab, typeof(GameObject), false);
+
+            if (customBasePrefab != prevPrefab && customBasePrefab != null)
+            {
+                LoadPrefabParameters();
+            }
+
+            if (customBasePrefab == null)
+            {
+                EditorGUILayout.HelpBox("⚠️ Lütfen CubeShapeDataHolder içeren bir prefab seçin.", MessageType.Warning);
+            }
+            else if (customBasePrefab.GetComponent<CubeShapeDataHolder>() == null)
+            {
+                EditorGUILayout.HelpBox("⚠️ Seçilen prefab CubeShapeDataHolder bileşenine sahip değil!", MessageType.Error);
+            }
         }
         EditorGUILayout.EndVertical();
 
@@ -354,6 +382,33 @@ public class AILevelDesignerWindow : EditorWindow
         }
         EditorGUILayout.HelpBox(hintText, MessageType.Info);
         EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        // KÜP PREFABI SEÇİMİ (Global)
+        GUILayout.Label("🧊 GÖRSEL PARÇA YAPISI", styleHeader);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        GameObject prevCubePrefab = cubePrefab;
+        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Global Küp Prefabı", cubePrefab, typeof(GameObject), false);
+        
+        if (cubePrefab != prevCubePrefab)
+        {
+            if (cubePrefab != null)
+            {
+                string path = AssetDatabase.GetAssetPath(cubePrefab);
+                EditorPrefs.SetString(PREF_DEFAULT_CUBE, path);
+            }
+            else
+            {
+                EditorPrefs.SetString(PREF_DEFAULT_CUBE, "");
+            }
+        }
+
+        if (cubePrefab == null)
+        {
+            EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin. Seçilmezse varsayılan beyaz küp kullanılır.", MessageType.Warning);
+        }
+        EditorGUILayout.EndVertical();
     }
 
     // ── Sol Panel (Parametreler) ──────────────────────────────────
@@ -449,12 +504,6 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Space(12);
 
         EditorGUIUtility.labelWidth = originalLabelWidth;
-
-        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Global Küp Prefabı", cubePrefab, typeof(GameObject), false);
-        if (cubePrefab == null)
-        {
-            EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin.", MessageType.Warning);
-        }
 
         if (prefilledMaterials == null || prefilledMaterials.Length == 0)
         {
@@ -966,11 +1015,19 @@ public class AILevelDesignerWindow : EditorWindow
 
     internal void GenerateLevelProcedurally()
     {
-        // Şablon kontrolü
-        if (selectedTemplate == null)
+        // Kaynak kontrolü
+        if (generationBaseType == GenerationBaseType.Template && selectedTemplate == null)
         {
             EditorUtility.DisplayDialog("Hata", "Lütfen önce bir Level Şablonu seçin (Assets/Templates/)", "Tamam");
             return;
+        }
+        else if (generationBaseType == GenerationBaseType.CustomPrefab)
+        {
+            if (customBasePrefab == null || customBasePrefab.GetComponent<CubeShapeDataHolder>() == null)
+            {
+                EditorUtility.DisplayDialog("Hata", "Lütfen CubeShapeDataHolder içeren geçerli bir Prefab seçin", "Tamam");
+                return;
+            }
         }
 
         occupiedCells.Clear();
@@ -980,22 +1037,39 @@ public class AILevelDesignerWindow : EditorWindow
         pieceSplitList.Clear();
         highlightedPieceIndex = -1;
 
-        // 1. Şablondan Grid'i Yükle
+        // 1. Kaynaktan Grid'i Yükle
         int W = gridSize.x;
         int H = gridSize.y;
         int D = gridSize.z;
 
-        // Şablon boşsa (occupiedCells listesi boşsa) = tam dolu küp
-        if (selectedTemplate.occupiedCells == null || selectedTemplate.occupiedCells.Count == 0)
+        if (generationBaseType == GenerationBaseType.Template)
         {
-            BuildSolidBoxShape(W, H, D);
-            Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' - Tam dolu {W}x{H}x{D} küp: {occupiedCells.Count} blok");
+            // Şablon boşsa (occupiedCells listesi boşsa) = tam dolu küp
+            if (selectedTemplate.occupiedCells == null || selectedTemplate.occupiedCells.Count == 0)
+            {
+                BuildSolidBoxShape(W, H, D);
+                Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' - Tam dolu {W}x{H}x{D} küp: {occupiedCells.Count} blok");
+            }
+            else
+            {
+                // Şablondan hücreleri kopyala
+                occupiedCells = new HashSet<Vector3Int>(selectedTemplate.occupiedCells);
+                Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' yüklendi: {occupiedCells.Count} blok");
+            }
         }
         else
         {
-            // Şablondan hücreleri kopyala
-            occupiedCells = new HashSet<Vector3Int>(selectedTemplate.occupiedCells);
-            Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' yüklendi: {occupiedCells.Count} blok");
+            var holder = customBasePrefab.GetComponent<CubeShapeDataHolder>();
+            if (holder.occupiedCells == null || holder.occupiedCells.Count == 0)
+            {
+                BuildSolidBoxShape(W, H, D);
+                Debug.Log($"✅ Prefab '{customBasePrefab.name}' - Tam dolu {W}x{H}x{D} küp: {occupiedCells.Count} blok");
+            }
+            else
+            {
+                occupiedCells = new HashSet<Vector3Int>(holder.occupiedCells);
+                Debug.Log($"✅ Prefab '{customBasePrefab.name}' yüklendi: {occupiedCells.Count} blok");
+            }
         }
 
         // Boş şekil koruması
@@ -1239,10 +1313,49 @@ public class AILevelDesignerWindow : EditorWindow
         {
             var path = AssetDatabase.GUIDToAssetPath(guid);
             var def = AssetDatabase.LoadAssetAtPath<PieceDefinition>(path);
-            if (def != null && def.cells != null && def.cells.Count > 0)
-                pieceLibraryCache.Add(def);
+            if (def == null || def.cells == null || def.cells.Count == 0) continue;
+
+            // [2026-07-14] DÜZELTİLDİ: kütüphanede, hiçbir rotasyonda TEK katmana
+            // yassılamayan (gerçek 3D hacimli, örn. tam dolu 3x3x2/4x4x4 gibi) 8 tanım
+            // bulundu — bunlar muhtemelen eski bir migration'da yanlışlıkla "parça" diye
+            // kaydedilmiş komple SEVİYE şekilleri. SolutionFirstBuilder/LevelSolver katman-
+            // katman (tek Y) yerleştirme yaptığı için bunlar HİÇBİR ZAMAN yerleştirilemiyor —
+            // havuz örneklemesinde (SplitShapeWithSolutionFirstLibrary) sadece ölü ağırlık
+            // olup gerçek/küçük parçaların örneklenme şansını düşürüyorlardı (bu da tekli-küp
+            // Filler_1x1'in aşırı öne çıkmasının nedenlerinden biriydi). Hiçbir rotasyonu tek
+            // katmana sığmayan tanımlar kütüphaneden (ve dolayısıyla örneklemeden) çıkarılıyor.
+            if (!IsFlattenableToSingleLayer(def))
+                continue;
+
+            pieceLibraryCache.Add(def);
         }
         return pieceLibraryCache;
+    }
+
+    // def.cells'in, allowedRotations'daki rotasyonlardan EN AZ biriyle tek bir Y katmanına
+    // sığıp sığmadığını kontrol eder (tüm hücreler aynı Y'yi paylaşıyor mu). allowedRotations
+    // boşsa sadece kimlik rotasyonu (rotasyonsuz hâli) denenir.
+    private static bool IsFlattenableToSingleLayer(PieceDefinition def)
+    {
+        var rotations = (def.allowedRotations != null && def.allowedRotations.Count > 0)
+            ? def.allowedRotations
+            : new List<Vector3Int> { Vector3Int.zero };
+
+        foreach (var rotEuler in rotations)
+        {
+            var rotated = PieceGeometryUtils.RotateAndNormalize(
+                def.cells, Quaternion.Euler(rotEuler.x, rotEuler.y, rotEuler.z));
+            if (rotated.Count == 0) continue;
+
+            int minY = rotated[0].y, maxY = rotated[0].y;
+            foreach (var c in rotated)
+            {
+                if (c.y < minY) minY = c.y;
+                if (c.y > maxY) maxY = c.y;
+            }
+            if (minY == maxY) return true;
+        }
+        return false;
     }
 
     // "Kütüphane / Solution-First" modu: SmartPieceSplitting'in mevcut çok-denemeli
@@ -1289,6 +1402,24 @@ public class AILevelDesignerWindow : EditorWindow
 
         Debug.Log($"  [Kütüphane/Solution-First] Deneme {attempt + 1}: havuz={pool.Count} parça tipi, " +
                    (built ? $"BAŞARILI ({resultPieces.Count} parça yerleşti)" : "döşenemedi"));
+
+        if (built && frozenCells != null && frozenCells.Count > 0)
+        {
+            // [2026-07-14, ekip kararıyla, 2. revizyon] Buz erimesini tetikleyen 2 aynı renkli
+            // komşu parça anında yok oluyor (bkz. GridManager.CheckAndResolveFrozenCells) — o
+            // hücreler tekrar doldurulmalı. Havuz normalde hedefe TAM eşit hacimde üretildiği
+            // için yedek parça yok; her buz hücresi en fazla BİR kez erir ve en fazla 2 hücre
+            // yok eder, bu yüzden buz başına 2 hücrelik toplam pay ekliyoruz — AMA bunu 2 AYRI
+            // tek-küplük parça yerine TEK bir 2-hücrelik "domino" parçası olarak ekliyoruz
+            // (toplam hacim/güvenlik payı birebir aynı kalır, sadece parça SAYISI yarıya iner
+            // ve hiçbiri tekli küp olmaz). İlk denemede tek-küplük yedekler kullanılmıştı ama
+            // bu, levellerin tekli parçaya boğulmasına katkıda bulunduğu için domino'ya çevrildi
+            // — LevelSolver.SolveFromPrefabs'teki `maxExtraForIce = frozenCells.Count * 2` üst
+            // sınırı hâlâ geçerli (hacim aynı, sadece parçalanma şekli değişti). Hiç yok-olma
+            // yaşanmazsa bu parçalar seviyeyi tamamlamadan önce hiç çekilmez, zararsız kalır.
+            for (int i = 0; i < frozenCells.Count; i++)
+                resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0) });
+        }
 
         return built ? resultPieces : new List<List<Vector3Int>>();
     }
@@ -1926,6 +2057,37 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         Debug.Log($"📐 Şablon yüklendi: {selectedTemplate.templateName} ({gridSize.x}x{gridSize.y}x{gridSize.z}) - Dinamik Boyut: Min {minPieceSize}, Max {maxPieceSize}");
+        Repaint();
+    }
+
+    private void LoadPrefabParameters()
+    {
+        if (customBasePrefab == null) return;
+
+        var holder = customBasePrefab.GetComponent<CubeShapeDataHolder>();
+        if (holder != null)
+        {
+            gridSize = holder.gridSize;
+
+            int volume = holder.occupiedCells != null && holder.occupiedCells.Count > 0
+                ? holder.occupiedCells.Count
+                : gridSize.x * gridSize.y * gridSize.z;
+
+            if (volume <= 30)
+            {
+                minPieceSize = 3;
+                maxPieceSize = 5;
+            }
+            else
+            {
+                int targetPieceCount = 6;
+                maxPieceSize = Mathf.Clamp(volume / targetPieceCount + 1, 5, 12);
+                minPieceSize = Mathf.Max(3, maxPieceSize - 3);
+            }
+
+            Debug.Log($"📐 Prefab yüklendi: {customBasePrefab.name} ({gridSize.x}x{gridSize.y}x{gridSize.z}) - Dinamik Boyut: Min {minPieceSize}, Max {maxPieceSize}");
+        }
+
         Repaint();
     }
 

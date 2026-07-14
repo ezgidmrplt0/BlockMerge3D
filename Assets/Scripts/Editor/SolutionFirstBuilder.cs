@@ -86,11 +86,19 @@ public static class SolutionFirstBuilder
 
         int activeLayer = GetLowestIncompleteLayer();
 
-        // Spawn ağırlığına göre sırala (yüksek ağırlık önce denenir), eşitlerde karıştır —
-        // yaygın/basit parçalar öncelikli denenir ama arama her dalda aynı sırayı izlemez.
+        // [2026-07-14] DÜZELTİLDİ: eskiden sadece spawnWeight'e göre sıralanıyordu, ama
+        // kütüphanedeki TÜM tanımlar (Filler_1x1 dahil) spawnWeight=1 olduğu için sıralama
+        // pratikte rastgeleydi. Bu, ilk başarılı yerleşimi kabul edip döndüğü için (aşağıdaki
+        // "if (BacktrackingBuild()) return true;"), her fırsatta HER YERE sığan ve
+        // maxCopiesPerLevel=-1 (sınırsız) olan tek-küplük Filler_1x1'e sürükleniyor, sonuç
+        // olarak levellerin çoğu tek-hücrelik parçaya boğuluyordu. Şimdi önce hücre SAYISINA
+        // göre büyükten küçüğe sıralanıyor (büyük/ilginç parçalar önce denenir, küçük
+        // parçalara sadece büyükler sığmadığında düşülür), spawnWeight ve rastgelelik sadece
+        // eşit boyuttaki parçalar arasında ayırt edici kalıyor.
         var orderedPool = pool
             .Where(p => p.definition.maxCopiesPerLevel < 0 || p.usedCount < p.definition.maxCopiesPerLevel)
-            .OrderByDescending(p => p.definition.spawnWeight)
+            .OrderByDescending(p => p.definition.volume)
+            .ThenByDescending(p => p.definition.spawnWeight)
             .ThenBy(_ => Random.value)
             .ToList();
 
