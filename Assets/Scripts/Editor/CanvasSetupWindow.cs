@@ -150,9 +150,9 @@ public class CanvasSetupWindow : EditorWindow
         hlg.childControlWidth = true; hlg.childControlHeight = true;
         hlg.childForceExpandWidth = true; hlg.childForceExpandHeight = false;
 
-        ui.scoreText       = StatGroup("ScoreGroup",  contentGO.transform, "PUAN", "0", textColor);
+        ui.scoreText       = StatGroup("ScoreGroup",  contentGO.transform, "LEVEL", "LEVEL 1", textColor);
         ui.timerText       = StatGroup("TimerGroup",  contentGO.transform, "SÜRE", "01:00", accentColor);
-        ui.targetScoreText = StatGroup("TargetGroup", contentGO.transform, "HEDEF", "/ 100", textColor);
+        ui.targetScoreText = null; // Hedef skor kaldırıldı
 
         // Alt Çizgi İlerleme Çubuğu (Progress Bar)
         var barBg = MakeImg("ProgressBarBg", topBar.transform, new Color(0, 0, 0, 0.4f));
@@ -531,6 +531,7 @@ public class CanvasSetupWindow : EditorWindow
         tmp.color = color;
         tmp.alignment = align;
         tmp.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
+        tmp.enableWordWrapping = false; // Prevent wrapping for HUD text elements!
         return tmp;
     }
 

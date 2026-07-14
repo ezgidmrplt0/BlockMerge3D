@@ -302,7 +302,7 @@ public class PieceSplitterWindow : EditorWindow
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         levelName   = EditorGUILayout.TextField("Level Adı",   levelName);
         levelTime   = EditorGUILayout.FloatField("Süre (sn)",   levelTime);
-        levelTarget = EditorGUILayout.IntField("Hedef Puan",   levelTarget);
+        levelTarget = 0; // Hedef skor kaldırıldı
         cubePrefab  = (GameObject)EditorGUILayout.ObjectField("Cube Prefab", cubePrefab, typeof(GameObject), false);
         EditorGUILayout.Space(5);
 

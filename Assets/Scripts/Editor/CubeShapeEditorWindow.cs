@@ -354,7 +354,7 @@ public class CubeShapeEditorWindow : EditorWindow
                 EditorGUILayout.LabelField("Level Adı:", EditorStyles.miniLabel);
                 levelName   = EditorGUILayout.TextField(levelName);
                 levelTime   = EditorGUILayout.FloatField("Süre (sn)", levelTime);
-                levelTarget = EditorGUILayout.IntField("Hedef Puan", levelTarget);
+                levelTarget = 0; // Hedef skor kaldırıldı
 
                 string existingLdPath = $"{LEVELS_PATH}/{levelName}/{levelName}_LevelData.asset";
                 bool levelExists = System.IO.File.Exists(existingLdPath);

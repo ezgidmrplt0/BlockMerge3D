@@ -44,6 +44,8 @@ public class BlockMerge3DHubWindow : EditorWindow
     private GUIStyle headerStyle;
     private GUIStyle subHeaderStyle;
     private GUIStyle toolbarStyle;
+    private GUIStyle tabStyleActive;
+    private GUIStyle tabStyleInactive;
     private bool stylesInitialized = false;
 
     [MenuItem("BlockMerge3D/BlockMerge3D Hub", false, 0)]
@@ -142,6 +144,16 @@ public class BlockMerge3DHubWindow : EditorWindow
         }
     }
 
+    private Texture2D MakeTex(int width, int height, Color col)
+    {
+        Color[] pix = new Color[width * height];
+        for (int i = 0; i < pix.Length; ++i) pix[i] = col;
+        Texture2D result = new Texture2D(width, height);
+        result.SetPixels(pix);
+        result.Apply();
+        return result;
+    }
+
     private void InitializeStyles()
     {
         if (stylesInitialized) return;
@@ -165,6 +177,28 @@ public class BlockMerge3DHubWindow : EditorWindow
             fontSize = 12,
             fontStyle = FontStyle.Bold,
             fixedHeight = 35
+        };
+
+        tabStyleActive = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            fixedHeight = 36,
+            wordWrap = true,
+            normal = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.15f, 0.60f, 0.90f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.25f, 0.70f, 1.00f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.10f, 0.50f, 0.80f)) }
+        };
+
+        tabStyleInactive = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Normal,
+            fixedHeight = 36,
+            wordWrap = true,
+            normal = { textColor = new Color(0.85f, 0.85f, 0.85f), background = MakeTex(2, 2, new Color(0.24f, 0.24f, 0.28f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.32f, 0.32f, 0.38f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.18f, 0.18f, 0.22f)) }
         };
 
         stylesInitialized = true;
@@ -242,23 +276,13 @@ public class BlockMerge3DHubWindow : EditorWindow
         for (int i = 0; i < tabNames.Length; i++)
         {
             bool isActive = ((int)activeTab == i);
-            GUI.backgroundColor = isActive ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.24f, 0.24f, 0.28f);
-            
-            var tabStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 11,
-                fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal,
-                fixedHeight = 36,
-                wordWrap = true
-            };
-            tabStyle.normal.textColor = isActive ? Color.white : new Color(0.85f, 0.85f, 0.85f);
+            GUIStyle tabStyle = isActive ? tabStyleActive : tabStyleInactive;
             
             if (GUILayout.Button(tabNames[i], tabStyle, GUILayout.ExpandWidth(true)))
             {
                 activeTab = (Tab)i;
             }
         }
-        GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
 
         if ((int)activeTab != prevTabIdx)

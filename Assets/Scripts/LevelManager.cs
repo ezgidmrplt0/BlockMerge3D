@@ -1038,12 +1038,12 @@ public class LevelManager : MonoBehaviour
         shadowRT.anchorMax = rawRT.anchorMax;
         shadowRT.pivot = rawRT.pivot;
         shadowRT.sizeDelta = rawRT.sizeDelta;
-        // Offset to the left and slightly down
-        shadowRT.anchoredPosition = new Vector2(-12f, -8f);
+        // Offset to the right and down (consistent with card shadow and top-left key light)
+        shadowRT.anchoredPosition = new Vector2(10f, -10f);
         shadowRT.localScale = Vector3.one;
 
         var shadowImg = shadowGO.GetComponent<RawImage>();
-        shadowImg.color = new Color(0f, 0f, 0f, 0.28f);
+        shadowImg.color = new Color(0f, 0f, 0f, 0.38f); // Distinct drop shadow matching light source
 
         // 5. Create Camera and Camera Root
         if (nextPiecePreviewParent != null) Destroy(nextPiecePreviewParent);

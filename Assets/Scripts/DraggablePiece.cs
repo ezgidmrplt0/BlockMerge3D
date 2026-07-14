@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
+using DG.Tweening;
 
 [RequireComponent(typeof(CubeShapeDataHolder))]
 public class DraggablePiece : MonoBehaviour
@@ -36,6 +37,7 @@ public class DraggablePiece : MonoBehaviour
     private float dragLerpProgress = 1f;
     private Vector3 dragStartPos;
     private float dragStartScale = 1f;
+    private Vector3 lastPosition;
 
     public static DraggablePiece activeDrag;
     public static bool IsDragging => activeDrag != null;
@@ -69,6 +71,7 @@ public class DraggablePiece : MonoBehaviour
         isDragging          = true;
         activeDrag          = this;
         secondTouchConsumed = false;
+        lastPosition        = transform.position;
         if (grid != null) grid.StartVisualFocus(this);
 
         // Sürükleme düzlemini hazırla
@@ -85,6 +88,9 @@ public class DraggablePiece : MonoBehaviour
         }
         transform.localScale = Vector3.one * dragStartScale;
         UpdateChildPositions();
+
+        DOTween.Kill(transform);
+        transform.DOPunchScale(new Vector3(-0.08f, 0.15f, -0.08f), 0.22f, 8, 0.5f);
 
         if (CameraOrbit.Instance != null)
             CameraOrbit.Instance.IsLocked = true;
@@ -179,6 +185,7 @@ public class DraggablePiece : MonoBehaviour
         activeDrag          = this;
         secondTouchConsumed = false;
         dragLerpProgress    = 1f; // Karttan olmadığı için animasyon yok
+        lastPosition        = transform.position;
         if (grid != null) grid.StartVisualFocus(this);
 
         // Origin dunya pozisyonuna geri döndük
@@ -199,6 +206,10 @@ public class DraggablePiece : MonoBehaviour
             : Vector3.zero;
 
         transform.localScale = Vector3.one;
+        
+        DOTween.Kill(transform);
+        transform.DOPunchScale(new Vector3(-0.08f, 0.15f, -0.08f), 0.22f, 8, 0.5f);
+
         if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = true;
     }
 
@@ -233,18 +244,27 @@ public class DraggablePiece : MonoBehaviour
             else
             {
                 transform.position = targetDragPos;
-                transform.localScale = Vector3.one;
+                
+                // Velocity-based Squash & Stretch during active dragging
+                Vector3 moveDelta = transform.position - lastPosition;
+                if (moveDelta.magnitude > 0.001f && !isSnapped)
+                {
+                    float speed = moveDelta.magnitude / Time.deltaTime;
+                    float factor = Mathf.Clamp01(speed / 15f) * 0.12f;
+                    transform.localScale = new Vector3(1f - factor * 0.5f, 1f + factor, 1f - factor * 0.5f);
+                }
+                else if (!isSnapped && !DOTween.IsTweening(transform))
+                {
+                    transform.localScale = Vector3.one;
+                }
             }
+            lastPosition = transform.position;
         }
 
         // Geçiş esnasında snapping yapılmaz
         bool canSnap = dragLerpProgress >= 1f;
         Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
         bool wasSnapped = isSnapped;
-        
-        // Surukleme sirasinda HERZAMAN parcadan once gelen katmanlari gizle
-        // (Snap olmadan da calisir - parcanin o anki pozisyonuna gore dinamik)
-        // grid.UpdateOccludingCells(mainCam.transform.position, PieceWorldCenter()); // eski
 
         if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
         {
@@ -252,6 +272,9 @@ public class DraggablePiece : MonoBehaviour
             isSnapped = true;
             if (!wasSnapped)
             {
+                // Snap pop animation: squash and stretch click effect!
+                DOTween.Kill(transform);
+                transform.DOPunchScale(new Vector3(0.08f, -0.1f, 0.08f), 0.15f, 10, 1f);
             }
 
             // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat
@@ -271,6 +294,8 @@ public class DraggablePiece : MonoBehaviour
             isSnapped = false;
             if (wasSnapped)
             {
+                DOTween.Kill(transform);
+                transform.localScale = Vector3.one;
             }
 
             // Snap kaybolduysa gecici olarak gizlenmis grid hucrelerini geri goster
@@ -343,6 +368,9 @@ public class DraggablePiece : MonoBehaviour
                     }
                 }
                 grid.AddCell(currentCells[i] + offset, child.gameObject, col2, matIdx);
+
+                // Jelly landing punch scale animation
+                child.DOPunchScale(new Vector3(0.12f, -0.2f, 0.12f), 0.38f, 10, 1f).SetEase(Ease.OutQuad);
             }
 
             placedOffset       = offset;

@@ -207,11 +207,12 @@ public class CameraOrbit : MonoBehaviour
         IsInPanelMode = true;
         IsLocked = true;
 
-        // Target: straight above the layer center
         Camera cam = GetComponent<Camera>() ?? Camera.main;
-        float distance = cam != null && cam.orthographic ? cam.orthographicSize * 3f : 20f;
-        Vector3 targetPos = layerWorldCenter + Vector3.up * distance;
-        Quaternion targetRot = Quaternion.Euler(90f, 0f, 0f);
+        float distance = cam != null && cam.orthographic ? cam.orthographicSize * 2.5f : 15f;
+        
+        // 2.5D Isometric tilted angle (55 degrees elevation, 30 degrees azimuth)
+        Quaternion targetRot = Quaternion.Euler(55f, 30f, 0f);
+        Vector3 targetPos = layerWorldCenter + targetRot * new Vector3(0f, 0f, -distance);
 
         DOTween.Kill(transform);
         Sequence seq = DOTween.Sequence();

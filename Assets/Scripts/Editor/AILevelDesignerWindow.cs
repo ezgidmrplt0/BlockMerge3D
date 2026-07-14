@@ -18,6 +18,8 @@ public class AILevelDesignerWindow : EditorWindow
     private const string LEVELS_PATH = "Assets/Levels";
     private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
     private const string PREFILLED_MATERIALS_PATH = "Assets/Materials/Premium";
+    private const string PREF_USE_MULTIPLE_ASSETS = "BlockMerge3D_UseMultipleAssets";
+    private const string PREF_VISUAL_ASSETS_LIST = "BlockMerge3D_VisualAssetsList";
 
     private static readonly Color COL_BG         = new Color(0.047f, 0.047f, 0.07f); // #0c0c12
     private static readonly Color COL_GRID        = new Color(0.30f, 0.32f, 0.40f); // #4d5266
@@ -43,13 +45,13 @@ public class AILevelDesignerWindow : EditorWindow
     // arka planda tuttuğu bir instance'ı üzerinden bunlara doğrudan erişip mevcut üretim/export
     // mantığını (kopyalamadan) yeniden kullanıyor. Davranış AYNI, sadece görünürlük değişti.
     public enum GenerationBaseType { Template, CustomPrefab }
-    internal GenerationBaseType generationBaseType = GenerationBaseType.Template;
-    internal GameObject customBasePrefab;
-    internal LevelTemplate selectedTemplate; // Şablon bazlı üretim
-    internal string levelName        = "AI_Level_1";
-    internal float levelTime         = 75f;
-    internal int levelTarget         = 150;
-    internal Vector3Int gridSize     = new Vector3Int(5, 5, 5);
+    [SerializeField] internal GenerationBaseType generationBaseType = GenerationBaseType.Template;
+    [SerializeField] internal GameObject customBasePrefab;
+    [SerializeField] internal LevelTemplate selectedTemplate; // Şablon bazlı üretim
+    [SerializeField] internal string levelName        = "AI_Level_1";
+    [SerializeField] internal float levelTime         = 75f;
+    [SerializeField] internal int levelTarget         = 0; // Hedef skor kaldırıldı
+    [SerializeField] internal Vector3Int gridSize     = new Vector3Int(5, 5, 5);
     private float cellSize           = 1.0f;
     private float spacing            = 0.1f;
 
@@ -107,6 +109,20 @@ public class AILevelDesignerWindow : EditorWindow
     private bool show3D              = true;
     private Vector2 leftScroll, rightScroll;
     private GameObject cubePrefab;
+    [SerializeField] private bool useMultipleAssets = false;
+    [SerializeField] private List<GameObject> customVisualPrefabs = new List<GameObject>();
+
+    private SerializedObject m_serializedObject;
+    private SerializedProperty m_customVisualPrefabsProperty;
+
+    private void EnsureSerializedObject()
+    {
+        if (m_serializedObject == null || m_serializedObject.targetObject != this)
+        {
+            m_serializedObject = new SerializedObject(this);
+            m_customVisualPrefabsProperty = m_serializedObject.FindProperty("customVisualPrefabs");
+        }
+    }
     private Material[] prefilledMaterials; // Engel (prefilled) küplerin gerçek rengini oynatan materyal paleti — pieceMaterials (LevelManager) ile aynı sırada olmalı
     private int activeTab = 0; // 0: AI Jeneratör, 1: AI Eğitim Paneli, 2: AI Parça Jeneratörü
 
@@ -137,6 +153,7 @@ public class AILevelDesignerWindow : EditorWindow
 
     // ── Stil ─────────────────────────────────────────────────────
     private GUIStyle styleHeader, styleBox, styleTabActive, styleTabInactive, styleInstructionBox;
+    private GUIStyle stylePrimaryButton, styleSuccessButton, styleDangerButton, styleWarningButton, styleDarkButton;
     private bool stylesBuilt;
 
     public System.Action onRepaintRequested;
@@ -155,6 +172,23 @@ public class AILevelDesignerWindow : EditorWindow
         if (!string.IsNullOrEmpty(prefabPath))
         {
             cubePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        }
+
+        useMultipleAssets = EditorPrefs.GetBool(PREF_USE_MULTIPLE_ASSETS, false);
+        string assetsListStr = EditorPrefs.GetString(PREF_VISUAL_ASSETS_LIST, "");
+        if (!string.IsNullOrEmpty(assetsListStr))
+        {
+            customVisualPrefabs.Clear();
+            string[] paths = assetsListStr.Split(';');
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(path)) continue;
+                GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (go != null)
+                {
+                    customVisualPrefabs.Add(go);
+                }
+            }
         }
 
         LoadPrefilledMaterialsPalette();
@@ -176,6 +210,242 @@ public class AILevelDesignerWindow : EditorWindow
             .OrderBy(m => m.name, System.StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (mats.Length > 0) prefilledMaterials = mats;
+    }
+
+    private void SaveVisualAssetsToPrefs()
+    {
+        EditorPrefs.SetBool(PREF_USE_MULTIPLE_ASSETS, useMultipleAssets);
+        List<string> paths = new List<string>();
+        foreach (var go in customVisualPrefabs)
+        {
+            if (go != null)
+            {
+                string path = AssetDatabase.GetAssetPath(go);
+                if (!string.IsNullOrEmpty(path))
+                {
+                    paths.Add(path);
+                }
+            }
+        }
+        EditorPrefs.SetString(PREF_VISUAL_ASSETS_LIST, string.Join(";", paths));
+    }
+
+    private GameObject GetPieceVisualPrefab(int pieceIndex)
+    {
+        if (useMultipleAssets && customVisualPrefabs != null && customVisualPrefabs.Count > 0)
+        {
+            var validPrefabs = customVisualPrefabs.Where(p => p != null).ToList();
+            if (validPrefabs.Count > 0)
+            {
+                return validPrefabs[pieceIndex % validPrefabs.Count];
+            }
+        }
+        return cubePrefab;
+    }
+
+    private GameObject GetPrefabForCell(Vector3Int cell, int defaultIndex = 0)
+    {
+        if (useMultipleAssets && customVisualPrefabs != null && customVisualPrefabs.Count > 0)
+        {
+            for (int i = 0; i < pieceSplitList.Count; i++)
+            {
+                if (pieceSplitList[i].Contains(cell))
+                {
+                    return GetPieceVisualPrefab(i);
+                }
+            }
+        }
+        return GetPieceVisualPrefab(defaultIndex);
+    }
+
+    private void DrawAssetPreviews()
+    {
+        if (customVisualPrefabs == null || customVisualPrefabs.Count == 0)
+        {
+            return;
+        }
+
+        // Clean null entries from the list
+        customVisualPrefabs.RemoveAll(item => item == null);
+
+        if (customVisualPrefabs.Count == 0)
+        {
+            return;
+        }
+
+        GUILayout.Label("Yüklenen Asset Önizlemeleri:", EditorStyles.miniBoldLabel);
+        
+        // Render in a grid
+        float viewWidth = position.width - 40f; // scroll view width safety
+        if (viewWidth < 200f) viewWidth = 380f; // fallback for wizard/hub layout width sizing issues
+        int columnCount = Mathf.Max(1, Mathf.FloorToInt(viewWidth / 85f));
+        
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        
+        int i = 0;
+        while (i < customVisualPrefabs.Count)
+        {
+            EditorGUILayout.BeginHorizontal();
+            for (int col = 0; col < columnCount && i < customVisualPrefabs.Count; col++)
+            {
+                GameObject go = customVisualPrefabs[i];
+                if (go == null)
+                {
+                    i++;
+                    continue;
+                }
+
+                // Try to get prefab preview
+                Texture2D preview = AssetPreview.GetAssetPreview(go);
+                if (preview == null && AssetPreview.IsLoadingAssetPreview(go.GetInstanceID()))
+                {
+                    // Repaint window to update preview when loading completes
+                    Repaint();
+                }
+                if (preview == null)
+                {
+                    preview = AssetPreview.GetMiniThumbnail(go);
+                }
+
+                // Draw cell
+                Rect cellRect = EditorGUILayout.BeginVertical(GUILayout.Width(80), GUILayout.Height(100));
+                
+                // Draw thumbnail background box
+                GUI.Box(new Rect(cellRect.x, cellRect.y, 76, 76), GUIContent.none, GUI.skin.textField);
+                
+                // Draw thumbnail image
+                if (preview != null)
+                {
+                    GUI.DrawTexture(new Rect(cellRect.x + 3, cellRect.y + 3, 70, 70), preview, ScaleMode.ScaleToFit);
+                }
+                
+                // Draw delete "x" button on top right of the thumbnail
+                Rect closeRect = new Rect(cellRect.x + 58, cellRect.y + 2, 16, 16);
+                GUIStyle closeButtonStyle = new GUIStyle(GUI.skin.button)
+                {
+                    fontSize = 9,
+                    fontStyle = FontStyle.Bold,
+                    padding = new RectOffset(0, 0, 0, 0),
+                    margin = new RectOffset(0, 0, 0, 0),
+                    alignment = TextAnchor.MiddleCenter
+                };
+                GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+                if (GUI.Button(closeRect, "X", closeButtonStyle))
+                {
+                    customVisualPrefabs.RemoveAt(i);
+                    SaveVisualAssetsToPrefs();
+                    EditorUtility.SetDirty(this);
+                    GUI.backgroundColor = Color.white;
+                    EditorGUILayout.EndVertical();
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
+                    return; // exit loop to avoid list modify exceptions
+                }
+                GUI.backgroundColor = Color.white;
+                
+                // Label under the thumbnail
+                string label = go.name;
+                if (label.Length > 10) label = label.Substring(0, 8) + "..";
+                
+                var labelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    wordWrap = false
+                };
+                
+                GUILayout.Space(78); // push layout down past the box
+                GUILayout.Label(label, labelStyle, GUILayout.Width(76));
+                
+                EditorGUILayout.EndVertical();
+                GUILayout.Space(5);
+                i++;
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(5);
+        }
+        
+        EditorGUILayout.EndVertical();
+    }
+
+    private void DrawVisualAssetDropArea()
+    {
+        Event evt = Event.current;
+        Rect dropArea = GUILayoutUtility.GetRect(0.0f, 60.0f, GUILayout.ExpandWidth(true));
+        
+        GUIStyle dropAreaStyle = new GUIStyle(GUI.skin.box);
+        dropAreaStyle.alignment = TextAnchor.MiddleCenter;
+        dropAreaStyle.normal.textColor = new Color(0.35f, 0.78f, 1.00f);
+        dropAreaStyle.fontStyle = FontStyle.Bold;
+        dropAreaStyle.fontSize = 11;
+        
+        GUI.Box(dropArea, "\n📥 ASETLERİ BURAYA SÜRÜKLEYİP BIRAKIN\n(Prefab veya GameObject)", dropAreaStyle);
+        
+        switch (evt.type)
+        {
+            case EventType.DragUpdated:
+            case EventType.DragPerform:
+                if (!dropArea.Contains(evt.mousePosition))
+                    break;
+                
+                DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                
+                if (evt.type == EventType.DragPerform)
+                {
+                    DragAndDrop.AcceptDrag();
+                    
+                    bool added = false;
+                    foreach (Object draggedObject in DragAndDrop.objectReferences)
+                    {
+                        if (draggedObject is GameObject go)
+                        {
+                            if (!customVisualPrefabs.Contains(go))
+                            {
+                                customVisualPrefabs.Add(go);
+                                added = true;
+                            }
+                        }
+                    }
+                    if (added)
+                    {
+                        SaveVisualAssetsToPrefs();
+                        EditorUtility.SetDirty(this);
+                    }
+                }
+                evt.Use();
+                break;
+        }
+    }
+
+    private void BeginSectionCard(string title, Color headerColor, string icon = "")
+    {
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        // Draw header bar
+        Rect headerRect = GUILayoutUtility.GetRect(0, 24, GUILayout.ExpandWidth(true));
+        // Draw a nice colored background
+        EditorGUI.DrawRect(headerRect, headerColor);
+        
+        // Draw title text inside header
+        GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            fontSize = 11,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleLeft,
+            padding = new RectOffset(6, 0, 0, 0)
+        };
+        headerStyle.normal.textColor = Color.white;
+        
+        string fullTitle = string.IsNullOrEmpty(icon) ? title : $"{icon}  {title}";
+        GUI.Label(headerRect, fullTitle, headerStyle);
+        
+        // Indent content slightly
+        EditorGUILayout.BeginVertical(new GUIStyle() { padding = new RectOffset(8, 8, 8, 8) });
+    }
+    
+    private void EndSectionCard()
+    {
+        EditorGUILayout.EndVertical(); // inner content padding
+        EditorGUILayout.EndVertical(); // outer helpBox
     }
 
     public void OnGUI()
@@ -249,8 +519,7 @@ public class AILevelDesignerWindow : EditorWindow
     internal void DrawTemplateAndDifficultySection()
     {
         // ŞABLON VEYA PREFAB SEÇİCİ
-        GUILayout.Label("📐 ÜRETİM KAYNAĞI", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        BeginSectionCard("ÜRETİM KAYNAĞI", new Color(0.12f, 0.58f, 0.40f), "📐");
         EditorGUILayout.HelpBox("AI seviyeyi bir şablon veya özel prefab baz alarak oluşturur.", MessageType.Info);
 
         // Custom choice cards for Production Source
@@ -258,17 +527,8 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
 
         bool isTemplate = (generationBaseType == GenerationBaseType.Template);
-        GUI.backgroundColor = isTemplate ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.24f, 0.24f, 0.28f);
-        var sourceCardStyle = new GUIStyle(GUI.skin.button)
-        {
-            fontSize = 11,
-            fontStyle = FontStyle.Bold,
-            fixedHeight = 36,
-            wordWrap = true
-        };
-        sourceCardStyle.normal.textColor = Color.white;
-
-        if (GUILayout.Button("📐  ŞABLON BAZLI (Template)", sourceCardStyle, GUILayout.ExpandWidth(true)))
+        GUIStyle srcBtnStyle = isTemplate ? stylePrimaryButton : styleDarkButton;
+        if (GUILayout.Button("📐  ŞABLON BAZLI (Template)", srcBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
         {
             generationBaseType = GenerationBaseType.Template;
         }
@@ -276,12 +536,11 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Space(10);
 
         bool isPrefab = (generationBaseType == GenerationBaseType.CustomPrefab);
-        GUI.backgroundColor = isPrefab ? new Color(0.15f, 0.60f, 0.90f) : new Color(0.24f, 0.24f, 0.28f);
-        if (GUILayout.Button("🧊  ÖZEL PREFAB BAZLI (Custom)", sourceCardStyle, GUILayout.ExpandWidth(true)))
+        GUIStyle prefabBtnStyle = isPrefab ? stylePrimaryButton : styleDarkButton;
+        if (GUILayout.Button("🧊  ÖZEL PREFAB BAZLI (Custom)", prefabBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
         {
             generationBaseType = GenerationBaseType.CustomPrefab;
         }
-        GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
         EditorGUILayout.Space(8);
 
@@ -324,13 +583,12 @@ public class AILevelDesignerWindow : EditorWindow
                 EditorGUILayout.HelpBox("⚠️ Seçilen prefab CubeShapeDataHolder bileşenine sahip değil!", MessageType.Error);
             }
         }
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(10);
 
         // 🏆 ZORLUK VE SEVİYE AYARLARI
-        GUILayout.Label("🏆 ZORLUK VE SEVİYE AYARLARI", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        BeginSectionCard("ZORLUK VE SEVİYE AYARLARI", new Color(0.85f, 0.55f, 0.10f), "🏆");
 
         // 1. Zorluk Seviyesi Seçimi
         EditorGUILayout.LabelField("Zorluk Seviyesi Seçimi:", EditorStyles.miniBoldLabel);
@@ -338,48 +596,36 @@ public class AILevelDesignerWindow : EditorWindow
 
         // Kolay
         bool isKolay = selectedDifficulty == AILevelDifficulty.Kolay;
-        GUI.backgroundColor = isKolay ? new Color(0.18f, 0.70f, 0.40f) : new Color(0.18f, 0.70f, 0.40f, 0.25f);
-        var diffCardStyle = new GUIStyle(GUI.skin.button)
-        {
-            fontSize = 11,
-            fontStyle = FontStyle.Bold,
-            fixedHeight = 28,
-            wordWrap = true
-        };
-        diffCardStyle.normal.textColor = isKolay ? Color.white : new Color(0.85f, 0.85f, 0.85f);
-        if (GUILayout.Button("🟢  KOLAY", diffCardStyle, GUILayout.ExpandWidth(true)))
+        GUIStyle diffBtnStyle = isKolay ? styleSuccessButton : styleDarkButton;
+        if (GUILayout.Button("🟢  KOLAY", diffBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(28)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Kolay);
         }
 
         // Orta
         bool isOrta = selectedDifficulty == AILevelDifficulty.Orta;
-        GUI.backgroundColor = isOrta ? new Color(0.95f, 0.65f, 0.15f) : new Color(0.95f, 0.65f, 0.15f, 0.25f);
-        diffCardStyle.normal.textColor = isOrta ? Color.white : new Color(0.85f, 0.85f, 0.85f);
-        if (GUILayout.Button("🟡  ORTA", diffCardStyle, GUILayout.ExpandWidth(true)))
+        GUIStyle diffOrtaStyle = isOrta ? styleWarningButton : styleDarkButton;
+        if (GUILayout.Button("🟡  ORTA", diffOrtaStyle, GUILayout.ExpandWidth(true), GUILayout.Height(28)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Orta);
         }
 
         // Zor
         bool isZor = selectedDifficulty == AILevelDifficulty.Zor;
-        GUI.backgroundColor = isZor ? new Color(0.88f, 0.25f, 0.25f) : new Color(0.88f, 0.25f, 0.25f, 0.25f);
-        diffCardStyle.normal.textColor = isZor ? Color.white : new Color(0.85f, 0.85f, 0.85f);
-        if (GUILayout.Button("🔴  ZOR", diffCardStyle, GUILayout.ExpandWidth(true)))
+        GUIStyle diffZorStyle = isZor ? styleDangerButton : styleDarkButton;
+        if (GUILayout.Button("🔴  ZOR", diffZorStyle, GUILayout.ExpandWidth(true), GUILayout.Height(28)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Zor);
         }
 
         // Uzman
         bool isUzman = selectedDifficulty == AILevelDifficulty.Uzman;
-        GUI.backgroundColor = isUzman ? new Color(0.60f, 0.25f, 0.80f) : new Color(0.60f, 0.25f, 0.80f, 0.25f);
-        diffCardStyle.normal.textColor = isUzman ? Color.white : new Color(0.85f, 0.85f, 0.85f);
-        if (GUILayout.Button("🟣  UZMAN", diffCardStyle, GUILayout.ExpandWidth(true)))
+        GUIStyle diffUzmanStyle = isUzman ? stylePrimaryButton : styleDarkButton;
+        if (GUILayout.Button("🟣  UZMAN", diffUzmanStyle, GUILayout.ExpandWidth(true), GUILayout.Height(28)))
         {
             ApplyDifficultyScaleForMode(AILevelDifficulty.Uzman);
         }
 
-        GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.Space(8);
@@ -388,13 +634,13 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.LabelField("🎯  Kaydedilecek Seviye Numarası (Level Index):", EditorStyles.boldLabel);
         EditorGUILayout.BeginHorizontal();
 
-        if (GUILayout.Button("◀◀", GUILayout.Width(35), GUILayout.Height(22)))
+        if (GUILayout.Button("◀◀", styleDarkButton, GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 10);
             levelName = $"AI_Level_{targetLevelIndex}";
         }
 
-        if (GUILayout.Button("◀", GUILayout.Width(25), GUILayout.Height(22)))
+        if (GUILayout.Button("◀", styleDarkButton, GUILayout.Width(25), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Max(1, targetLevelIndex - 1);
             levelName = $"AI_Level_{targetLevelIndex}";
@@ -407,13 +653,13 @@ public class AILevelDesignerWindow : EditorWindow
             levelName = $"AI_Level_{targetLevelIndex}";
         }
 
-        if (GUILayout.Button("▶", GUILayout.Width(25), GUILayout.Height(22)))
+        if (GUILayout.Button("▶", styleDarkButton, GUILayout.Width(25), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 1);
             levelName = $"AI_Level_{targetLevelIndex}";
         }
 
-        if (GUILayout.Button("▶▶", GUILayout.Width(35), GUILayout.Height(22)))
+        if (GUILayout.Button("▶▶", styleDarkButton, GUILayout.Width(35), GUILayout.Height(22)))
         {
             targetLevelIndex = Mathf.Min(100, targetLevelIndex + 10);
             levelName = $"AI_Level_{targetLevelIndex}";
@@ -426,7 +672,6 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.LabelField("📈  ÖNERİLEN PARAMETRELER", EditorStyles.miniBoldLabel);
         EditorGUILayout.BeginHorizontal();
         DrawStatBlock("⏱️ Süre Sınırı", $"{levelTime} sn");
-        DrawStatBlock("⭐ Hedef Skor", $"{levelTarget}");
         DrawStatBlock("🧱 Hazır Küp", $"%{prefillPercentage * 100f:F0}");
         DrawStatBlock("❄️ Buz Küpü", $"%{icePercentage * 100f:F0}");
         DrawStatBlock("🧩 Parça Boyutu", $"{minPieceSize}-{maxPieceSize}");
@@ -451,15 +696,23 @@ public class AILevelDesignerWindow : EditorWindow
                 break;
         }
         EditorGUILayout.HelpBox(hintText, MessageType.Info);
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(10);
 
-        // KÜP PREFABI SEÇİMİ (Global)
-        GUILayout.Label("🧊 GÖRSEL PARÇA YAPISI", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        // KÜP PREFABI SEÇİMİ (Global) / ÇOKLU ASSET SEÇİMİ
+        BeginSectionCard("GÖRSEL PARÇA YAPISI", new Color(0.50f, 0.35f, 0.75f), "🧊");
+        
+        bool prevUseMultiple = useMultipleAssets;
+        useMultipleAssets = EditorGUILayout.Toggle("Çoklu Asset Kullan", useMultipleAssets);
+        if (useMultipleAssets != prevUseMultiple)
+        {
+            SaveVisualAssetsToPrefs();
+        }
+
+        // Always draw the Global Küp Prefabı field so the user can define the constant grid target box style
         GameObject prevCubePrefab = cubePrefab;
-        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Global Küp Prefabı", cubePrefab, typeof(GameObject), false);
+        cubePrefab = (GameObject)EditorGUILayout.ObjectField("Grid Küp Prefabı (Kalıcı Hedef/Fallback)", cubePrefab, typeof(GameObject), false);
         
         if (cubePrefab != prevCubePrefab)
         {
@@ -476,9 +729,34 @@ public class AILevelDesignerWindow : EditorWindow
 
         if (cubePrefab == null)
         {
-            EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin. Seçilmezse varsayılan beyaz küp kullanılır.", MessageType.Warning);
+            EditorGUILayout.HelpBox("⚠ Lütfen bir küp prefabı seçin. (Örn: SingleCube / Untitled1)", MessageType.Warning);
         }
-        EditorGUILayout.EndVertical();
+
+        EditorGUILayout.Space(4);
+
+        if (useMultipleAssets)
+        {
+            EnsureSerializedObject();
+            m_serializedObject.Update();
+            
+            DrawAssetPreviews();
+            EditorGUILayout.Space(6);
+            
+            m_customVisualPrefabsProperty.isExpanded = EditorGUILayout.Foldout(m_customVisualPrefabsProperty.isExpanded, "Raw Liste Detayları (Düzenleme)");
+            if (m_customVisualPrefabsProperty.isExpanded)
+            {
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(m_customVisualPrefabsProperty, new GUIContent("Görsel Asset Havuzu"), true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    m_serializedObject.ApplyModifiedProperties();
+                    SaveVisualAssetsToPrefs();
+                }
+            }
+
+            DrawVisualAssetDropArea();
+        }
+        EndSectionCard();
     }
 
     // ── Sol Panel (Parametreler) ──────────────────────────────────
@@ -493,16 +771,11 @@ public class AILevelDesignerWindow : EditorWindow
 
         float originalLabelWidth = EditorGUIUtility.labelWidth;
 
-        GUILayout.Label("GENEL AYARLAR", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        BeginSectionCard("GENEL AYARLAR", new Color(0.15f, 0.50f, 0.75f), "📝");
         
         EditorGUIUtility.labelWidth = 110;
         levelName   = EditorGUILayout.TextField("Seviye Adı Öneki", levelName);
-        
-        EditorGUILayout.BeginHorizontal();
         levelTime   = EditorGUILayout.FloatField("Süre Sınırı (sn)", levelTime);
-        levelTarget = EditorGUILayout.IntField("Hedef Skor", levelTarget);
-        EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.BeginHorizontal();
         if (levelTime <= 0)
@@ -513,18 +786,16 @@ public class AILevelDesignerWindow : EditorWindow
         {
             EditorGUILayout.LabelField($"ℹ Süre Önerisi: {levelTime} sn.", EditorStyles.miniLabel);
         }
-        EditorGUILayout.LabelField($"ℹ Skor Önerisi: {levelTarget} Puan.", EditorStyles.miniLabel);
         EditorGUILayout.EndHorizontal();
         
         GUI.enabled = false; // Şablondan geldiği için değiştirilemez
         gridSize    = EditorGUILayout.Vector3IntField("Grid Boyutu (Şablon)", gridSize);
         GUI.enabled = true;
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(10);
 
-        GUILayout.Label("YAPAY ZEKA PARAMETRE AYARLARI", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        BeginSectionCard("YAPAY ZEKA PARAMETRE AYARLARI", new Color(0.95f, 0.40f, 0.70f), "🤖");
         EditorGUILayout.LabelField("AI sadece bu parametreleri ayarlar:", EditorStyles.miniBoldLabel);
         
         EditorGUILayout.BeginHorizontal();
@@ -552,24 +823,21 @@ public class AILevelDesignerWindow : EditorWindow
         EditorGUILayout.EndVertical();
         
         EditorGUILayout.EndHorizontal();
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(10);
 
-        GUILayout.Label("PARÇA KÜTÜPHANESİ", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-        EditorGUILayout.HelpBox("🧬 Parçalar Assets/PieceDefinitions/ kütüphanesinden gelir: rastgele bir havuz seçilir ve şekil geri izlemeli (backtracking) olarak ÖNCE ÇÖZÜLMÜŞ halde inşa edilir — sonradan 'çözülür mü' diye kontrol edilmez, zaten inşa sırasında garantilidir.", MessageType.Info);
+        BeginSectionCard("PARÇA KÜTÜPHANESİ", new Color(0.35f, 0.35f, 0.40f), "🧬");
+        EditorGUILayout.HelpBox("🧬 Parçalar Assets/PieceDefinitions/ kütüphanesinden gelir: rastgele bir havuz seçilir ve şekil geri izlemeli (backtracking) olarak ÖNCE ÇÖZÜLMÜŞ halde inşa edilir.", MessageType.Info);
         int cachedCount = pieceLibraryCache?.Count ?? 0;
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField($"Yüklü parça sayısı: {cachedCount}", EditorStyles.miniLabel);
-        if (GUILayout.Button("Kütüphaneyi Yenile", GUILayout.Width(140)))
+        if (GUILayout.Button("Kütüphaneyi Yenile", styleDarkButton, GUILayout.Width(140)))
         {
             RefreshPieceLibrary();
         }
         EditorGUILayout.EndHorizontal();
-
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(12);
 
@@ -578,7 +846,7 @@ public class AILevelDesignerWindow : EditorWindow
         if (prefilledMaterials == null || prefilledMaterials.Length == 0)
         {
             EditorGUILayout.HelpBox($"⚠ Prefilled (engel) küp renk paleti bulunamadı ({PREFILLED_MATERIALS_PATH}). Prefilled küpler pembe (varsayılan) görünecek.", MessageType.Warning);
-            if (GUILayout.Button("Paleti Yeniden Yükle"))
+            if (GUILayout.Button("Paleti Yeniden Yükle", styleDarkButton))
             {
                 LoadPrefilledMaterialsPalette();
             }
@@ -588,12 +856,11 @@ public class AILevelDesignerWindow : EditorWindow
             EditorGUILayout.LabelField($"ℹ Prefilled Renk Paleti: {prefilledMaterials.Length} materyal ({PREFILLED_MATERIALS_PATH})", EditorStyles.miniLabel);
         }
 
-        GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 1f); // Magenta
-        if (GUILayout.Button("⚡ BÖLÜM & PARÇALARI ÖNİZLE (YAPAY ZEKA)", GUILayout.Height(40)))
+        EditorGUILayout.Space(5);
+        if (GUILayout.Button("⚡ BÖLÜM & PARÇALARI ÖNİZLE (YAPAY ZEKA)", stylePrimaryButton, GUILayout.Height(40)))
         {
             GenerateLevelProcedurally();
         }
-        GUI.backgroundColor = Color.white;
 
         EditorGUILayout.EndScrollView();
         EditorGUILayout.EndVertical();
@@ -1028,142 +1295,79 @@ public class AILevelDesignerWindow : EditorWindow
     {
         if (!(solverRan && lastSolverResult != null)) return;
 
-        GUI.backgroundColor = new Color(0.12f, 0.12f, 0.16f, 1.0f);
-        EditorGUILayout.BeginVertical(GUI.skin.box);
-        GUI.backgroundColor = Color.white;
-
-        GUILayout.Label("🔍  ÇÖZÜLEBİLİRLİK DOĞRULAMA (SOLVER)", styleHeader);
-        EditorGUILayout.Space(4);
+        BeginSectionCard("ÇÖZÜLEBİLİRLİK DOĞRULAMA (SOLVER)", new Color(0.15f, 0.50f, 0.75f), "🔍");
 
         if (lastSolverResult.isSolvable)
         {
-            // Solvable layout: Green background tint box
-            GUI.backgroundColor = new Color(0.18f, 0.70f, 0.40f, 0.12f);
-            EditorGUILayout.BeginVertical(GUI.skin.box);
-            GUI.backgroundColor = Color.white;
-
             var solverSuccessStyle = new GUIStyle(EditorStyles.boldLabel)
             {
                 fontSize = 12,
                 normal = { textColor = new Color(0.18f, 0.70f, 0.40f) }
             };
-            GUILayout.Label("✅  BAŞARILI: SEVİYE ÇÖZÜLEBİLİR DURUMDA!", solverSuccessStyle);
+            GUILayout.Label("✅  BAŞARILI: SEVİYE ÇÖZÜLEBİLİR!", solverSuccessStyle);
             
             EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
             
             // Move count card
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(130));
-            var statTitleStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
-            var statValStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, fontSize = 13, normal = { textColor = new Color(0.15f, 0.60f, 0.90f) } };
-            GUILayout.Label("En Kısa Yol", statTitleStyle);
-            GUILayout.Label($"{lastSolverResult.minMoveCount} Hamle", statValStyle);
-            EditorGUILayout.EndVertical();
-
+            DrawStatBlock("En Kısa Yol", $"{lastSolverResult.minMoveCount} Hamle");
             GUILayout.Space(8);
 
             // Difficulty card
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(150));
-            GUILayout.Label("Hesaplanan Zorluk", statTitleStyle);
             string diffText = string.IsNullOrEmpty(lastSolverResult.difficultyLabel) ? "Bilinmiyor" : lastSolverResult.difficultyLabel.ToUpper();
-            GUILayout.Label($"{diffText} ({lastSolverResult.difficultyScore:F2})", statValStyle);
-            EditorGUILayout.EndVertical();
+            DrawStatBlock("Zorluk", $"{diffText} ({lastSolverResult.difficultyScore:F2})");
 
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.EndVertical();
         }
         else if (lastSolverResult.timedOut)
         {
-            // Belirsiz sonuç: arama limiti aşıldı, ama bu "çözülemez" ANLAMINA GELMEZ — sadece bu
-            // bütçede bir çözüm bulunamadı. Kanıtlanmış çözülemezlikle (aşağıdaki kırmızı dal)
-            // karıştırılmasın diye ayrı, turuncu bir "belirsiz" görünüm — ve İLERİ'yi engellemiyor
-            // (bkz. LevelCreationWizardWindow'daki isValidated: timedOut de geçerli sayılıyor).
-            GUI.backgroundColor = new Color(0.95f, 0.65f, 0.15f, 0.12f);
-            EditorGUILayout.BeginVertical(GUI.skin.box);
-            GUI.backgroundColor = Color.white;
-
             var solverTimeoutStyle = new GUIStyle(EditorStyles.boldLabel)
             {
                 fontSize = 12,
                 normal = { textColor = new Color(0.95f, 0.65f, 0.15f) }
             };
-            GUILayout.Label("⏱️  BELİRSİZ: DOĞRULAMA SÜRE/DURUM LİMİTİNE TAKILDI", solverTimeoutStyle);
+            GUILayout.Label("⏱️  BELİRSİZ: ZAMAN / DURUM LİMİTİ AŞILDI", solverTimeoutStyle);
+            EditorGUILayout.HelpBox(lastSolverResult.failureReason, MessageType.Warning);
 
-            EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(lastSolverResult.failureReason + " Katmanları siz zaten tek tek onayladınız — isterseniz " +
-                                     "İLERİ ile devam edebilirsiniz.", MessageType.Warning);
-
-            EditorGUILayout.Space(6);
-            GUI.backgroundColor = new Color(0.24f, 0.24f, 0.28f);
-            var retryStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 11,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
-            if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir & Yeniden Üret", retryStyle, GUILayout.Height(28)))
+            if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir", styleSuccessButton, GUILayout.Height(28)))
             {
                 (onRetry ?? AutoAdjustAndRegenerate)();
             }
-            GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndVertical();
         }
         else
         {
-            // Unsolvable layout: Red background tint box — SADECE kanıtlanmış (arama tükendi,
-            // gerçekten çözüm yok) durumlarda. timedOut burada asla true olamaz (yukarıda ele alındı).
-            GUI.backgroundColor = new Color(0.88f, 0.25f, 0.25f, 0.12f);
-            EditorGUILayout.BeginVertical(GUI.skin.box);
-            GUI.backgroundColor = Color.white;
-
             var solverFailStyle = new GUIStyle(EditorStyles.boldLabel)
             {
                 fontSize = 12,
                 normal = { textColor = new Color(0.88f, 0.25f, 0.25f) }
             };
             GUILayout.Label("❌  HATA: SEVİYE ÇÖZÜLEMEZ DURUMDA!", solverFailStyle);
-
-            EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(lastSolverResult.failureReason, MessageType.Error);
 
-            EditorGUILayout.Space(6);
-            GUI.backgroundColor = new Color(0.95f, 0.65f, 0.15f, 1.0f); // Accent yellow/orange
-            var retryStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 11,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
-            if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir & Yeniden Üret", retryStyle, GUILayout.Height(28)))
+            if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir", styleSuccessButton, GUILayout.Height(28)))
             {
                 (onRetry ?? AutoAdjustAndRegenerate)();
             }
-            GUI.backgroundColor = Color.white;
-            EditorGUILayout.EndVertical();
         }
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
     }
 
-    // ── Sağ Panel (Dışa Aktarma) ──────────────────────────────────
     private void DrawRightPanel()
     {
         EditorGUILayout.BeginVertical(styleBox, GUILayout.Width(190), GUILayout.ExpandHeight(true));
         rightScroll = EditorGUILayout.BeginScrollView(rightScroll);
 
-        GUILayout.Label("DIŞA AKTAR VE DENE", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        BeginSectionCard("DIŞA AKTAR VE DENE", new Color(0.15f, 0.50f, 0.75f), "📊");
         EditorGUILayout.LabelField("İstatistikler:", EditorStyles.boldLabel);
         EditorGUILayout.LabelField($"Toplam Küp Sayısı: {occupiedCells.Count}", EditorStyles.miniLabel);
         EditorGUILayout.LabelField($"Hazır (Renkli) Küpler: {prefilledCells.Count}", EditorStyles.miniLabel);
         EditorGUILayout.LabelField($"Dondurulmuş Küpler: {frozenCells.Count}", EditorStyles.miniLabel);
         EditorGUILayout.LabelField($"Otomatik Parça Sayısı: {pieceSplitList.Count}", EditorStyles.miniLabel);
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(10);
 
-        // OLUŞTURULAN PARÇALAR (Her zaman görünür, parça yoksa boş durum mesajı verir)
-        GUILayout.Label("🧩 OLUŞTURULAN PARÇALAR", styleHeader);
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        BeginSectionCard("OLUŞTURULAN PARÇALAR", new Color(0.50f, 0.35f, 0.75f), "🧩");
         if (pieceSplitList == null || pieceSplitList.Count == 0)
         {
             EditorGUILayout.LabelField("Henüz parça üretilmedi.\n\nSoldaki 'BÖLÜM & PARÇALARI ÖNİZLE' butonuna basarak seviye ve parçaları önizleyebilirsiniz.", EditorStyles.wordWrappedMiniLabel);
@@ -1176,13 +1380,8 @@ public class AILevelDesignerWindow : EditorWindow
                 if (piece == null || piece.Count == 0) continue;
 
                 Color col = PIECE_COLORS[i % PIECE_COLORS.Length];
-
-                // If this piece is highlighted, paint the box background slightly Magenta/Header color
                 Color prevBG = GUI.backgroundColor;
-                if (highlightedPieceIndex == i)
-                {
-                    GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 0.6f);
-                }
+                if (highlightedPieceIndex == i) GUI.backgroundColor = new Color(0.95f, 0.40f, 0.70f, 0.6f);
                 
                 Rect pieceClickRect = EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 GUI.backgroundColor = prevBG;
@@ -1198,63 +1397,38 @@ public class AILevelDesignerWindow : EditorWindow
                 EditorGUILayout.LabelField($"Parça {i + 1} ({piece.Count} Blok, Y={piece[0].y})", itemLabelStyle);
                 EditorGUILayout.EndHorizontal();
 
-                // Draw miniature 2D preview
                 int minX = piece.Min(c => c.x);
                 int maxX = piece.Max(c => c.x);
                 int minZ = piece.Min(c => c.z);
                 int maxZ = piece.Max(c => c.z);
-
-                int w = maxX - minX + 1;
-                int h = maxZ - minZ + 1;
-
-                float previewBlockSize = 14f; // Increased from 8f to 14f for a much better view!
-                float previewWidth = w * previewBlockSize;
-                float previewHeight = h * previewBlockSize;
+                float previewBlockSize = 14f;
+                float previewWidth = (maxX - minX + 1) * previewBlockSize;
+                float previewHeight = (maxZ - minZ + 1) * previewBlockSize;
 
                 EditorGUILayout.BeginHorizontal();
-                GUILayout.Space(18); // Indent to align with the text above
+                GUILayout.Space(18);
                 Rect previewRect = GUILayoutUtility.GetRect(previewWidth, previewHeight, GUILayout.Width(previewWidth), GUILayout.Height(previewHeight));
                 EditorGUI.DrawRect(previewRect, new Color(0.12f, 0.12f, 0.15f));
-
                 foreach (var cell in piece)
                 {
-                    int rx = cell.x - minX;
-                    int rz = cell.z - minZ;
-                    Rect blockRect = new Rect(
-                        previewRect.x + rx * previewBlockSize + 0.5f,
-                        previewRect.y + rz * previewBlockSize + 0.5f,
-                        previewBlockSize - 1f,
-                        previewBlockSize - 1f
-                    );
-                    EditorGUI.DrawRect(blockRect, col);
+                    EditorGUI.DrawRect(new Rect(previewRect.x + (cell.x - minX) * previewBlockSize + 0.5f, previewRect.y + (cell.z - minZ) * previewBlockSize + 0.5f, previewBlockSize - 1f, previewBlockSize - 1f), col);
                 }
                 EditorGUILayout.EndHorizontal();
-
                 EditorGUILayout.EndVertical();
 
-                // Detect click on this helpbox rect
                 if (Event.current.type == EventType.MouseDown && pieceClickRect.Contains(Event.current.mousePosition))
                 {
-                    if (highlightedPieceIndex == i)
-                    {
-                        highlightedPieceIndex = -1;
-                    }
-                    else
-                    {
-                        highlightedPieceIndex = i;
-                        drawView = AIDrawView.PiecesOnly; // Auto-switch view to pieces view!
-                    }
+                    highlightedPieceIndex = (highlightedPieceIndex == i) ? -1 : i;
+                    if (highlightedPieceIndex != -1) drawView = AIDrawView.PiecesOnly;
                     Repaint();
                     Event.current.Use();
                 }
-
                 GUILayout.Space(4);
             }
         }
-        EditorGUILayout.EndVertical();
+        EndSectionCard();
 
         GUILayout.Space(10);
-
         DrawSolverResultSection();
 
         GUILayout.Space(12);
@@ -2412,11 +2586,12 @@ public class AILevelDesignerWindow : EditorWindow
             ph.spacing       = spacing;
             ph.occupiedCells = new List<Vector3Int>(normCells);
 
+            GameObject pPrefab = GetPieceVisualPrefab(i);
             foreach (var cell in normCells)
             {
-                GameObject cube = cubePrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
-                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                GameObject cube = pPrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
+                    : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
                 cube.transform.localScale    = Vector3.one * cellSize;
@@ -2441,6 +2616,8 @@ public class AILevelDesignerWindow : EditorWindow
 
         foreach (var cell in occupiedCells)
         {
+            // Target grid / full shape outline should always be made with the constant global cubePrefab
+            // so they render as clean translucent slot boxes at runtime instead of duplicate animal models.
             GameObject cube = cubePrefab != null
                 ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
                 : GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -2624,13 +2801,65 @@ public class AILevelDesignerWindow : EditorWindow
         styleTabInactive = new GUIStyle(GUI.skin.button)
         {
             fontSize = 12,
-            fontStyle = FontStyle.Normal
+            fontStyle = FontStyle.Normal,
+            normal = { textColor = new Color(0.75f, 0.75f, 0.75f), background = MakeTex(2, 2, new Color(0.18f, 0.18f, 0.22f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.26f, 0.26f, 0.30f)) }
         };
 
         styleInstructionBox = new GUIStyle(EditorStyles.helpBox)
         {
             padding = new RectOffset(10, 10, 10, 10),
             margin = new RectOffset(0, 0, 5, 5)
+        };
+
+        stylePrimaryButton = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.95f, 0.40f, 0.70f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(1.00f, 0.50f, 0.80f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.80f, 0.30f, 0.55f)) }
+        };
+
+        styleSuccessButton = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.18f, 0.70f, 0.40f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.24f, 0.80f, 0.48f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.14f, 0.58f, 0.32f)) }
+        };
+
+        styleDangerButton = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.90f, 0.30f, 0.30f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.98f, 0.38f, 0.38f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.75f, 0.22f, 0.22f)) }
+        };
+
+        styleWarningButton = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = Color.white, background = MakeTex(2, 2, new Color(1.00f, 0.75f, 0.20f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(1.00f, 0.82f, 0.32f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.85f, 0.62f, 0.15f)) }
+        };
+
+        styleDarkButton = new GUIStyle(GUI.skin.button)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Normal,
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = new Color(0.9f, 0.9f, 0.9f), background = MakeTex(2, 2, new Color(0.24f, 0.24f, 0.28f)) },
+            hover = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.32f, 0.32f, 0.38f)) },
+            active = { textColor = Color.white, background = MakeTex(2, 2, new Color(0.18f, 0.18f, 0.22f)) }
         };
 
         stylesBuilt = true;
@@ -2645,7 +2874,7 @@ public class AILevelDesignerWindow : EditorWindow
         icePercentage = selectedTemplate.recommendedIceRatio;
         prefillPercentage = selectedTemplate.recommendedPrefilledRatio;
         levelTime = selectedTemplate.recommendedTimeLimit;
-        levelTarget = selectedTemplate.recommendedTargetScore;
+        levelTarget = 0;
 
         int volume = selectedTemplate.occupiedCells != null && selectedTemplate.occupiedCells.Count > 0 
             ? selectedTemplate.occupiedCells.Count 
@@ -2714,12 +2943,12 @@ public class AILevelDesignerWindow : EditorWindow
         if (selectedTemplate != null)
         {
             levelTime = Mathf.Round(selectedTemplate.recommendedTimeLimit * (spec.baseTime / 75f));
-            levelTarget = Mathf.RoundToInt(selectedTemplate.recommendedTargetScore * (spec.baseTarget / 150f));
+            levelTarget = 0;
         }
         else
         {
             levelTime = Mathf.Round(spec.baseTime);
-            levelTarget = Mathf.RoundToInt(spec.baseTarget);
+            levelTarget = 0;
         }
 
         prefillPercentage = Mathf.Round(prefillPercentage * 100f) / 100f;
@@ -4005,11 +4234,12 @@ public class AILevelDesignerWindow : EditorWindow
             ph.spacing = spacing;
             ph.occupiedCells = new List<Vector3Int>(piece);
 
+            GameObject pPrefab = GetPieceVisualPrefab(i);
             foreach (var cell in piece)
             {
-                GameObject cube = cubePrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
-                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                GameObject cube = pPrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
+                    : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
                 cube.transform.localScale = Vector3.one * cellSize;
@@ -4311,11 +4541,12 @@ public class AILevelDesignerWindow : EditorWindow
         ph.occupiedCells = new List<Vector3Int>(cells);
 
         float step = cellSize + spacing;
+        GameObject pPrefab = GetPieceVisualPrefab(0);
         foreach (var cell in cells)
         {
-            GameObject cube = cubePrefab != null
-                ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
-                : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            GameObject cube = pPrefab != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
+                : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
             cube.transform.SetParent(pRoot.transform);
             cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
             cube.transform.localScale = Vector3.one * cellSize;
@@ -4383,11 +4614,12 @@ public class AILevelDesignerWindow : EditorWindow
             ph.spacing = spacing;
             ph.occupiedCells = new List<Vector3Int>(cells);
 
+            GameObject pPrefab = GetPieceVisualPrefab(i);
             foreach (var cell in cells)
             {
-                GameObject cube = cubePrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
-                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                GameObject cube = pPrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
+                    : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
                 cube.transform.localScale = Vector3.one * cellSize;

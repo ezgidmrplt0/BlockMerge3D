@@ -235,7 +235,7 @@ public class GridManager : MonoBehaviour
                     else if (cell.y < ActiveLayerY)
                     {
                         r.enabled = true;
-                        r.transform.localScale = Vector3.one * (CellSize * 0.4f);
+                        r.transform.localScale = Vector3.one * CellSize;
                     }
                     else
                     {
@@ -268,7 +268,7 @@ public class GridManager : MonoBehaviour
                         {
                             defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
                         }
-                        if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a = 0.1f; // Faded target
+                        if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a = 0.30f; // Faded target base
                         PropBlock.SetColor("_BaseColor", defaultColor);
                         PropBlock.SetColor("_Color", defaultColor);
                         PropBlock.SetColor("_EmissionColor", Color.clear);
@@ -302,11 +302,11 @@ public class GridManager : MonoBehaviour
                     else if (cell.y < ActiveLayerY)
                     {
                         r.enabled = true;
-                        r.transform.localScale = Vector3.one * (CellSize * 0.4f);
+                        r.transform.localScale = Vector3.one * CellSize;
                         
                         r.GetPropertyBlock(PropBlock);
                         Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
-                        c.a = 0.25f; // faded
+                        c.a = 0.35f; // faded prefilled base
                         PropBlock.SetColor("_BaseColor", c);
                         PropBlock.SetColor("_Color", c);
                         r.SetPropertyBlock(PropBlock);
@@ -358,14 +358,14 @@ public class GridManager : MonoBehaviour
                     else if (cell.y < ActiveLayerY)
                     {
                         cube.SetActive(true);
-                        cube.transform.localScale = Vector3.one * (CellSize * 0.4f);
+                        cube.transform.localScale = Vector3.one * CellSize;
                         
                         Renderer r = cube.GetComponentInChildren<Renderer>();
                         if (r != null)
                         {
                             r.GetPropertyBlock(PropBlock);
                             Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
-                            c.a = 0.25f; // faded
+                            c.a = 0.35f; // faded occupied base
                             PropBlock.SetColor("_BaseColor", c);
                             PropBlock.SetColor("_Color", c);
                             r.SetPropertyBlock(PropBlock);

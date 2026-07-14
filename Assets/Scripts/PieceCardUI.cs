@@ -90,13 +90,13 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
                 shadowRT.anchorMax = previewImage.rectTransform.anchorMax;
                 shadowRT.pivot = previewImage.rectTransform.pivot;
                 shadowRT.sizeDelta = previewImage.rectTransform.sizeDelta;
-                // Offset it to the left and slightly down
-                shadowRT.anchoredPosition = new Vector2(-12f, -8f);
+                // Offset to the right and down (consistent with card shadow and top-left key light)
+                shadowRT.anchoredPosition = new Vector2(10f, -10f);
                 shadowRT.localScale = Vector3.one;
 
                 var shadowImg = shadowGO.GetComponent<RawImage>();
                 shadowImg.texture = rt;
-                shadowImg.color = new Color(0f, 0, 0, 0.28f); // Soft dark shadow
+                shadowImg.color = new Color(0f, 0f, 0f, 0.38f); // Distinct drop shadow matching light source
                 shadowImg.enabled = true;
             }
 

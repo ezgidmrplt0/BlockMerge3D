@@ -71,7 +71,11 @@ public class UIManager : MonoBehaviour
         HidePanelsImmediate();
         displayedScore = 0;
         currentTargetScore = targetScore > 0 ? targetScore : 100;
-        if (scoreText) scoreText.text = "0";
+        if (scoreText)
+        {
+            int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+            scoreText.text = $"LEVEL {levelNum}";
+        }
         if (scoreProgressBar) scoreProgressBar.fillAmount = 0f;
         if (timerRadialRing) timerRadialRing.fillAmount = 1f;
         SetTargetScore(targetScore);
@@ -94,7 +98,7 @@ public class UIManager : MonoBehaviour
         int from = displayedScore;
         scoreTween = DOTween.To(
             ()  => from,
-            x   => { from = x; displayedScore = x; if (scoreText) scoreText.text = x.ToString(); },
+            x   => { from = x; displayedScore = x; },
             newTotal, 0.4f
         ).SetEase(Ease.OutCubic);
 
@@ -104,11 +108,6 @@ public class UIManager : MonoBehaviour
             float fillTarget = Mathf.Clamp01((float)newTotal / currentTargetScore);
             scoreProgressBar.DOFillAmount(fillTarget, 0.4f).SetEase(Ease.OutCubic);
         }
-
-        if (scoreText)
-            scoreText.rectTransform
-                .DOScale(1.28f, 0.12f).SetEase(Ease.OutBack)
-                .OnComplete(() => scoreText.rectTransform.DOScale(1f, 0.10f));
     }
 
     public void SetTargetScore(int target)

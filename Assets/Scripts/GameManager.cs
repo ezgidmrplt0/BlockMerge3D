@@ -12,6 +12,7 @@ public class GameManager : MonoBehaviour
     public LevelOrderData levelOrder;
 
     public int Score { get; private set; }
+    public int CurrentLevelNumber => currentLevelIndex + 1;
 
     private bool  levelComplete;
     private bool  pendingWin;          // Merge animasyonu biterken kazanma bekliyor

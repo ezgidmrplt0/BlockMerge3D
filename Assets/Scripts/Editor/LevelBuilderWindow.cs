@@ -178,7 +178,7 @@ public class LevelBuilderWindow : EditorWindow
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         levelName   = EditorGUILayout.TextField("Seviye Adı", levelName);
         levelTime   = EditorGUILayout.FloatField("Süre (sn)", levelTime);
-        levelTarget = EditorGUILayout.IntField("Hedef Puan", levelTarget);
+        levelTarget = 0; // Hedef skor kaldırıldı
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
