@@ -454,7 +454,7 @@ public class LevelSolver
         }
     }
 
-    // GridManager.FloodFillSameColor ile birebir eşleşmesi gereken mantık: start hücresinden
+    // GridManager.FloodFillSameSpecies ile birebir eşleşmesi gereken mantık: start hücresinden
     // başlayarak, currentOccupied içinde aynı proxy/prefilled matIndex'e sahip ve yatay
     // komşuluk üzerinden birbirine bağlı tüm hücreleri (start dahil) döndürür.
     private HashSet<Vector3Int> FloodFillSameColorInSolver(Vector3Int start, int matIdx, Vector3Int[] horizontalNeighbors)

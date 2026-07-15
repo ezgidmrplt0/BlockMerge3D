@@ -43,9 +43,12 @@ public class LevelManager : MonoBehaviour
 
     [Header("Next Piece Preview Settings")]
     private int nextPieceIndex = -1;
-    // "Sıradaki parça" önizlemesinde gösterilen renk, o parça gerçekten spawn edilirken AYNI
-    // renk kullanılsın diye önizleme oluşturulduğu anda BİR KEZ seçilip burada saklanır (kozmetik
-    // amaçlı — renk artık hiçbir oynanış kararını etkilemiyor, bkz. PickCosmeticPieceColor).
+    // "Sıradaki parça" önizlemesinde gösterilen tür, o parça gerçekten spawn edilirken AYNI türü
+    // kullansın diye önizleme oluşturulduğu anda BİR KEZ seçilip burada saklanır. nextPieceSpeciesIndex
+    // artık asıl (otoriter) değer — buz erime/grup eşleşmesi mekaniği buna göre çalışır (bkz.
+    // PickPieceSpeciesIndex, GridManager.FloodFillSameSpecies). nextPieceMaterial sadece bu türün
+    // kozmetik materyalidir, önizleme render'ı için tutulur.
+    private int nextPieceSpeciesIndex = -1;
     private Material nextPieceMaterial;
 
     private GameObject nextPiecePreviewParent;
@@ -157,9 +160,14 @@ public class LevelManager : MonoBehaviour
     }
 
     [Header("Color Palette Settings (Material-Based)")]
-    [Tooltip("Sürüklenen oyun parçaları için kullanılacak Material (Malzeme) paleti")]
+    [Tooltip("Sürüklenen oyun parçaları için kullanılacak Material (Malzeme) paleti — her indeks bir TÜR temsil eder (bkz. pieceSpeciesPrefabs, aynı indeks sırasıyla eşleşir)")]
     public Material[] pieceMaterials;
     public Material[] PieceMaterials => pieceMaterials;
+
+    [Tooltip("pieceMaterials ile PARALEL, aynı uzunlukta dizi — indeks i'deki tür için (varsa) rigli hayvan " +
+             "prefabı. Boş/null bırakılan indeksler sadece düz renkli küp olarak kalır (görsel eksik olsa da " +
+             "mekanik/eşleşme etkilenmez — bkz. GridManager.cellMatIndex). Şu an sadece Fox mevcut.")]
+    public GameObject[] pieceSpeciesPrefabs;
 
     [Tooltip("Yarı saydam hedef kılavuz küpü için kullanılacak Material")]
     public Material ghostTargetMaterial;
@@ -187,13 +195,13 @@ public class LevelManager : MonoBehaviour
         spawnedPieceIndices.Add(indexToSpawn);
         activeIsSmart.Add(false); // Kolaylaştırma yardımı kapalı
 
-        // Bu parçanın (kozmetik) rengi, önizlemesi gösterildiği anda (PrepareNextPieceIndex
-        // içinde) zaten kararlaştırılıp nextPieceMaterial'e kaydedilmişti — burada YENİDEN
-        // hesaplanmaz, aksi halde önizlemede gösterilen renkle spawn edilen renk tutmayabilir.
-        Material matchingMaterial = nextPieceMaterial;
+        // Bu parçanın türü, önizlemesi gösterildiği anda (PrepareNextPieceIndex içinde) zaten
+        // kararlaştırılıp nextPieceSpeciesIndex'e kaydedilmişti — burada YENİDEN seçilmez, aksi
+        // halde önizlemede gösterilen türle spawn edilen tür tutmayabilir.
+        int matchingSpeciesIndex = nextPieceSpeciesIndex;
 
         // Parçayı spawn et
-        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingMaterial, targetCard);
+        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingSpeciesIndex, targetCard);
 
         // Get the new next piece index
         PrepareNextPieceIndex();
@@ -221,14 +229,22 @@ public class LevelManager : MonoBehaviour
         return bestIdx;
     }
 
-    // Renksiz sisteme geçişle birlikte parça rengi artık tamamen kozmetik — katmanın "baskın
-    // rengiyle uyuşma" zorunluluğu yok, bu yüzden paletten düz rastgele seçiyoruz.
-    private Material PickCosmeticPieceColor()
+    // Katmanın "baskın türle uyuşma" zorunluluğu yok, bu yüzden paletten düz rastgele bir TÜR
+    // (pieceMaterials'a paralel indeks) seçiyoruz. Bu artık asıl seçim — Material değil, indeks
+    // döner, çünkü indeks hem kozmetik materyali (pieceMaterials[i]) hem de varsa görsel rozeti
+    // (pieceSpeciesPrefabs[i]) hem de buz erime/grup eşleşmesi mekaniğini (GridManager.cellMatIndex)
+    // AYNI ANDA ve tutarlı şekilde belirler (eskiden Material seçilip matIndex sonradan, yerleştirme
+    // anında, materyali karşılaştırarak YENİDEN bulunmaya çalışılıyordu — kırılgandı).
+    private int PickPieceSpeciesIndex()
     {
-        if (pieceMaterials == null || pieceMaterials.Length == 0) return null;
-        var valid = pieceMaterials.Where(m => m != null).ToList();
-        if (valid.Count == 0) return null;
-        return valid[Random.Range(0, valid.Count)];
+        if (pieceMaterials == null || pieceMaterials.Length == 0) return -1;
+        var validIndices = new List<int>();
+        for (int i = 0; i < pieceMaterials.Length; i++)
+        {
+            if (pieceMaterials[i] != null) validIndices.Add(i);
+        }
+        if (validIndices.Count == 0) return -1;
+        return validIndices[Random.Range(0, validIndices.Count)];
     }
 
     private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge)
@@ -365,27 +381,29 @@ public class LevelManager : MonoBehaviour
         return score;
     }
 
-    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, Material forcedMaterial = null, PieceCardUI targetCard = null)
+    private void SpawnPieceAtIndex(int index, Quaternion? initialRot = null, int speciesIndex = -1, PieceCardUI targetCard = null)
     {
         if (index < 0 || index >= allPiecePrefabs.Count) return;
 
         GameObject piece = Instantiate(allPiecePrefabs[index], new Vector3(0, -100, 0), initialRot ?? Quaternion.identity);
         piece.name = $"Piece_{index + 1}";
         DisableShadows(piece);
-        
-        // Bu parca icin bir Material sec (zorunlu material yoksa rastgele)
-        Material mat = forcedMaterial;
-        if (mat == null && pieceMaterials != null && pieceMaterials.Length > 0)
-        {
-            var valid = pieceMaterials.Where(m => m != null).ToList();
-            if (valid.Count > 0) mat = valid[Random.Range(0, valid.Count)];
-        }
+
+        // Tür belirtilmemişse (çağıran zorunlu kılmadıysa) rastgele bir tanesini seç
+        if (speciesIndex < 0) speciesIndex = PickPieceSpeciesIndex();
+
+        Material mat = (speciesIndex >= 0 && pieceMaterials != null && speciesIndex < pieceMaterials.Length)
+            ? pieceMaterials[speciesIndex]
+            : null;
         ApplyMaterialToPiece(piece, mat);
 
         var drag = piece.AddComponent<DraggablePiece>();
         drag.InitialRotation = initialRot ?? Quaternion.identity;
+        drag.SpeciesIndex = speciesIndex;
         activePieces.Add(piece);
         activePieceDataIndices.Add(index);
+
+        ApplySpeciesVisual(piece, speciesIndex);
 
         // Kart sistemine bağla
         if (targetCard != null)
@@ -396,11 +414,49 @@ public class LevelManager : MonoBehaviour
         }
     }
 
+    // speciesIndex için özel bir hayvan prefabı tanımlıysa (pieceSpeciesPrefabs[speciesIndex] !=
+    // null), parçanın HER küp hücresini o türün tam boy görseliyle değiştirir — küp kendi
+    // Renderer'ı gizlenir (görünmez olur), üstüne türün modeli eklenir. Küpün Transform/Collider/
+    // isim yapısına DOKUNULMAZ — DraggablePiece.EndDrag/UpdateChildPositions doğrudan piece
+    // kökünün çocuklarını currentCells ile 1:1 eşleştirip sayıyor (children.Count !=
+    // visualCells.Count guard'ı); tür görseli bu yüzden KÖK'e değil, MEVCUT küp çocuğunun altına
+    // ekleniyor (kök seviyesine eklenen fazladan bir çocuk bu eşleşmeyi kırıp sürükleme sırasında
+    // parçayı görsel olarak dondurur ve yerleştirme anında son hücrenin grid kaydını düşürür).
+    // Tür prefabı tanımlı değilse (bugün Duck/Fox dışındaki tüm indeksler) dokunulmaz, hücre
+    // eskisi gibi düz renkli küp olarak kalır.
+    private void ApplySpeciesVisual(GameObject piece, int speciesIndex)
+    {
+        if (pieceSpeciesPrefabs == null || speciesIndex < 0 || speciesIndex >= pieceSpeciesPrefabs.Length) return;
+        GameObject speciesPrefab = pieceSpeciesPrefabs[speciesIndex];
+        if (speciesPrefab == null) return;
+
+        foreach (Transform child in piece.transform)
+        {
+            if (!child.name.StartsWith("Cube_")) continue;
+
+            foreach (var rend in child.GetComponentsInChildren<Renderer>())
+            {
+                rend.enabled = false;
+            }
+
+            GameObject speciesVisual = Instantiate(speciesPrefab, child);
+            speciesVisual.name = "SpeciesVisual";
+            speciesVisual.transform.localPosition = Vector3.zero;
+            speciesVisual.transform.localRotation = Quaternion.identity;
+            speciesVisual.transform.localScale = Vector3.one;
+            foreach (var col in speciesVisual.GetComponentsInChildren<Collider>()) col.enabled = false;
+        }
+    }
+
+    // "Cube_" filtresi: parçaya bir tür görseli (bkz. ApplySpeciesVisual) eklendiğinde, o türün
+    // KENDİ (kürk/tüy) materyali bu düz renk atamasıyla ezilmesin diye sadece küp geometrisine
+    // uygulanır — UpdateNextPiecePreviewVisuals'daki AYNI filtreyle tutarlı (bkz. ~satır 1226).
     private static void ApplyMaterialToPiece(GameObject piece, Material material)
     {
         if (piece == null || material == null) return;
         foreach (var r in piece.GetComponentsInChildren<Renderer>())
         {
+            if (!r.gameObject.name.StartsWith("Cube_")) continue;
             var mats = new Material[r.sharedMaterials.Length];
             for (int i = 0; i < mats.Length; i++) mats[i] = material;
             r.sharedMaterials = mats;
@@ -662,6 +718,7 @@ public class LevelManager : MonoBehaviour
 
         // NEXT PIECE PREVIEW RESET
         nextPieceIndex = -1;
+        nextPieceSpeciesIndex = -1;
         nextPieceMaterial = null;
         ClearNextPiecePreview();
     }
@@ -1135,6 +1192,7 @@ public class LevelManager : MonoBehaviour
         if (allPiecePrefabs.Count == 0)
         {
             nextPieceIndex = -1;
+            nextPieceSpeciesIndex = -1;
             nextPieceMaterial = null;
             return;
         }
@@ -1174,9 +1232,11 @@ public class LevelManager : MonoBehaviour
         List<int> pickFrom = fitsAnyLayer.Count > 0 ? fitsAnyLayer : availableIndices;
 
         nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
-        // Bu parçanın (kozmetik) rengi ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de
-        // parça gerçekten spawn edilirken (bkz. SpawnRandomPiece) AYNI renk kullanılacak.
-        nextPieceMaterial = PickCosmeticPieceColor();
+        // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de parça
+        // gerçekten spawn edilirken (bkz. SpawnRandomPiece) AYNI tür kullanılacak. nextPieceMaterial
+        // sadece bu türün kozmetik materyali (önizleme render'ı için).
+        nextPieceSpeciesIndex = PickPieceSpeciesIndex();
+        nextPieceMaterial = nextPieceSpeciesIndex >= 0 ? pieceMaterials[nextPieceSpeciesIndex] : null;
         UpdateNextPiecePreviewVisuals();
     }
 
@@ -1211,6 +1271,9 @@ public class LevelManager : MonoBehaviour
                 }
             }
         }
+
+        // Önizleme, gerçekten spawn edilecek parçayla (bkz. SpawnPieceAtIndex) AYNI türü göstersin.
+        ApplySpeciesVisual(nextPiecePreview3D, nextPieceSpeciesIndex);
 
         nextPiecePreview3D.transform.position = Vector3.zero;
         nextPiecePreview3D.transform.rotation = Quaternion.identity;

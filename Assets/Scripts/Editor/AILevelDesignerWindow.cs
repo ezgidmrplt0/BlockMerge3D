@@ -18,8 +18,6 @@ public class AILevelDesignerWindow : EditorWindow
     private const string LEVELS_PATH = "Assets/Levels";
     private const string PREF_DEFAULT_CUBE = "BlockMerge3D_DefaultCubePrefab";
     private const string PREFILLED_MATERIALS_PATH = "Assets/Materials/Premium";
-    private const string PREF_USE_MULTIPLE_ASSETS = "BlockMerge3D_UseMultipleAssets";
-    private const string PREF_VISUAL_ASSETS_LIST = "BlockMerge3D_VisualAssetsList";
 
     private static readonly Color COL_BG         = new Color(0.047f, 0.047f, 0.07f); // #0c0c12
     private static readonly Color COL_GRID        = new Color(0.30f, 0.32f, 0.40f); // #4d5266
@@ -109,20 +107,6 @@ public class AILevelDesignerWindow : EditorWindow
     private bool show3D              = true;
     private Vector2 leftScroll, rightScroll;
     private GameObject cubePrefab;
-    [SerializeField] private bool useMultipleAssets = false;
-    [SerializeField] private List<GameObject> customVisualPrefabs = new List<GameObject>();
-
-    private SerializedObject m_serializedObject;
-    private SerializedProperty m_customVisualPrefabsProperty;
-
-    private void EnsureSerializedObject()
-    {
-        if (m_serializedObject == null || m_serializedObject.targetObject != this)
-        {
-            m_serializedObject = new SerializedObject(this);
-            m_customVisualPrefabsProperty = m_serializedObject.FindProperty("customVisualPrefabs");
-        }
-    }
     private Material[] prefilledMaterials; // Engel (prefilled) küplerin gerçek rengini oynatan materyal paleti — pieceMaterials (LevelManager) ile aynı sırada olmalı
     private int activeTab = 0; // 0: AI Jeneratör, 1: AI Eğitim Paneli, 2: AI Parça Jeneratörü
 
@@ -174,23 +158,6 @@ public class AILevelDesignerWindow : EditorWindow
             cubePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
         }
 
-        useMultipleAssets = EditorPrefs.GetBool(PREF_USE_MULTIPLE_ASSETS, false);
-        string assetsListStr = EditorPrefs.GetString(PREF_VISUAL_ASSETS_LIST, "");
-        if (!string.IsNullOrEmpty(assetsListStr))
-        {
-            customVisualPrefabs.Clear();
-            string[] paths = assetsListStr.Split(';');
-            foreach (var path in paths)
-            {
-                if (string.IsNullOrEmpty(path)) continue;
-                GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                if (go != null)
-                {
-                    customVisualPrefabs.Add(go);
-                }
-            }
-        }
-
         LoadPrefilledMaterialsPalette();
         LoadManualPieceDataset();
         LoadManualLibraryFromJson();
@@ -212,209 +179,6 @@ public class AILevelDesignerWindow : EditorWindow
         if (mats.Length > 0) prefilledMaterials = mats;
     }
 
-    private void SaveVisualAssetsToPrefs()
-    {
-        EditorPrefs.SetBool(PREF_USE_MULTIPLE_ASSETS, useMultipleAssets);
-        List<string> paths = new List<string>();
-        foreach (var go in customVisualPrefabs)
-        {
-            if (go != null)
-            {
-                string path = AssetDatabase.GetAssetPath(go);
-                if (!string.IsNullOrEmpty(path))
-                {
-                    paths.Add(path);
-                }
-            }
-        }
-        EditorPrefs.SetString(PREF_VISUAL_ASSETS_LIST, string.Join(";", paths));
-    }
-
-    private GameObject GetPieceVisualPrefab(int pieceIndex)
-    {
-        if (useMultipleAssets && customVisualPrefabs != null && customVisualPrefabs.Count > 0)
-        {
-            var validPrefabs = customVisualPrefabs.Where(p => p != null).ToList();
-            if (validPrefabs.Count > 0)
-            {
-                return validPrefabs[pieceIndex % validPrefabs.Count];
-            }
-        }
-        return cubePrefab;
-    }
-
-    private GameObject GetPrefabForCell(Vector3Int cell, int defaultIndex = 0)
-    {
-        if (useMultipleAssets && customVisualPrefabs != null && customVisualPrefabs.Count > 0)
-        {
-            for (int i = 0; i < pieceSplitList.Count; i++)
-            {
-                if (pieceSplitList[i].Contains(cell))
-                {
-                    return GetPieceVisualPrefab(i);
-                }
-            }
-        }
-        return GetPieceVisualPrefab(defaultIndex);
-    }
-
-    private void DrawAssetPreviews()
-    {
-        if (customVisualPrefabs == null || customVisualPrefabs.Count == 0)
-        {
-            return;
-        }
-
-        // Clean null entries from the list
-        customVisualPrefabs.RemoveAll(item => item == null);
-
-        if (customVisualPrefabs.Count == 0)
-        {
-            return;
-        }
-
-        GUILayout.Label("Yüklenen Asset Önizlemeleri:", EditorStyles.miniBoldLabel);
-        
-        // Render in a grid
-        float viewWidth = position.width - 40f; // scroll view width safety
-        if (viewWidth < 200f) viewWidth = 380f; // fallback for wizard/hub layout width sizing issues
-        int columnCount = Mathf.Max(1, Mathf.FloorToInt(viewWidth / 85f));
-        
-        EditorGUILayout.BeginVertical(GUI.skin.box);
-        
-        int i = 0;
-        while (i < customVisualPrefabs.Count)
-        {
-            EditorGUILayout.BeginHorizontal();
-            for (int col = 0; col < columnCount && i < customVisualPrefabs.Count; col++)
-            {
-                GameObject go = customVisualPrefabs[i];
-                if (go == null)
-                {
-                    i++;
-                    continue;
-                }
-
-                // Try to get prefab preview
-                Texture2D preview = AssetPreview.GetAssetPreview(go);
-                if (preview == null && AssetPreview.IsLoadingAssetPreview(go.GetInstanceID()))
-                {
-                    // Repaint window to update preview when loading completes
-                    Repaint();
-                }
-                if (preview == null)
-                {
-                    preview = AssetPreview.GetMiniThumbnail(go);
-                }
-
-                // Draw cell
-                Rect cellRect = EditorGUILayout.BeginVertical(GUILayout.Width(80), GUILayout.Height(100));
-                
-                // Draw thumbnail background box
-                GUI.Box(new Rect(cellRect.x, cellRect.y, 76, 76), GUIContent.none, GUI.skin.textField);
-                
-                // Draw thumbnail image
-                if (preview != null)
-                {
-                    GUI.DrawTexture(new Rect(cellRect.x + 3, cellRect.y + 3, 70, 70), preview, ScaleMode.ScaleToFit);
-                }
-                
-                // Draw delete "x" button on top right of the thumbnail
-                Rect closeRect = new Rect(cellRect.x + 58, cellRect.y + 2, 16, 16);
-                GUIStyle closeButtonStyle = new GUIStyle(GUI.skin.button)
-                {
-                    fontSize = 9,
-                    fontStyle = FontStyle.Bold,
-                    padding = new RectOffset(0, 0, 0, 0),
-                    margin = new RectOffset(0, 0, 0, 0),
-                    alignment = TextAnchor.MiddleCenter
-                };
-                GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
-                if (GUI.Button(closeRect, "X", closeButtonStyle))
-                {
-                    customVisualPrefabs.RemoveAt(i);
-                    SaveVisualAssetsToPrefs();
-                    EditorUtility.SetDirty(this);
-                    GUI.backgroundColor = Color.white;
-                    EditorGUILayout.EndVertical();
-                    EditorGUILayout.EndHorizontal();
-                    EditorGUILayout.EndVertical();
-                    return; // exit loop to avoid list modify exceptions
-                }
-                GUI.backgroundColor = Color.white;
-                
-                // Label under the thumbnail
-                string label = go.name;
-                if (label.Length > 10) label = label.Substring(0, 8) + "..";
-                
-                var labelStyle = new GUIStyle(EditorStyles.miniLabel)
-                {
-                    alignment = TextAnchor.MiddleCenter,
-                    wordWrap = false
-                };
-                
-                GUILayout.Space(78); // push layout down past the box
-                GUILayout.Label(label, labelStyle, GUILayout.Width(76));
-                
-                EditorGUILayout.EndVertical();
-                GUILayout.Space(5);
-                i++;
-            }
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space(5);
-        }
-        
-        EditorGUILayout.EndVertical();
-    }
-
-    private void DrawVisualAssetDropArea()
-    {
-        Event evt = Event.current;
-        Rect dropArea = GUILayoutUtility.GetRect(0.0f, 60.0f, GUILayout.ExpandWidth(true));
-        
-        GUIStyle dropAreaStyle = new GUIStyle(GUI.skin.box);
-        dropAreaStyle.alignment = TextAnchor.MiddleCenter;
-        dropAreaStyle.normal.textColor = new Color(0.35f, 0.78f, 1.00f);
-        dropAreaStyle.fontStyle = FontStyle.Bold;
-        dropAreaStyle.fontSize = 11;
-        
-        GUI.Box(dropArea, "\n📥 ASETLERİ BURAYA SÜRÜKLEYİP BIRAKIN\n(Prefab veya GameObject)", dropAreaStyle);
-        
-        switch (evt.type)
-        {
-            case EventType.DragUpdated:
-            case EventType.DragPerform:
-                if (!dropArea.Contains(evt.mousePosition))
-                    break;
-                
-                DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
-                
-                if (evt.type == EventType.DragPerform)
-                {
-                    DragAndDrop.AcceptDrag();
-                    
-                    bool added = false;
-                    foreach (Object draggedObject in DragAndDrop.objectReferences)
-                    {
-                        if (draggedObject is GameObject go)
-                        {
-                            if (!customVisualPrefabs.Contains(go))
-                            {
-                                customVisualPrefabs.Add(go);
-                                added = true;
-                            }
-                        }
-                    }
-                    if (added)
-                    {
-                        SaveVisualAssetsToPrefs();
-                        EditorUtility.SetDirty(this);
-                    }
-                }
-                evt.Use();
-                break;
-        }
-    }
 
     private void BeginSectionCard(string title, Color headerColor, string icon = "")
     {
@@ -700,15 +464,13 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Space(10);
 
-        // KÜP PREFABI SEÇİMİ (Global) / ÇOKLU ASSET SEÇİMİ
+        // KÜP PREFABI SEÇİMİ (Global) — parça görselleri artık HER ZAMAN düz küp; tür/hayvan
+        // görseli (varsa) sadece runtime'da LevelManager.SpawnSpeciesBadge ile tek bir "rozet"
+        // olarak eklenir (bkz. LevelManager.cs). Eskiden burada hücre başına ayrı bir hayvan
+        // modeli seçilebiliyordu ("Çoklu Asset Kullan") — bu, çok hücreli bir parçanın birbirine
+        // yapıştırılmış birden fazla küçük hayvan modeline dönüşmesine yol açıyordu (görsel
+        // olarak saçma), bu yüzden kaldırıldı.
         BeginSectionCard("GÖRSEL PARÇA YAPISI", new Color(0.50f, 0.35f, 0.75f), "🧊");
-        
-        bool prevUseMultiple = useMultipleAssets;
-        useMultipleAssets = EditorGUILayout.Toggle("Çoklu Asset Kullan", useMultipleAssets);
-        if (useMultipleAssets != prevUseMultiple)
-        {
-            SaveVisualAssetsToPrefs();
-        }
 
         // Always draw the Global Küp Prefabı field so the user can define the constant grid target box style
         GameObject prevCubePrefab = cubePrefab;
@@ -733,29 +495,6 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         EditorGUILayout.Space(4);
-
-        if (useMultipleAssets)
-        {
-            EnsureSerializedObject();
-            m_serializedObject.Update();
-            
-            DrawAssetPreviews();
-            EditorGUILayout.Space(6);
-            
-            m_customVisualPrefabsProperty.isExpanded = EditorGUILayout.Foldout(m_customVisualPrefabsProperty.isExpanded, "Raw Liste Detayları (Düzenleme)");
-            if (m_customVisualPrefabsProperty.isExpanded)
-            {
-                EditorGUI.BeginChangeCheck();
-                EditorGUILayout.PropertyField(m_customVisualPrefabsProperty, new GUIContent("Görsel Asset Havuzu"), true);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    m_serializedObject.ApplyModifiedProperties();
-                    SaveVisualAssetsToPrefs();
-                }
-            }
-
-            DrawVisualAssetDropArea();
-        }
         EndSectionCard();
     }
 
@@ -2184,9 +1923,10 @@ public class AILevelDesignerWindow : EditorWindow
 
         if (built && frozenCells != null && frozenCells.Count > 0)
         {
-            // [2026-07-14, ekip kararıyla, eski mantığa dönüş] Buza değen hücreden başlayan
-            // BAĞLANTILI aynı renk grubu (≥2 üyeli) artık TAMAMEN buzla birlikte yok oluyor
-            // (bkz. GridManager.CheckAndResolveFrozenCells/FloodFillSameColor) — grup büyüklüğü
+            // [2026-07-14, ekip kararıyla, eski mantığa dönüş; sonradan tür sistemine taşındı]
+            // Buza değen hücreden başlayan BAĞLANTILI aynı TÜRDEKİ grup (≥2 üyeli) artık TAMAMEN
+            // buzla birlikte yok oluyor (bkz. GridManager.CheckAndResolveFrozenCells/
+            // FloodFillSameSpecies) — grup büyüklüğü
             // artık sabit-2 değil, keyfi olabilir (teorik üst sınırı YOK). Bu yüzden buz başına
             // sabit bir "güvenli" yedek hacmi hesaplamak artık MÜMKÜN DEĞİL — burada sadece
             // MAKUL bir güvenlik payı (buz başına 3 hücre, üç ayrı tek-hücrelik parça yerine TEK
@@ -2586,12 +2326,11 @@ public class AILevelDesignerWindow : EditorWindow
             ph.spacing       = spacing;
             ph.occupiedCells = new List<Vector3Int>(normCells);
 
-            GameObject pPrefab = GetPieceVisualPrefab(i);
             foreach (var cell in normCells)
             {
-                GameObject cube = pPrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
-                    : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
+                GameObject cube = cubePrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
                 cube.transform.localScale    = Vector3.one * cellSize;
@@ -4234,12 +3973,11 @@ public class AILevelDesignerWindow : EditorWindow
             ph.spacing = spacing;
             ph.occupiedCells = new List<Vector3Int>(piece);
 
-            GameObject pPrefab = GetPieceVisualPrefab(i);
             foreach (var cell in piece)
             {
-                GameObject cube = pPrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
-                    : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
+                GameObject cube = cubePrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
                 cube.transform.localScale = Vector3.one * cellSize;
@@ -4541,12 +4279,11 @@ public class AILevelDesignerWindow : EditorWindow
         ph.occupiedCells = new List<Vector3Int>(cells);
 
         float step = cellSize + spacing;
-        GameObject pPrefab = GetPieceVisualPrefab(0);
         foreach (var cell in cells)
         {
-            GameObject cube = pPrefab != null
-                ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
-                : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
+            GameObject cube = cubePrefab != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Cube);
             cube.transform.SetParent(pRoot.transform);
             cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
             cube.transform.localScale = Vector3.one * cellSize;
@@ -4614,12 +4351,11 @@ public class AILevelDesignerWindow : EditorWindow
             ph.spacing = spacing;
             ph.occupiedCells = new List<Vector3Int>(cells);
 
-            GameObject pPrefab = GetPieceVisualPrefab(i);
             foreach (var cell in cells)
             {
-                GameObject cube = pPrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(pPrefab)
-                    : (cubePrefab != null ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab) : GameObject.CreatePrimitive(PrimitiveType.Cube));
+                GameObject cube = cubePrefab != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
                 cube.transform.localScale = Vector3.one * cellSize;

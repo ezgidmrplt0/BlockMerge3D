@@ -30,6 +30,13 @@ public class DraggablePiece : MonoBehaviour
     [HideInInspector] public float slotScale = 0.6f;
     public Quaternion InitialRotation { get; set; } = Quaternion.identity;
 
+    // Bu parçanın TÜRÜ — LevelManager.SpawnPieceAtIndex'te spawn anında set edilir. Yerleştirme
+    // sırasında grid.AddCell'e doğrudan bu geçirilir (bkz. EndDrag) — eskiden olduğu gibi
+    // renderer'ın uygulanmış materyalini LevelManager.PieceMaterials'la karşılaştırarak SONRADAN
+    // yeniden bulunmaya çalışılmaz (kırılgandı, iki palet slotu aynı materyali paylaşırsa/isim
+    // eşleşmesi tesadüfen tutarsa yanlış tür bulunabilirdi).
+    public int SpeciesIndex { get; set; } = -1;
+
     private bool secondTouchConsumed;
     private bool isSnapped;
 
@@ -351,23 +358,11 @@ public class DraggablePiece : MonoBehaviour
 
                 var rend  = child.GetComponentInChildren<Renderer>();
                 Material usedMat = rend != null ? (rend.sharedMaterial ?? rend.material) : null;
-                Color col2 = GridManager.GetMaterialColor(usedMat);
-                
-                // Materyali pieceMaterials listesiyle eşleştirip indeks bul
-                int matIdx = -1;
-                if (LevelManager.Instance != null && LevelManager.Instance.PieceMaterials != null && usedMat != null)
-                {
-                    var mats = LevelManager.Instance.PieceMaterials;
-                    for (int m = 0; m < mats.Length; m++)
-                    {
-                        if (mats[m] == usedMat || (mats[m] != null && usedMat.name.Replace(" (Instance)", "") == mats[m].name))
-                        {
-                            matIdx = m;
-                            break;
-                        }
-                    }
-                }
-                grid.AddCell(currentCells[i] + offset, child.gameObject, col2, matIdx);
+                Color col2 = GridManager.GetMaterialColor(usedMat); // kozmetik: hâlâ VFX/tint için tutuluyor
+
+                // Tür (eşleşme anahtarı) spawn anında zaten biliniyordu (bkz. SpeciesIndex) —
+                // burada materyali listeyle karşılaştırarak YENİDEN bulunmaya çalışılmıyor.
+                grid.AddCell(currentCells[i] + offset, child.gameObject, col2, SpeciesIndex);
 
                 // Jelly landing punch scale animation
                 child.DOPunchScale(new Vector3(0.12f, -0.2f, 0.12f), 0.38f, 10, 1f).SetEase(Ease.OutQuad);
