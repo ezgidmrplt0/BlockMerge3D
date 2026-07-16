@@ -1020,17 +1020,35 @@ public class GridManager : MonoBehaviour
             // TAM geometrik merkezine iner, ortalamadan kaynaklanan kaymalar olmaz.
             Vector3 layerCenter = container.transform.position;
 
-            // Kancanın pivot kaymasını otomatik hesapla (Görsel merkez ile transform pozisyonu farkı)
+            // Kancanın ucundaki Collider'dan gerçek DEĞME anını yakalamak için sensör.
+            // Bloklar yerleştirilirken Colliderları DraggablePiece tarafından kapatıldığı için
+            // (bkz. DraggablePiece.cs), temas algılanabilsin diye burada geçici olarak açıyoruz.
+            var sensor = claw.GetComponent<ClawTouchSensor>();
+            if (sensor == null) sensor = claw.AddComponent<ClawTouchSensor>();
+            var clawCollider = claw.GetComponent<Collider>();
+            if (clawCollider != null) clawCollider.isTrigger = true;
+
+            // Kancanın pivot kaymasını otomatik hesapla — GERÇEK yakalama noktası (Collider'ın
+            // merkezi, kancanın ucuna göre konumlandırılmıştır) referans alınır. Önceden tüm
+            // mesh'in bounding box'ının merkezi kullanılıyordu; bu, kancanın şaftı uzunsa hayvanların
+            // ucun değil, kancanın ORTASINA doğru toplanmasına sebep oluyordu (bkz. kanca küçültme).
             float clawVisualYOffset = 0f;
-            var clawRenderers = claw.GetComponentsInChildren<Renderer>();
-            if (clawRenderers != null && clawRenderers.Length > 0)
+            if (clawCollider != null)
             {
-                Bounds clawBounds = clawRenderers[0].bounds;
-                for (int j = 1; j < clawRenderers.Length; j++)
+                clawVisualYOffset = clawCollider.bounds.center.y - clawStartPos.y;
+            }
+            else
+            {
+                var clawRenderers = claw.GetComponentsInChildren<Renderer>();
+                if (clawRenderers != null && clawRenderers.Length > 0)
                 {
-                    clawBounds.Encapsulate(clawRenderers[j].bounds);
+                    Bounds clawBounds = clawRenderers[0].bounds;
+                    for (int j = 1; j < clawRenderers.Length; j++)
+                    {
+                        clawBounds.Encapsulate(clawRenderers[j].bounds);
+                    }
+                    clawVisualYOffset = clawBounds.center.y - clawStartPos.y;
                 }
-                clawVisualYOffset = clawBounds.center.y - clawStartPos.y;
             }
 
             // Yakalanacak blokların gerçek üst sınırını hesapla (sadece güvenlik/hedef mesafesi
@@ -1059,14 +1077,6 @@ public class GridManager : MonoBehaviour
                 var faceCam = block.GetComponentInChildren<FaceCamera>();
                 if (faceCam != null) faceCam.enabled = false;
             }
-
-            // Kancanın ucundaki Collider'dan gerçek DEĞME anını yakalamak için sensör.
-            // Bloklar yerleştirilirken Colliderları DraggablePiece tarafından kapatıldığı için
-            // (bkz. DraggablePiece.cs), temas algılanabilsin diye burada geçici olarak açıyoruz.
-            var sensor = claw.GetComponent<ClawTouchSensor>();
-            if (sensor == null) sensor = claw.AddComponent<ClawTouchSensor>();
-            var clawCollider = claw.GetComponent<Collider>();
-            if (clawCollider != null) clawCollider.isTrigger = true;
             foreach (var block in blocks)
             {
                 if (block == null) continue;

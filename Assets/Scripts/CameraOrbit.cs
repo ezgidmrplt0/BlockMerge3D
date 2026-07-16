@@ -20,6 +20,19 @@ public class CameraOrbit : MonoBehaviour
     [Tooltip("Küp döndürme animasyon hızı")]
     public float snapSpeed      = 10f;
 
+    [Header("Sabit Zoom")]
+    [Tooltip("Açıkken kamera her level'de (2x2, 3x3, 4x4...) board boyutundan bağımsız aynı " +
+             "zoom/mesafede durur — küçük board'lar için yakınlaşmaz, büyükler için uzaklaşmaz. " +
+             "Kapalıysa eski davranışa (board'a göre otomatik sığdırma) döner.")]
+    public bool useFixedZoom = true;
+    [Tooltip("useFixedZoom açıkken kullanılan sabit orthographic size (kamera orthographic ise). " +
+             "ScreenAnchoredProp'un referenceOrthographicSize'ı ile aynı tutulursa (varsayılan 8) " +
+             "joystick/buton gibi ekran-sabit objelerin boyutu da tüm levellerde birebir tutarlı kalır.")]
+    public float fixedOrthographicSize = 8f;
+    [Tooltip("useFixedZoom açıkken kullanılan sabit kamera mesafesi (perspective kamerada zorunlu, " +
+             "orthographic'te sadece clipping'e girmeyecek kadar geride durmak için).")]
+    public float fixedDistance = 40f;
+
     private float currentYaw;
     private float targetYaw;
     public float TargetYaw => targetYaw;
@@ -146,41 +159,56 @@ public class CameraOrbit : MonoBehaviour
         if (cam.orthographic)
         {
             // --- ORTHOGRAPHIC PROJECTION ---
-            float requiredSize = radius;
-            if (cam.aspect > 0f)
+            float orthoSize;
+            float distance;
+
+            if (useFixedZoom)
             {
-                requiredSize = Mathf.Max(radius, radius / cam.aspect);
+                orthoSize = fixedOrthographicSize;
+                distance  = fixedDistance;
             }
-            
-            // Dinamik sığdırma katsayısı (Grid boyutuna göre konforlu kenar boşluğu)
-            float multiplier = 1.15f + (radius * 0.05f);
-            float oldOrthSize = cam.orthographicSize;
-            cam.orthographicSize = requiredSize * multiplier;
+            else
+            {
+                float requiredSize = radius;
+                if (cam.aspect > 0f)
+                {
+                    requiredSize = Mathf.Max(radius, radius / cam.aspect);
+                }
 
+                // Dinamik sığdırma katsayısı (Grid boyutuna göre konforlu kenar boşluğu)
+                float multiplier = 1.15f + (radius * 0.05f);
+                orthoSize = requiredSize * multiplier;
 
-            // Kırpılmayı önlemek için kamerayı yine de güvenli bir arkaya konumlandırıyoruz
-            float distance = radius * 4f;
+                // Kırpılmayı önlemek için kamerayı yine de güvenli bir arkaya konumlandırıyoruz
+                distance = radius * 4f;
+            }
+
+            cam.orthographicSize = orthoSize;
             Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
             transform.rotation = rot;
-            Vector3 oldPos = transform.position;
             transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
-            
         }
         else
         {
             // --- PERSPECTIVE PROJECTION ---
-            float vHalfRad = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
-            float hHalfRad = Mathf.Atan(Mathf.Tan(vHalfRad) * cam.aspect);
-            float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
-            float multiplier = 2.0f + (radius * 0.15f);
-            float distance = (radius / Mathf.Tan(minHalf)) * multiplier;
+            float distance;
 
+            if (useFixedZoom)
+            {
+                distance = fixedDistance;
+            }
+            else
+            {
+                float vHalfRad = cam.fieldOfView * 0.5f * Mathf.Deg2Rad;
+                float hHalfRad = Mathf.Atan(Mathf.Tan(vHalfRad) * cam.aspect);
+                float minHalf  = Mathf.Min(vHalfRad, hHalfRad);
+                float multiplier = 2.0f + (radius * 0.15f);
+                distance = (radius / Mathf.Tan(minHalf)) * multiplier;
+            }
 
             Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
             transform.rotation = rot;
-            Vector3 oldPos = transform.position;
             transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
-            
         }
 
         // Yeni seviye her zaman nötr (0°) tahta rotasyonuyla başlar; önceki seviyeden
