@@ -16,9 +16,7 @@ public class CameraOrbit : MonoBehaviour
     [Tooltip("Kameranın başlangıçtaki dikey bakış açısı (X rotasyonu)")]
     public float startElevation = 28f;
 
-    [Header("Swipe Snap")]
-    [Tooltip("90° döndürme için gereken minimum yatay swipe mesafesi (pixel)")]
-    public float swipeMinPixels = 60f;
+    [Header("Snap")]
     [Tooltip("Küp döndürme animasyon hızı")]
     public float snapSpeed      = 10f;
 
@@ -26,10 +24,6 @@ public class CameraOrbit : MonoBehaviour
     private float targetYaw;
     public float TargetYaw => targetYaw;
 
-    // Swipe takibi
-    private bool    trackingSwipe;
-    private bool    swipeCancelled;
-    private Vector2 swipeStartPos;
     public bool     IsLocked { get; set; }
 
     // Panel mode: saved 3D state
@@ -239,6 +233,16 @@ public class CameraOrbit : MonoBehaviour
         transform.DOShakePosition(duration, strength, 15, 90, false, true);
     }
 
+    /// <summary>
+    /// ControlStick tarafından çağrılır — joystick'in sürüklenme yönüne göre board'u 90° döndürür.
+    /// direction > 0 -> sağa sürükleme, direction &lt; 0 -> sola sürükleme.
+    /// </summary>
+    public void SnapRotate(float direction)
+    {
+        if (DraggablePiece.IsDragging || DOTween.IsTweening(transform) || (IsLocked && !IsInPanelMode)) return;
+        targetYaw -= Mathf.Sign(direction) * 90f;
+    }
+
     private void Update()
     {
         // Animasyon: currentYaw'u hedefine doğru yumuşakça çek
@@ -247,77 +251,9 @@ public class CameraOrbit : MonoBehaviour
             currentYaw = Mathf.LerpAngle(currentYaw, targetYaw, Time.deltaTime * snapSpeed);
             if (Mathf.Abs(Mathf.DeltaAngle(currentYaw, targetYaw)) < 0.1f)
                 currentYaw = targetYaw;
-            
+
             ApplyRotation();
         }
-
-        bool isTransitioning = DOTween.IsTweening(transform);
-        if (DraggablePiece.IsDragging || isTransitioning || (IsLocked && !IsInPanelMode)) 
-        {
-            swipeCancelled = true;
-            trackingSwipe = false;
-        }
-
-        HandleMouseSwipe();
-        HandleTouchSwipe();
-    }
-
-    private void HandleMouseSwipe()
-    {
-        if (Input.GetMouseButtonDown(0))
-        {
-            trackingSwipe  = true;
-            swipeCancelled = false;
-            swipeStartPos  = Input.mousePosition;
-        }
-
-        if (Input.GetMouseButtonUp(0) && trackingSwipe)
-        {
-            trackingSwipe = false;
-            if (!swipeCancelled)
-            {
-                Vector2 delta = (Vector2)Input.mousePosition - swipeStartPos;
-                TrySnapFromSwipe(delta);
-            }
-        }
-    }
-
-    private void HandleTouchSwipe()
-    {
-        if (Input.touchCount != 1) { trackingSwipe = false; return; }
-
-        Touch t = Input.GetTouch(0);
-        switch (t.phase)
-        {
-            case TouchPhase.Began:
-                trackingSwipe  = true;
-                swipeCancelled = false;
-                swipeStartPos  = t.position;
-                break;
-            case TouchPhase.Ended:
-            case TouchPhase.Canceled:
-                if (trackingSwipe)
-                {
-                    trackingSwipe = false;
-                    if (!swipeCancelled)
-                    {
-                        Vector2 delta = t.position - swipeStartPos;
-                        TrySnapFromSwipe(delta);
-                    }
-                }
-                break;
-        }
-    }
-
-    private void TrySnapFromSwipe(Vector2 delta)
-    {
-        if (Mathf.Abs(delta.x) < swipeMinPixels) return;
-        if (Mathf.Abs(delta.x) < Mathf.Abs(delta.y)) return;
-
-        // Ekranda yatayda (X ekseninde) swipe yapıldığında küp Y ekseninde 90 derece döner
-        // Swipe sağa (delta.x > 0) -> sola dön (+ angle'ı azalt)
-        // Swipe sola (delta.x < 0) -> sağa dön (+ angle'ı arttır)
-        targetYaw -= Mathf.Sign(delta.x) * 90f;
     }
 
     private void ApplyRotation()

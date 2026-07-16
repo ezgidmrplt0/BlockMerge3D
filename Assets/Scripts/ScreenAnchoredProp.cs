@@ -4,6 +4,10 @@ using UnityEngine;
 // kameranın orthographic boyutu (leveldan levele board büyüklüğüne göre değişiyor, bkz.
 // CameraOrbit.FitInView) veya konumu ne olursa olsun. Kontrol paneli süsleri (joystick,
 // buton) gibi "her zaman ekranın aynı yerinde dursun" istenen 3D dekor objeleri için.
+// ExecuteAlways: Play moduna girmeden, Edit modda Inspector'dan alanları değiştirirken bile
+// Game View'da anında güncellenir — Play modda transform üzerinde yapılan değişiklikler Stop'ta
+// silindiği için asıl ayar bu alanlar üzerinden, Edit modda yapılmalı.
+[ExecuteAlways]
 public class ScreenAnchoredProp : MonoBehaviour
 {
     [Tooltip("0-1 aralığında ekran konumu (0,0 = sol alt, 1,1 = sağ üst)")]
@@ -28,10 +32,17 @@ public class ScreenAnchoredProp : MonoBehaviour
              "görünür boyutta kalsın diye ölçek buna oranla otomatik ayarlanır.")]
     public float referenceOrthographicSize = 8f;
 
+    [Header("Elle Ayar")]
+    [Tooltip("Açıkken bu script transform'u ellemez — Play modundayken objeyi Scene View'daki " +
+             "Move/Rotate/Scale gizmo'larıyla elle konumlandırabilirsin. İdeal yeri bulunca " +
+             "değerleri (position/rotation/scale) not al, sonra kapat.")]
+    public bool pauseAutoPositioning = false;
+
     private Camera cam;
 
     private void LateUpdate()
     {
+        if (pauseAutoPositioning) return;
         if (cam == null) cam = Camera.main;
         if (cam == null) return;
 

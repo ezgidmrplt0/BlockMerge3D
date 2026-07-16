@@ -9,6 +9,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1204301264461452045}
+  - component: {fileID: 7975352908868598361}
+  - component: {fileID: 777075006347716674}
   m_Layer: 0
   m_Name: ControlButton
   m_TagString: Untagged
@@ -33,6 +35,43 @@ Transform:
   - {fileID: 4518602622234829993}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &7975352908868598361
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1504036270282293954}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.18, y: 0.18, z: 0.15}
+  m_Center: {x: -0.22, y: -0.29, z: 0.3}
+--- !u!114 &777075006347716674
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1504036270282293954}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5161247378e07e606be8de1f864169e4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  buttonCap: {fileID: 4518602622234829993}
+  pressDepth: 0.05
+  pressDuration: 0.08
+  releaseDuration: 0.18
 --- !u!1001 &4518602622234705449
 PrefabInstance:
   m_ObjectHideFlags: 0
