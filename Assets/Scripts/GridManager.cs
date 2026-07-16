@@ -18,6 +18,7 @@ public class GridManager : MonoBehaviour
     private Dictionary<Vector3Int, Renderer>    prefilledRenderers = new Dictionary<Vector3Int, Renderer>(); // Prefilled blokların renderer'ları
     private HashSet<Vector3Int> temporarilyHiddenGridCells = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> occludedGridCells           = new HashSet<Vector3Int>();
+    private HashSet<Vector3Int> sparklingCells               = new HashSet<Vector3Int>(); // Aynı türden 3+ bağlı grup parıldıyor
 
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
@@ -221,11 +222,7 @@ public class GridManager : MonoBehaviour
             Renderer r = kvp.Value;
             if (r != null)
             {
-                if (occupiedCells.Contains(cell)) 
-                {
-                    r.enabled = false;
-                }
-                else if (isPanelMode)
+                if (isPanelMode)
                 {
                     if (cell.y == ActiveLayerY)
                     {
@@ -248,6 +245,17 @@ public class GridManager : MonoBehaviour
                     r.transform.localScale = Vector3.one * CellSize;
                 }
 
+                // Hücre gerçek (opak) bir parça ile doluysa hedef/ghost küpünü TAMAMEN gizle.
+                // Öncesinde sadece şeffaflaştırılıyordu (a = 0.12), ama ZWrite kapalı transparan
+                // ghost materyali opak yerleştirilmiş parçanın üzerinde/içinde aynı hacimde
+                // render edildiğinden çift görüntü / hatalı derinlik sıralaması (görsel "tuhaflık")
+                // oluşuyordu. Buz (frozen) hücreleri bu kuraldan muaf: onlar henüz kırılmadıysa
+                // görünür kalmalı.
+                if (occupiedCells.Contains(cell) && !frozenCells.Contains(cell))
+                {
+                    r.enabled = false;
+                }
+
                 if (r.enabled)
                 {
                     r.GetPropertyBlock(PropBlock);
@@ -257,7 +265,7 @@ public class GridManager : MonoBehaviour
                         if (isPanelMode && cell.y < ActiveLayerY) iceColor.a = 0.15f; // Faded ice
                         PropBlock.SetColor("_BaseColor", iceColor);
                         PropBlock.SetColor("_Color", iceColor);
-                        
+
                         Color emissionColor = new Color(0.1f, 0.4f, 0.7f) * (isPanelMode && cell.y < ActiveLayerY ? 0.2f : 1.8f);
                         PropBlock.SetColor("_EmissionColor", emissionColor);
                     }
@@ -268,7 +276,8 @@ public class GridManager : MonoBehaviour
                         {
                             defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
                         }
-                        if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a = 0.30f; // Faded target base
+
+                        if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a *= 0.33f; // Faded target base
                         PropBlock.SetColor("_BaseColor", defaultColor);
                         PropBlock.SetColor("_Color", defaultColor);
                         PropBlock.SetColor("_EmissionColor", Color.clear);
@@ -474,24 +483,41 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // Yok edilen katmanın fiziksel merkezini hesapla
+        // Yok edilen katmanın kusursuz (grid-kesin) merkezini hesapla: blok
+        // konumlarının ARİTMETİK ORTALAMASI yerine sınırlayıcı kutunun (bounding box)
+        // ortası kullanılır. Ortalama, düzensiz/asimetrik şekillerde merkezi bloklara
+        // doğru kaydırır; kutu ortası ise kanca makinesindeki gibi katmanın gerçek
+        // geometrik merkezine iner.
         Vector3 center = Vector3.zero;
-        int count = 0;
+        bool hasBounds = false;
+        Vector3 minB = Vector3.zero, maxB = Vector3.zero;
         foreach (var cell in cellsToRemove)
         {
+            Vector3? worldPos = null;
             if (cellObjects.TryGetValue(cell, out var go) && go != null)
             {
-                center += go.transform.position;
-                count++;
+                worldPos = go.transform.position;
             }
-            // Prefilled blokları da merkez hesabına dahil et
             else if (prefilledRenderers.TryGetValue(cell, out var prefilledRend) && prefilledRend != null)
             {
-                center += prefilledRend.transform.position;
-                count++;
+                worldPos = prefilledRend.transform.position;
+            }
+
+            if (worldPos.HasValue)
+            {
+                if (!hasBounds)
+                {
+                    minB = maxB = worldPos.Value;
+                    hasBounds = true;
+                }
+                else
+                {
+                    minB = Vector3.Min(minB, worldPos.Value);
+                    maxB = Vector3.Max(maxB, worldPos.Value);
+                }
             }
         }
-        if (count > 0) center /= count;
+        if (hasBounds) center = (minB + maxB) * 0.5f;
 
         // Tüm katman için ortak bir yön belirle (Sola veya Sağa)
         Vector3 moveOffset = (Random.value > 0.5f ? Vector3.left : Vector3.right) * 5f;
@@ -606,12 +632,22 @@ public class GridManager : MonoBehaviour
         if (gridMaxY > gridMinY) gridMaxY--;
 
         // --- GÖRSEL ÇÖKME (VISUAL COLLAPSE) ---
+        float collapseDelay = 0.45f;
+        GameObject claw = GameObject.Find("Claw");
+        if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
+        if (claw != null)
+        {
+            collapseDelay = 3.65f; // Yavaşlatılmış kanca animasyonunun bitmesini bekle (EN KÖTÜ durum/üst sınır:
+            // Hizalama: 0.5s, İnme: 1.2s [Collider teması erken tetiklenirse daha kısa sürebilir],
+            // Değme anı toplanma: 0.45s + 0.15s bekleme, Çıkma: 1.2s + ufak ara)
+        }
+
         foreach (var kvp in cellObjects)
         {
             if (kvp.Key.y >= clearedY) // Önceden > clearedY idi, artık 1 azaldıkları için >= clearedY oldu
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(0.45f);
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
             }
         }
 
@@ -620,7 +656,7 @@ public class GridManager : MonoBehaviour
             if (kvp.Key.y >= clearedY)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(0.45f);
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
             }
         }
 
@@ -630,11 +666,12 @@ public class GridManager : MonoBehaviour
             if (kvp.Key.y >= clearedY)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(0.45f);
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
             }
         }
 
         RefreshLayerVisibility();
+        RefreshSpeciesSparkle();
 
         // Level yalnızca gerçekten hiçbir katman/hücre kalmadığında tamamlanır.
         // Sadece targetCells.Count kontrolü gizli üst katmanları yok sayabiliyordu.
@@ -679,19 +716,17 @@ public class GridManager : MonoBehaviour
         cellMatIndex[cell] = matIndex;
     }
 
-    public void AddCell(Vector3Int cell, GameObject cube, Color color, int matIndex = -1)
+    public void AddCell(Vector3Int cell, GameObject cube, Color color, int matIndex = -1, bool animateBump = true)
     {
         occupiedCells.Add(cell);
         cellObjects[cell] = cube;
         cellColors[cell] = color;
         cellMatIndex[cell] = matIndex;
 
-        if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+        if (animateBump)
         {
-            r.enabled = false;
+            StartCoroutine(BumpAnimation(cube.transform));
         }
-
-        StartCoroutine(BumpAnimation(cube.transform));
     }
 
     public (int cleared, int bonusLines) CheckAndClearLines(System.Action onComplete = null)
@@ -966,30 +1001,218 @@ public class GridManager : MonoBehaviour
     private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset)
     {
         if (container == null) return;
-        var t = container.transform;
 
-        var seq = DOTween.Sequence().SetLink(container);
+        // Kancayı sahneden bulmaya çalış
+        GameObject claw = GameObject.Find("Claw");
+        if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
 
-        // 1. Aşama: Gitmeden önce zıt yöne hafif esneme (Anticipation)
-        seq.Append(t.DOMove(t.position - (moveOffset.normalized * 0.3f), 0.15f).SetEase(Ease.OutQuad));
-
-        // 2. Aşama: Topluca sağa/sola gitme ve şeffaflaşarak kaybolma
-        seq.Append(t.DOMove(t.position + moveOffset, 0.45f).SetEase(Ease.InCubic));
-
-        // Tüm blokların materyallerini şeffaflaştır
-        foreach (var block in blocks)
+        // EĞER KANCA VARSA: Kanca ile yukarı çekme animasyonu
+        if (claw != null)
         {
+            Vector3 clawStartPos = claw.transform.position;
+            Quaternion clawStartRot = claw.transform.rotation;
+            // layerCenter artık ExplodeLayer'da sınırlayıcı kutu (bounding box) ortası olarak
+            // kusursuz/grid-kesin hesaplanıyor (bkz. ExplodeLayer) — kanca her zaman katmanın
+            // TAM geometrik merkezine iner, ortalamadan kaynaklanan kaymalar olmaz.
+            Vector3 layerCenter = container.transform.position;
+
+            // Kancanın pivot kaymasını otomatik hesapla (Görsel merkez ile transform pozisyonu farkı)
+            float clawVisualYOffset = 0f;
+            var clawRenderers = claw.GetComponentsInChildren<Renderer>();
+            if (clawRenderers != null && clawRenderers.Length > 0)
+            {
+                Bounds clawBounds = clawRenderers[0].bounds;
+                for (int j = 1; j < clawRenderers.Length; j++)
+                {
+                    clawBounds.Encapsulate(clawRenderers[j].bounds);
+                }
+                clawVisualYOffset = clawBounds.center.y - clawStartPos.y;
+            }
+
+            // Yakalanacak blokların gerçek üst sınırını hesapla (sadece güvenlik/hedef mesafesi
+            // için kullanılır — GERÇEK duruş noktasını artık aşağıdaki Collider teması belirler).
+            bool hasBlockTop = false;
+            float blocksTopY = layerCenter.y;
+            foreach (var block in blocks)
+            {
+                if (block == null) continue;
+                var r = block.GetComponentInChildren<Renderer>();
+                if (r == null) continue;
+                if (!hasBlockTop) { blocksTopY = r.bounds.max.y; hasBlockTop = true; }
+                else blocksTopY = Mathf.Max(blocksTopY, r.bounds.max.y);
+            }
+
+            float skyY = layerCenter.y + 6.0f; // Gridin üstünde gökyüzünde bir yükseklik garanti edilir
+            Vector3 aboveTargetPos = new Vector3(layerCenter.x, skyY - clawVisualYOffset, layerCenter.z);
+            // İniş hedefi bilerek blokların İÇİNE doğru fazladan iner (overshoot) — kanca gerçekte
+            // bu noktaya hiç ulaşmaz, çünkü Collider teması anında iniş anında durdurulur.
+            Vector3 overshootTargetPos = new Vector3(layerCenter.x, (blocksTopY - 0.6f) - clawVisualYOffset, layerCenter.z);
+
+            // Kamera bakışını kapat ki kanca yakalarken bloklar kendi rotasyonunu korusun.
+            foreach (var block in blocks)
+            {
+                if (block == null) continue;
+                var faceCam = block.GetComponentInChildren<FaceCamera>();
+                if (faceCam != null) faceCam.enabled = false;
+            }
+
+            // Kancanın ucundaki Collider'dan gerçek DEĞME anını yakalamak için sensör.
+            // Bloklar yerleştirilirken Colliderları DraggablePiece tarafından kapatıldığı için
+            // (bkz. DraggablePiece.cs), temas algılanabilsin diye burada geçici olarak açıyoruz.
+            var sensor = claw.GetComponent<ClawTouchSensor>();
+            if (sensor == null) sensor = claw.AddComponent<ClawTouchSensor>();
+            var clawCollider = claw.GetComponent<Collider>();
+            if (clawCollider != null) clawCollider.isTrigger = true;
+            foreach (var block in blocks)
+            {
+                if (block == null) continue;
+                foreach (var col in block.GetComponentsInChildren<Collider>()) col.enabled = true;
+            }
+
+            // Toplanma küresinin yarıçapını kancanın GERÇEK iç genişliğinden (Collider'ının
+            // X/Z boyutundan) türet — ama hayvanlar birbirine YAKIN/sıkı dursun diye
+            // Collider'ın tam genişliği değil, küçük bir kesri kullanılır.
+            float clusterRadius = 0.18f;
+            if (clawCollider != null)
+            {
+                Bounds cb = clawCollider.bounds;
+                clusterRadius = Mathf.Max(cb.extents.x, cb.extents.z) * 0.4f;
+            }
+            clusterRadius = Mathf.Max(clusterRadius, 0.18f);
+            float clusterYHalfRange = clusterRadius * 0.6f;
+
+            const float ballDuration = 0.45f;
+            bool advanced = false;
+            Tween descendTween = null;
+
+            void RunGrabAndLift()
+            {
+                var seq2 = DOTween.Sequence().SetLink(claw);
+
+                // Kancanın ucu katmana TAM DEĞDİĞİ AN: hayvanlar merkezde sıkı bir 3D küre
+                // (top gibi) oluşturacak şekilde toplansın (Fibonacci küresel dağılımı).
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    var block = blocks[i];
+                    if (block == null) continue;
+
+                    Vector3 ballOffset = Vector3.zero;
+                    if (blocks.Count > 1)
+                    {
+                        // Fibonacci küresel dağılımı ile hayvanları, kancanın içini dolduran
+                        // BÜYÜK bir top gibi bir araya getiriyoruz (yarıçap: clusterRadius)
+                        float y = -clusterYHalfRange + (2f * clusterYHalfRange * i) / (blocks.Count - 1);
+                        float rRadius = Mathf.Sqrt(Mathf.Max(0f, clusterRadius * clusterRadius - y * y)); // Bu yükseklikteki küre yarıçapı
+                        float theta = i * 2.39996f; // Altın açı (radyan)
+                        float x = Mathf.Cos(theta) * rRadius;
+                        float z = Mathf.Sin(theta) * rRadius;
+                        ballOffset = new Vector3(x, y, z);
+                    }
+                    Vector3 targetPos = layerCenter + ballOffset;
+
+                    block.transform.DOMove(targetPos, ballDuration).SetEase(Ease.OutBack);
+                    // Bloklar birbirine daha sıkı/dolgun görünsün diye hafifçe büyütülür
+                    block.transform.DOScale(block.transform.localScale * 1.2f, ballDuration).SetEase(Ease.OutBack);
+
+                    // Dışarıya doğru baksınlar (küresel yönelim)
+                    Vector3 lookDir = ballOffset.normalized;
+                    if (lookDir == Vector3.zero) lookDir = Vector3.forward;
+                    Quaternion targetRot = Quaternion.LookRotation(lookDir, Vector3.up);
+                    block.transform.DORotateQuaternion(targetRot, ballDuration).SetEase(Ease.OutBack);
+                }
+
+                // Toplanma animasyonunun bitmesini bekle, sonra hayvanları (artık top haldeyken) kancaya bağla
+                seq2.AppendInterval(ballDuration + 0.15f);
+                seq2.AppendCallback(() =>
+                {
+                    foreach (var block in blocks)
+                    {
+                        if (block != null) block.transform.SetParent(claw.transform, true);
+                    }
+                });
+
+                // Kancayı yavaşça yukarı (aboveTargetPos) geri çek (1.2 saniye) — hayvanlar
+                // küçülüp solmadan, kancaya SABİTLENMİŞ haldeyken olduğu gibi taşınır.
+                seq2.Append(claw.transform.DOMove(aboveTargetPos, 1.2f).SetEase(Ease.InOutQuad));
+
+                // Kancayı başlangıç konumuna (clawStartPos) geri götür (0.5 saniye)
+                seq2.Append(claw.transform.DOMove(clawStartPos, 0.5f).SetEase(Ease.InOutQuad));
+
+                // Temizlik
+                seq2.OnComplete(() =>
+                {
+                    if (claw != null)
+                    {
+                        claw.transform.DetachChildren();
+                        claw.transform.position = clawStartPos;
+                        claw.transform.rotation = clawStartRot;
+                    }
+                    if (container != null) Object.Destroy(container);
+                    foreach (var block in blocks)
+                    {
+                        if (block != null) Object.Destroy(block);
+                    }
+                });
+            }
+
+            void OnTouchOrTimeout()
+            {
+                if (advanced) return;
+                advanced = true;
+                sensor.Disarm();
+                descendTween?.Kill();
+                RunGrabAndLift();
+            }
+
+            // 1. Kancayı yatay olarak hedef katmanın ÜSTÜNE getir (0.5 saniye)
+            claw.transform.DOMove(aboveTargetPos, 0.5f).SetEase(Ease.InOutQuad).OnComplete(() =>
+            {
+                // 2. İniş: kancanın ucundaki Collider bloklara GERÇEKTEN değene kadar aşağı in.
+                // Değme anında (OnTouchOrTimeout) tween erken kesilir ve kanca olduğu yerde durur.
+                sensor.Arm(blocks, OnTouchOrTimeout);
+                descendTween = claw.transform.DOMove(overshootTargetPos, 1.2f)
+                    .SetEase(Ease.InOutQuad)
+                    .OnComplete(OnTouchOrTimeout); // Collider hiç değmezse emniyet (timeout) düşüşü
+            });
+            return;
+        }
+
+        // EĞER KANCA YOKSA: Varsayılan hızlı dökülme/düşme animasyonu (Fallback)
+        var seq = DOTween.Sequence().SetLink(container);
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            var block = blocks[i];
             if (block == null) continue;
+
+            float delay = i * 0.07f;
+            var blockTransform = block.transform;
+
+            var faceCam = block.GetComponentInChildren<FaceCamera>();
+            if (faceCam != null) faceCam.enabled = false;
+
+            seq.Join(blockTransform.DOMoveY(blockTransform.position.y - 15.0f, 0.25f)
+                .SetEase(Ease.InQuad)
+                .SetDelay(delay));
+
+            Vector3 randomTumble = new Vector3(Random.Range(90f, 180f), Random.Range(-180f, 180f), Random.Range(-90f, 90f));
+            seq.Join(blockTransform.DORotate(randomTumble, 0.25f, RotateMode.LocalAxisAdd)
+                .SetEase(Ease.InQuad)
+                .SetDelay(delay));
+
+            seq.Join(blockTransform.DOScale(Vector3.zero, 0.17f)
+                .SetEase(Ease.InQuad)
+                .SetDelay(delay + 0.08f));
+
             var r = block.GetComponentInChildren<Renderer>();
             if (r != null)
             {
                 Color originalColor = GetMaterialColor(r.material);
                 Color transparentColor = new Color(originalColor.r, originalColor.g, originalColor.b, 0f);
-                
+
                 if (r.material.HasProperty("_BaseColor"))
-                    seq.Join(r.material.DOColor(transparentColor, "_BaseColor", 0.4f));
+                    seq.Join(r.material.DOColor(transparentColor, "_BaseColor", 0.15f).SetDelay(delay + 0.1f));
                 else if (r.material.HasProperty("_Color"))
-                    seq.Join(r.material.DOColor(transparentColor, "_Color", 0.4f));
+                    seq.Join(r.material.DOColor(transparentColor, "_Color", 0.15f).SetDelay(delay + 0.1f));
             }
         }
 
@@ -1258,14 +1481,14 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // 2. Şimdi yeni snaplenen kılavuz hücrelerini gizle
+        // 2. Şimdi yeni snaplenen kılavuz hücrelerini gizlemeyip açık bırakıyoruz ki parçalar içindeymiş gibi gözüksün
         foreach (var cell in newSnapped)
         {
             if (!occupiedCells.Contains(cell))
             {
                 if (targetRenderers.TryGetValue(cell, out var r) && r != null)
                 {
-                    r.enabled = false;
+                    // r.enabled = false;
                 }
             }
         }
@@ -1783,6 +2006,72 @@ public class GridManager : MonoBehaviour
         }
 
         return visited;
+    }
+
+    private static readonly Vector3Int[] SixDirNeighbors = {
+        Vector3Int.left, Vector3Int.right,
+        Vector3Int.up, Vector3Int.down,
+        new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
+    };
+
+    // Aynı türden (cellMatIndex) 3 veya daha fazla hücre, yan yana VEYA üst üste (6 yönlü
+    // komşuluk) birbirine bağlıysa o gruba "parıldama" efekti (SparkleEffect) verir. Parça
+    // yerleştirildikten sonra ve katman patladıktan/çöktükten sonra çağrılmalı ki gruplar
+    // güncel kalsın (bağlantı koptuğunda ilgili bloklardaki parıldama otomatik durur).
+    public void RefreshSpeciesSparkle()
+    {
+        var shouldSparkle = new HashSet<Vector3Int>();
+        var visited = new HashSet<Vector3Int>();
+
+        foreach (var cell in occupiedCells)
+        {
+            if (visited.Contains(cell)) continue;
+            if (!cellMatIndex.TryGetValue(cell, out int species) || species < 0)
+            {
+                visited.Add(cell);
+                continue;
+            }
+
+            var group = FloodFillSameSpecies(cell, species, SixDirNeighbors);
+            visited.UnionWith(group);
+
+            if (group.Count > 2)
+            {
+                shouldSparkle.UnionWith(group);
+            }
+        }
+
+        // Artık nitelik taşımayan hücrelerdeki parıldamayı durdur
+        var toStop = new List<Vector3Int>();
+        foreach (var cell in sparklingCells)
+        {
+            if (!shouldSparkle.Contains(cell)) toStop.Add(cell);
+        }
+        foreach (var cell in toStop)
+        {
+            sparklingCells.Remove(cell);
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                var sp = go.GetComponent<SparkleEffect>();
+                if (sp != null)
+                {
+                    sp.StopAndRestore();
+                    Object.Destroy(sp);
+                }
+            }
+        }
+
+        // Yeni nitelik kazanan hücrelerde parıldamayı başlat
+        foreach (var cell in shouldSparkle)
+        {
+            if (sparklingCells.Contains(cell)) continue;
+            if (!cellObjects.TryGetValue(cell, out var go) || go == null) continue;
+
+            sparklingCells.Add(cell);
+            var sp = go.GetComponent<SparkleEffect>();
+            if (sp == null) sp = go.AddComponent<SparkleEffect>();
+            sp.Begin();
+        }
     }
 
     // Bir Renderer'ı (var olan bir hedef ghost'u ya da patlamış bir prefilled küpü) normal,

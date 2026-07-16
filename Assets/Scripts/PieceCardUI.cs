@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
@@ -227,20 +228,55 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         piece3D.transform.rotation   = Quaternion.identity;
         piece3D.transform.localScale = Vector3.one;
 
-        // Parçanın renderers sınırlarını hesaplayıp lokal merkezini ve lokal yarıçapını buluyoruz
+        // Merkezi, mesh'in ham sınır kutusu (renderer bounds) yerine parçanın MANTIKSAL grid
+        // ayak izinden (hücre indekslerinden) hesaplıyoruz. Sebep: ördek gagası/kuyruğu gibi
+        // hücre sınırını aşan görsel çıkıntılar mesh AABB merkezini bir yöne kaydırıyor ve
+        // parça kartın içinde "kaymış" görünüyordu; hücre tabanlı merkez şekil ne olursa olsun
+        // her zaman simetrik/tutarlı kalır.
+        Vector3? cellBasedCenter = null;
+        if (draggable != null && draggable.CurrentCells != null && draggable.CurrentCells.Count > 0)
+        {
+            var cells = draggable.CurrentCells;
+            int minX = cells.Min(c => c.x), maxX = cells.Max(c => c.x);
+            int minY = cells.Min(c => c.y), maxY = cells.Max(c => c.y);
+            int minZ = cells.Min(c => c.z), maxZ = cells.Max(c => c.z);
+            float step = GridManager.Instance != null ? GridManager.Instance.Step : 1f;
+            cellBasedCenter = new Vector3(
+                (minX + maxX + 1) * 0.5f,
+                (minY + maxY + 1) * 0.5f,
+                (minZ + maxZ + 1) * 0.5f) * step;
+        }
+
+        // Yarıçapı yine mesh sınırlarından hesaplıyoruz ki gaga/kuyruk gibi uçlar karttan
+        // taşmasın — ama YENİ (hücre tabanlı) merkeze göre, eski mesh merkezine göre değil.
         var renderers = piece3D.GetComponentsInChildren<Renderer>();
         if (renderers.Length > 0)
         {
             Bounds b = renderers[0].bounds;
             foreach (var r in renderers) b.Encapsulate(r.bounds);
 
-            localVisualCenter = piece3D.transform.InverseTransformPoint(b.center);
-            localVisualRadius = b.extents.magnitude;
+            Vector3 center = cellBasedCenter ?? b.center;
+            localVisualCenter = piece3D.transform.InverseTransformPoint(center);
+
+            float maxDist = 0f;
+            for (int xi = 0; xi < 2; xi++)
+            for (int yi = 0; yi < 2; yi++)
+            for (int zi = 0; zi < 2; zi++)
+            {
+                Vector3 corner = new Vector3(
+                    xi == 0 ? b.min.x : b.max.x,
+                    yi == 0 ? b.min.y : b.max.y,
+                    zi == 0 ? b.min.z : b.max.z);
+                maxDist = Mathf.Max(maxDist, Vector3.Distance(corner, center));
+            }
+            localVisualRadius = maxDist;
             if (localVisualRadius < 0.001f) localVisualRadius = 1f;
         }
         else
         {
-            localVisualCenter = Vector3.zero;
+            localVisualCenter = cellBasedCenter.HasValue
+                ? piece3D.transform.InverseTransformPoint(cellBasedCenter.Value)
+                : Vector3.zero;
             localVisualRadius = 1f;
         }
 

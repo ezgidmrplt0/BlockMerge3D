@@ -445,6 +445,20 @@ public class LevelManager : MonoBehaviour
             speciesVisual.transform.localRotation = Quaternion.identity;
             speciesVisual.transform.localScale = Vector3.one;
             foreach (var col in speciesVisual.GetComponentsInChildren<Collider>()) col.enabled = false;
+            speciesVisual.AddComponent<FaceCamera>();
+
+            // Center the bounds of the animal inside the grid cell
+            var renderers = speciesVisual.GetComponentsInChildren<Renderer>();
+            if (renderers != null && renderers.Length > 0)
+            {
+                Bounds bounds = renderers[0].bounds;
+                for (int j = 1; j < renderers.Length; j++)
+                {
+                    bounds.Encapsulate(renderers[j].bounds);
+                }
+                Vector3 centerOffset = bounds.center - speciesVisual.transform.position;
+                speciesVisual.transform.localPosition = -speciesVisual.transform.parent.InverseTransformVector(centerOffset);
+            }
         }
     }
 
@@ -546,6 +560,16 @@ public class LevelManager : MonoBehaviour
 
     private void HandlePostPiecePlaced(int placedLayerY)
     {
+        // Yeni yerleştirilen hücrelerin hedef/ghost küpleri gizlensin diye görünürlüğü hemen
+        // tazele — katman tamamlanmadığı (patlama olmadığı) sürece bu daha önce hiç
+        // çağrılmıyordu, bu yüzden ghost küp yerleştirilen parçanın içinde/üzerinde görünmeye
+        // devam edip "tuhaf/yarı saydam" bir görünüme yol açıyordu.
+        gridManager.RefreshLayerVisibility();
+
+        // Aynı türden 3+ hayvan birbirine bağlandıysa (yan yana/üst üste) parıldama efektini
+        // güncelle; bağlantı koptuysa ilgili bloklardaki efekt burada otomatik durur.
+        gridManager.RefreshSpeciesSparkle();
+
         // Tüketilen parçanın (boşalan kartın) yerine hemen yenisini getir
         SpawnRandomPiece();
 

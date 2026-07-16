@@ -346,26 +346,36 @@ public class DraggablePiece : MonoBehaviour
                 }
                 foreach (var col in child.GetComponents<Collider>()) col.enabled = false;
 
-                // TAM KONUMLANDIRMA VE HİZALAMA:
                 Vector3 targetWorldPos = grid.CellToWorld(currentCells[i] + offset);
                 Quaternion targetWorldRot = (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
                     ? LevelManager.Instance.ActiveMainPiece.transform.rotation
                     : Quaternion.identity;
+                Quaternion targetWorldRotFinal = targetWorldRot * currentRotation;
 
-                child.position = targetWorldPos;
-                child.rotation = targetWorldRot * currentRotation; // Kendi iç rotasyonunu (dikeylik vb.) koru!
+                // Kart atıyormuş gibi hissettiren başlangıç pozisyonu, rotasyonu ve ölçeği
+                Vector3 throwOffset = Vector3.up * 1.5f - (mainCam != null ? mainCam.transform.forward * 0.5f : Vector3.zero);
+                child.position = targetWorldPos + throwOffset;
+                child.rotation = targetWorldRotFinal * Quaternion.Euler(30f, -45f, 15f);
+                child.localScale = Vector3.one * 0.6f;
 
+                // DOTween kart atma animasyonu
+                float duration = 0.3f;
+                child.DOMove(targetWorldPos, duration).SetEase(Ease.OutBack);
+                child.DORotateQuaternion(targetWorldRotFinal, duration).SetEase(Ease.OutBack);
+
+                Transform finalChild = child;
+                child.DOScale(Vector3.one, duration).SetEase(Ease.OutBack).OnComplete(() =>
+                {
+                    // Yerleştiğinde tatmin edici esneme/sıkışma etkisi
+                    finalChild.DOPunchScale(new Vector3(0.08f, -0.15f, 0.08f), 0.32f, 10, 1f).SetEase(Ease.OutQuad);
+                });
 
                 var rend  = child.GetComponentInChildren<Renderer>();
                 Material usedMat = rend != null ? (rend.sharedMaterial ?? rend.material) : null;
                 Color col2 = GridManager.GetMaterialColor(usedMat); // kozmetik: hâlâ VFX/tint için tutuluyor
 
-                // Tür (eşleşme anahtarı) spawn anında zaten biliniyordu (bkz. SpeciesIndex) —
-                // burada materyali listeyle karşılaştırarak YENİDEN bulunmaya çalışılmıyor.
-                grid.AddCell(currentCells[i] + offset, child.gameObject, col2, SpeciesIndex);
-
-                // Jelly landing punch scale animation
-                child.DOPunchScale(new Vector3(0.12f, -0.2f, 0.12f), 0.38f, 10, 1f).SetEase(Ease.OutQuad);
+                // Tür (eşleşme anahtarı) spawn anında zaten biliniyordu — BumpAnimation'ı devre dışı bırakıyoruz (kendi animasyonumuz var)
+                grid.AddCell(currentCells[i] + offset, child.gameObject, col2, SpeciesIndex, animateBump: false);
             }
 
             placedOffset       = offset;
