@@ -678,7 +678,11 @@ public class GridManager : MonoBehaviour
         if (allShapeCells.Count == 0)
         {
             ActiveLayerY = gridMaxY + 1;
-            onLevelComplete?.Invoke();
+
+            // Win paneli, katmanın görsel çökme/kanca animasyonu (collapseDelay + 0.45s hareket)
+            // bitmeden açılmasın — önceden burada anında tetikleniyordu ve 3.65s'lik kanca
+            // animasyonunun üzerine hemen biniyordu.
+            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => onLevelComplete?.Invoke());
         }
         else
         {

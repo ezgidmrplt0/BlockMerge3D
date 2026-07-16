@@ -15,8 +15,8 @@ public class GameManager : MonoBehaviour
     public int CurrentLevelNumber => currentLevelIndex + 1;
 
     private bool  levelComplete;
-    private bool  pendingWin;          // Merge animasyonu biterken kazanma bekliyor
-    private bool  mergeAnimating;      // Şu an merge animasyonu devam ediyor
+    private bool  pendingWin;          // Bloklayan animasyonlar biterken kazanma bekliyor
+    private int   blockingAnimations;  // Win panelini erteleyen (parça yerleşimi/merge) animasyon sayısı
     private int   currentLevelIndex;
     private int   currentTargetScore;
     private float remainingTime;
@@ -68,7 +68,7 @@ public class GameManager : MonoBehaviour
     {
         levelComplete      = false;
         pendingWin         = false;
-        mergeAnimating     = false;
+        blockingAnimations = 0;
         Score              = 0;
         currentTargetScore = level.targetScore;
         totalTime          = level.timeLimit;
@@ -94,8 +94,8 @@ public class GameManager : MonoBehaviour
         levelComplete = true;
         timerRunning  = false;
 
-        // Merge animasyonu devam ediyorsa bitene kadar bekle
-        if (mergeAnimating)
+        // Parça yerleşim/merge animasyonu devam ediyorsa bitene kadar bekle
+        if (blockingAnimations > 0)
         {
             pendingWin = true;
         }
@@ -106,13 +106,18 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// GridManager merge animasyonları tamamlandığında çağrılır.
-    /// Eğer bu sırada kazanma beklemedeyse win panelini gösterir.
+    /// Win panelini erteleyen bir animasyon (parça yerleşimi, merge/line-clear...) başladığında çağrılır.
     /// </summary>
-    public void OnMergeAnimationComplete()
+    public void BeginBlockingAnimation() => blockingAnimations++;
+
+    /// <summary>
+    /// BeginBlockingAnimation ile başlatılan animasyon bittiğinde çağrılır. Tüm bloklayan
+    /// animasyonlar bitip kazanma beklemedeyse win panelini gösterir.
+    /// </summary>
+    public void EndBlockingAnimation()
     {
-        mergeAnimating = false;
-        if (pendingWin)
+        blockingAnimations = Mathf.Max(0, blockingAnimations - 1);
+        if (blockingAnimations == 0 && pendingWin)
         {
             pendingWin = false;
             UIManager.Instance?.ShowWinPanel(Score);
@@ -155,9 +160,6 @@ public class GameManager : MonoBehaviour
         int gained = cellsCleared * pointsPerCell;
         Score += gained;
         UIManager.Instance?.AnimateScore(Score);
-
-        // Merge animasyonu başladı — win panel animasyon bitmeden gösterilmeyecek
-        mergeAnimating = true;
         CheckWin();
     }
 }

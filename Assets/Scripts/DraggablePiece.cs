@@ -333,6 +333,16 @@ public class DraggablePiece : MonoBehaviour
         {
             var children = new List<Transform>();
             foreach (Transform t in transform) children.Add(t);
+
+            // Parçanın "kart atma" yerleşim animasyonu bitene kadar win paneli açılmasın —
+            // önceden bu animasyon (~0.3s) devam ederken merge'de çizgi yoksa panel anında açılıyordu.
+            GameManager.Instance?.BeginBlockingAnimation();
+            int settleRemaining = Mathf.Min(currentCells.Count, children.Count);
+            System.Action onChildSettled = () =>
+            {
+                if (--settleRemaining <= 0) GameManager.Instance?.EndBlockingAnimation();
+            };
+
             for (int i = 0; i < currentCells.Count && i < children.Count; i++)
             {
                 var child = children[i];
@@ -368,6 +378,7 @@ public class DraggablePiece : MonoBehaviour
                 {
                     // Yerleştiğinde tatmin edici esneme/sıkışma etkisi
                     finalChild.DOPunchScale(new Vector3(0.08f, -0.15f, 0.08f), 0.32f, 10, 1f).SetEase(Ease.OutQuad);
+                    onChildSettled();
                 });
 
                 var rend  = child.GetComponentInChildren<Renderer>();
@@ -385,9 +396,10 @@ public class DraggablePiece : MonoBehaviour
 
             // 1. Çizgileri kontrol et; merge animasyonu bittikten sonra kazanma bildir
             //    onComplete lambda: merge bitti → GameManager'a sinyal ver (win panel açılır)
+            GameManager.Instance?.BeginBlockingAnimation();
             var (cleared, bonusLines) = grid.CheckAndClearLines(onComplete: () =>
             {
-                GameManager.Instance?.OnMergeAnimationComplete();
+                GameManager.Instance?.EndBlockingAnimation();
             });
 
             // 2. Puan ve kazanma kontrolü (merge animasyonu başladıysa win panel ertelenir)
