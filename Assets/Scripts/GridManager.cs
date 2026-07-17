@@ -1152,14 +1152,24 @@ public class GridManager : MonoBehaviour
                     Vector3 targetPos = layerCenter + ballOffset;
 
                     block.transform.DOMove(targetPos, ballDuration).SetEase(Ease.OutBack);
-                    // Bloklar birbirine daha sıkı/dolgun görünsün diye hafifçe büyütülür
-                    block.transform.DOScale(block.transform.localScale * 1.2f, ballDuration).SetEase(Ease.OutBack);
 
-                    // Dışarıya doğru baksınlar (küresel yönelim)
-                    Vector3 lookDir = ballOffset.normalized;
-                    if (lookDir == Vector3.zero) lookDir = Vector3.forward;
-                    Quaternion targetRot = Quaternion.LookRotation(lookDir, Vector3.up);
-                    block.transform.DORotateQuaternion(targetRot, ballDuration).SetEase(Ease.OutBack);
+                    // Prefilled bloklar (isim: "Prefilled_...") hayvan mesh'i değil, merkezi olmayan
+                    // pivot'lu düz bir kutu (+ içine gizlenmiş ghost hayvan çocuğu) — hayvanlar için
+                    // tasarlanmış "dışa bak + büyüt" küresel yönelimi bu kutuları döndürünce içiçe
+                    // geçmiş/bozuk görünüyordu. Prefilled bloklar kendi orijinal rotasyon ve
+                    // ölçeğinde, sadece küme pozisyonuna taşınır.
+                    bool isPrefilled = block.name.StartsWith("Prefilled_");
+                    if (!isPrefilled)
+                    {
+                        // Bloklar birbirine daha sıkı/dolgun görünsün diye hafifçe büyütülür
+                        block.transform.DOScale(block.transform.localScale * 1.2f, ballDuration).SetEase(Ease.OutBack);
+
+                        // Dışarıya doğru baksınlar (küresel yönelim)
+                        Vector3 lookDir = ballOffset.normalized;
+                        if (lookDir == Vector3.zero) lookDir = Vector3.forward;
+                        Quaternion targetRot = Quaternion.LookRotation(lookDir, Vector3.up);
+                        block.transform.DORotateQuaternion(targetRot, ballDuration).SetEase(Ease.OutBack);
+                    }
                 }
 
                 // Toplanma animasyonunun bitmesini bekle, sonra hayvanları (artık top haldeyken) kancaya bağla

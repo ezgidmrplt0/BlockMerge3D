@@ -380,7 +380,9 @@ public class DraggablePiece : MonoBehaviour
                 child.DORotateQuaternion(targetWorldRotFinal, duration).SetEase(Ease.OutBack);
 
                 Transform finalChild = child;
-                child.DOScale(Vector3.one, duration).SetEase(Ease.OutBack).OnComplete(() =>
+                // Ezgi: hücreye tam oturmuş görünmesi için yerleşim sonrası ölçek hücre
+                // boyutunun biraz üzerinde (+0.1) tutuluyor.
+                child.DOScale(Vector3.one * 1.1f, duration).SetEase(Ease.OutBack).OnComplete(() =>
                 {
                     // Yerleştiğinde tatmin edici esneme/sıkışma etkisi
                     finalChild.DOPunchScale(new Vector3(0.08f, -0.15f, 0.08f), 0.32f, 10, 1f).SetEase(Ease.OutQuad);

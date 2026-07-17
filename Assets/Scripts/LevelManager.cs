@@ -440,14 +440,16 @@ public class LevelManager : MonoBehaviour
     }
 
     /// <summary>Bir küp hücresinin kendi görselinin yerine belirtilen türün 3D modelini ekler ve
-    /// hücrenin ortasına hizalar (bkz. ApplySpeciesVisual, ApplyTargetGhost).
-    /// ghostCube=false (normal parçalar): küp tamamen görünmez yapılır — parça zaten oyuncunun
-    /// elinde/tahtada gerçek bir obje, "hedef ipucu" değil.
-    /// ghostCube=true (prefilled hedef hücreleri): küpü TAMAMEN kaldırmak hayvanın havada asılı
-    /// kalmış gibi görünmesine yol açıyordu (ızgaraya bağlayan hiçbir şey kalmıyordu). Bunun
-    /// yerine küpü, çevresindeki diğer hedef hücreler gibi yarı saydam "ghost" görünümünde
-    /// bırakıyoruz; "bu hücre dolu" bilgisini artık düz renk yerine üstündeki hayvan veriyor.</summary>
-    private void AttachSpeciesVisual(Transform cubeTransform, GameObject speciesPrefab, bool ghostCube = false)
+    /// hücrenin ortasına hizalar (bkz. ApplySpeciesVisual, ApplyTargetGhost). Küp (normal parça da,
+    /// prefilled hedef hücresi de) tamamen görünmez yapılır — hücrede sadece hayvan görünür.
+    /// targetCell verilirse (prefilled hedef hücreleri): hayvan, GridManager.CellToWorld ile
+    /// GERÇEK grid hücresinin merkezine yerleştirilir — parçalar yerleştirilirken kullanılan
+    /// AYNI (kanıtlanmış doğru) konumlandırma. Küpün kendi mesh bounds'undan/rotasyonundan
+    /// türetilen ortalama denemeleri (şekil aracının Cube_/Prefilled_ örneklerine bastığı rastgele
+    /// rotasyon yüzünden) hayvanı hücrenin dışına fırlatıyordu — bkz. eski AttachSpeciesVisual.
+    /// targetCell verilmezse (elde/tahtada olan normal parça): küpün kendi mesh bounds'una göre
+    /// ortalanır (bu obje henüz sabit bir grid hücresine bağlı değil, serbestçe sürükleniyor).</summary>
+    private void AttachSpeciesVisual(Transform cubeTransform, GameObject speciesPrefab, Vector3Int? targetCell = null)
     {
         if (speciesPrefab == null) return;
 
@@ -456,22 +458,31 @@ public class LevelManager : MonoBehaviour
         // renderer'ın enabled durumunu her karede takip ediyor (RendererVisibilityMirror), böylece
         // katman gizlenince hayvan da gizlenir.
         var cubeRenderers = cubeTransform.GetComponentsInChildren<Renderer>();
-        if (ghostCube && ghostTargetMaterial != null)
+
+        // Hayvan modelinin kendi pivot-taban mesafesini (pivotu ayakta mı, gövde merkezinde mi —
+        // türden türe değişir), HERHANGİ bir parent/rotasyon etkisi olmadan, ayrı/temiz bir
+        // "probe" örnek üzerinde ölçüyoruz. Bu ölçüm parent'tan tamamen bağımsız olduğu için
+        // targetCell verilmeyen (elde/tahtada sürüklenen) parçalarda LOCAL bir ofset olarak
+        // uygulanabilir — bkz. aşağıdaki else dalı.
+        float pivotToBottom = 0f;
         {
-            foreach (var rend in cubeRenderers)
+            GameObject probe = Instantiate(speciesPrefab);
+            probe.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            probe.transform.localScale = Vector3.one;
+            var probeRenderers = probe.GetComponentsInChildren<Renderer>();
+            if (probeRenderers != null && probeRenderers.Length > 0)
             {
-                var mats = new Material[rend.sharedMaterials.Length];
-                for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
-                rend.sharedMaterials = mats;
+                Bounds probeBounds = probeRenderers[0].bounds;
+                for (int j = 1; j < probeRenderers.Length; j++) probeBounds.Encapsulate(probeRenderers[j].bounds);
+                pivotToBottom = -probeBounds.min.y;
             }
+            Destroy(probe);
         }
-        else
+
+        foreach (var rend in cubeRenderers)
         {
-            foreach (var rend in cubeRenderers)
-            {
-                var mf = rend.GetComponent<MeshFilter>();
-                if (mf != null) mf.sharedMesh = null;
-            }
+            var mf = rend.GetComponent<MeshFilter>();
+            if (mf != null) mf.sharedMesh = null;
         }
 
         GameObject speciesVisual = Instantiate(speciesPrefab, cubeTransform);
@@ -488,17 +499,41 @@ public class LevelManager : MonoBehaviour
             mirror.source = cubeRenderers[0];
         }
 
-        // Center the bounds of the animal inside the grid cell
-        var renderers = speciesVisual.GetComponentsInChildren<Renderer>();
-        if (renderers != null && renderers.Length > 0)
+        // FaceCamera bir sonraki LateUpdate'te WORLD rotasyonunu kameraya bakacak şekilde EZECEK —
+        // ölçüm/konumlandırmayı, küpün rastgele rotasyonundan değil, nihai (dik) rotasyondan
+        // bağımsız şekilde yapalım diye burada da sıfırlıyoruz.
+        speciesVisual.transform.rotation = Quaternion.identity;
+
+        if (targetCell.HasValue && GridManager.Instance != null)
         {
-            Bounds bounds = renderers[0].bounds;
-            for (int j = 1; j < renderers.Length; j++)
+            // Prefilled hedef hücreleri: küp bir daha ASLA dönmeyecek (statik level parçası),
+            // bu yüzden dünya-uzayında, GridManager.CellToWorld ile (parçalar yerleştirilirken
+            // kullanılan AYNI, kanıtlanmış metod) bir kerelik konumlandırma yeterli ve doğru.
+            Vector3 cellCenter = GridManager.Instance.CellToWorld(targetCell.Value);
+            float cellFloorY = cellCenter.y - GridManager.Instance.CellSize * 0.5f;
+            speciesVisual.transform.position = cellCenter;
+
+            var animalRenderers = speciesVisual.GetComponentsInChildren<Renderer>();
+            if (animalRenderers != null && animalRenderers.Length > 0)
             {
-                bounds.Encapsulate(renderers[j].bounds);
+                Bounds animalBounds = animalRenderers[0].bounds;
+                for (int j = 1; j < animalRenderers.Length; j++) animalBounds.Encapsulate(animalRenderers[j].bounds);
+                speciesVisual.transform.position += Vector3.up * (cellFloorY - animalBounds.min.y);
             }
-            Vector3 centerOffset = bounds.center - speciesVisual.transform.position;
-            speciesVisual.transform.localPosition = -speciesVisual.transform.parent.InverseTransformVector(centerOffset);
+        }
+        else
+        {
+            // Elde/tahtada sürüklenen normal parça: küp, yerleştirme anında (bkz.
+            // DraggablePiece.EndDrag) DORotateQuaternion ile YENİDEN döndürülüyor — dünya-uzayı
+            // bir ofset ölçüp bir kerelik uygulasak, küp o dönüşten SONRA hayvanı yanlış yöne
+            // taşımış olurdu (sürüklerken doğru, bıraktığında yanlış görünmesinin sebebi buydu).
+            // Bunun yerine SAF bir LOCAL ofset kullanıyoruz: küpün pivotu bir hücrenin merkezinde
+            // kabul edilip (CellSize/2 aşağısı taban), hayvanın kendi pivot-taban mesafesi
+            // (yukarıda temiz bir probe ile ölçüldü) buna göre telafi ediliyor. LOCAL uzayda
+            // tanımlandığı için küp SONRADAN dönse/taşınsa bile hayvan onunla birlikte doğru
+            // şekilde hareket eder.
+            float halfCell = GridManager.Instance != null ? GridManager.Instance.CellSize * 0.5f : 0.5f;
+            speciesVisual.transform.localPosition = new Vector3(0f, -halfCell + pivotToBottom, 0f);
         }
     }
 
@@ -927,7 +962,7 @@ public class LevelManager : MonoBehaviour
                 // indekslemeyi kullanır — bu yüzden her prefilled hücre kendi türüne uygun hayvanı
                 // otomatik gösterir (sabit tek bir tür yerine).
                 if (pieceSpeciesPrefabs != null && nameMatIdx >= 0 && nameMatIdx < pieceSpeciesPrefabs.Length)
-                    AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[nameMatIdx], ghostCube: true);
+                    AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[nameMatIdx], cell);
             }
             else if (cubeName.StartsWith("Cube_"))
             {
@@ -976,7 +1011,7 @@ public class LevelManager : MonoBehaviour
                         GridManager.Instance.SetCellMatIndex(cellF, matIdx);
 
                         if (pieceSpeciesPrefabs != null && matIdx >= 0 && matIdx < pieceSpeciesPrefabs.Length)
-                            AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[matIdx], ghostCube: true);
+                            AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[matIdx], cellF);
                     }
                 }
                 else // Normal hedef (Ghost)
