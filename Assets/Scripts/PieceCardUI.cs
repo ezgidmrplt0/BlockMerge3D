@@ -223,10 +223,23 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
             draggable.InitializeForCard();
         }
 
-        // Boyut ölçümü yapabilmek için geçici olarak varsayılan değerlere çekiyoruz
+        // SpeciesVisual (hayvan modeli) üzerindeki FaceCamera, her karede kendi rotasyonunu
+        // Camera.main'e göre ezer — bu da kartın kendi (previewCam tabanlı) üstten-görünüm
+        // rotasyon numarasıyla çakışıp hayvanın kutu içinde yanlış/kaymış görünmesine yol açar.
+        // Kart önizlemesindeyken devre dışı bırakıyoruz; doğru yön aşağıda previewCam'e göre elle
+        // ayarlanıyor, parça tekrar sürüklenince FaceCamera geri açılır.
+        foreach (var fc in piece3D.GetComponentsInChildren<FaceCamera>(true))
+            fc.enabled = false;
+
         piece3D.transform.position   = Vector3.zero;
-        piece3D.transform.rotation   = Quaternion.identity;
         piece3D.transform.localScale = Vector3.one;
+
+        // ÖNEMLİ SIRALAMA: kök rotasyonunu (kartın "tam tepeden" görünüm numarası) ve hayvanın
+        // previewCam'e dönük yüzünü, sınır (bounds) hesaplamasından ÖNCE, son/kalıcı haliyle
+        // uyguluyoruz. Bunlar bounds hesabından SONRA değişirse (eskiden olduğu gibi), o anda
+        // merkezlenen içerik yeniden kayar — tam olarak "pozisyonlar kaydı" hatasına yol açan buydu.
+        piece3D.transform.rotation = ComputeCardRootRotation();
+        FaceSpeciesVisualsToPreviewCam();
 
         // Yerel mesh sınırlarını hesaplıyoruz (World-space bounds ilk karede hatalı/stale olduğu için)
         Bounds localBounds = CalculateLocalBounds(piece3D);
@@ -236,6 +249,32 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         if (localVisualRadius < 0.001f) localVisualRadius = 1f;
 
         UpdatePiecePositionAndRotation();
+    }
+
+    /// <summary>Kartın kök rotasyonu — previewCam'e göre "tam tepeden" görünüm efekti verir.</summary>
+    private Quaternion ComputeCardRootRotation()
+    {
+        if (previewCam == null) return Quaternion.identity;
+
+        float elev = 90f; // Katman görünümü gibi tam tepeden
+        float azim = 0f;  // Dümdüz, yatay rotasyon yok
+        Quaternion baseIso = Quaternion.Euler(elev, azim, 0f);
+        return previewCam.transform.rotation * Quaternion.Inverse(baseIso);
+    }
+
+    /// <summary>SpeciesVisual çocuklarının previewCam'e dönük (dik, kamerayı gören) durmasını sağlar.</summary>
+    private void FaceSpeciesVisualsToPreviewCam()
+    {
+        if (piece3D == null || previewCam == null) return;
+
+        Vector3 camForward = previewCam.transform.forward;
+        camForward.y = 0f;
+        if (camForward.sqrMagnitude < 0.001f) return;
+        camForward.Normalize();
+        Quaternion faceRot = Quaternion.LookRotation(camForward, Vector3.up);
+
+        foreach (var fc in piece3D.GetComponentsInChildren<FaceCamera>(true))
+            fc.transform.rotation = faceRot;
     }
 
     private void UpdatePiecePositionAndRotation()
@@ -261,10 +300,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
             Vector3 center = previewCam.transform.position + previewCam.transform.forward * depth;
 
-            float elev = 90f; // Katman görünümü gibi tam tepeden
-            float azim = 0f;  // Dümdüz, yatay rotasyon yok
-            Quaternion baseIso   = Quaternion.Euler(elev, azim, 0f);
-            Quaternion targetRot = previewCam.transform.rotation * Quaternion.Inverse(baseIso);
+            Quaternion targetRot = ComputeCardRootRotation();
 
             piece3D.transform.rotation   = targetRot;
             piece3D.transform.position   = center - (targetRot * localVisualCenter * scale);

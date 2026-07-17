@@ -435,32 +435,70 @@ public class LevelManager : MonoBehaviour
         foreach (Transform child in piece.transform)
         {
             if (!child.name.StartsWith("Cube_")) continue;
+            AttachSpeciesVisual(child, speciesPrefab);
+        }
+    }
 
-            foreach (var rend in child.GetComponentsInChildren<Renderer>())
+    /// <summary>Bir küp hücresinin kendi görselinin yerine belirtilen türün 3D modelini ekler ve
+    /// hücrenin ortasına hizalar (bkz. ApplySpeciesVisual, ApplyTargetGhost).
+    /// ghostCube=false (normal parçalar): küp tamamen görünmez yapılır — parça zaten oyuncunun
+    /// elinde/tahtada gerçek bir obje, "hedef ipucu" değil.
+    /// ghostCube=true (prefilled hedef hücreleri): küpü TAMAMEN kaldırmak hayvanın havada asılı
+    /// kalmış gibi görünmesine yol açıyordu (ızgaraya bağlayan hiçbir şey kalmıyordu). Bunun
+    /// yerine küpü, çevresindeki diğer hedef hücreler gibi yarı saydam "ghost" görünümünde
+    /// bırakıyoruz; "bu hücre dolu" bilgisini artık düz renk yerine üstündeki hayvan veriyor.</summary>
+    private void AttachSpeciesVisual(Transform cubeTransform, GameObject speciesPrefab, bool ghostCube = false)
+    {
+        if (speciesPrefab == null) return;
+
+        // Küpün kendi renderer'ının .enabled durumu GridManager.RefreshLayerVisibility tarafından
+        // sürekli yönetiliyor (katman gizle/göster, panel reset vb.) — SpeciesVisual da AYNI
+        // renderer'ın enabled durumunu her karede takip ediyor (RendererVisibilityMirror), böylece
+        // katman gizlenince hayvan da gizlenir.
+        var cubeRenderers = cubeTransform.GetComponentsInChildren<Renderer>();
+        if (ghostCube && ghostTargetMaterial != null)
+        {
+            foreach (var rend in cubeRenderers)
             {
-                rend.enabled = false;
+                var mats = new Material[rend.sharedMaterials.Length];
+                for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
+                rend.sharedMaterials = mats;
             }
-
-            GameObject speciesVisual = Instantiate(speciesPrefab, child);
-            speciesVisual.name = "SpeciesVisual";
-            speciesVisual.transform.localPosition = Vector3.zero;
-            speciesVisual.transform.localRotation = Quaternion.identity;
-            speciesVisual.transform.localScale = Vector3.one;
-            foreach (var col in speciesVisual.GetComponentsInChildren<Collider>()) col.enabled = false;
-            speciesVisual.AddComponent<FaceCamera>();
-
-            // Center the bounds of the animal inside the grid cell
-            var renderers = speciesVisual.GetComponentsInChildren<Renderer>();
-            if (renderers != null && renderers.Length > 0)
+        }
+        else
+        {
+            foreach (var rend in cubeRenderers)
             {
-                Bounds bounds = renderers[0].bounds;
-                for (int j = 1; j < renderers.Length; j++)
-                {
-                    bounds.Encapsulate(renderers[j].bounds);
-                }
-                Vector3 centerOffset = bounds.center - speciesVisual.transform.position;
-                speciesVisual.transform.localPosition = -speciesVisual.transform.parent.InverseTransformVector(centerOffset);
+                var mf = rend.GetComponent<MeshFilter>();
+                if (mf != null) mf.sharedMesh = null;
             }
+        }
+
+        GameObject speciesVisual = Instantiate(speciesPrefab, cubeTransform);
+        speciesVisual.name = "SpeciesVisual";
+        speciesVisual.transform.localPosition = Vector3.zero;
+        speciesVisual.transform.localRotation = Quaternion.identity;
+        speciesVisual.transform.localScale = Vector3.one;
+        foreach (var col in speciesVisual.GetComponentsInChildren<Collider>()) col.enabled = false;
+        speciesVisual.AddComponent<FaceCamera>();
+
+        if (cubeRenderers.Length > 0)
+        {
+            var mirror = speciesVisual.AddComponent<RendererVisibilityMirror>();
+            mirror.source = cubeRenderers[0];
+        }
+
+        // Center the bounds of the animal inside the grid cell
+        var renderers = speciesVisual.GetComponentsInChildren<Renderer>();
+        if (renderers != null && renderers.Length > 0)
+        {
+            Bounds bounds = renderers[0].bounds;
+            for (int j = 1; j < renderers.Length; j++)
+            {
+                bounds.Encapsulate(renderers[j].bounds);
+            }
+            Vector3 centerOffset = bounds.center - speciesVisual.transform.position;
+            speciesVisual.transform.localPosition = -speciesVisual.transform.parent.InverseTransformVector(centerOffset);
         }
     }
 
@@ -841,9 +879,11 @@ public class LevelManager : MonoBehaviour
             
             if (cubeName.StartsWith("Prefilled_"))
             {
-                // "Prefilled_matIdx_x_y_z" formatından koordinatları oku
+                // "Prefilled_matIdx_x_y_z" formatından türü (matIdx) ve koordinatları oku
                 var parts = cubeName.Split('_');
-                
+                int nameMatIdx = -1;
+                if (parts.Length >= 2) int.TryParse(parts[1], out nameMatIdx);
+
                 // GridManager'a kaydet
                 var holder = shape.GetComponent<CubeShapeDataHolder>();
                 float step = holder != null ? holder.cellSize + holder.spacing : 1f;
@@ -882,6 +922,12 @@ public class LevelManager : MonoBehaviour
                     int matIdx = FindMaterialIndex(prefilledMat);
                     GridManager.Instance.SetCellMatIndex(cell, matIdx);
                 }
+
+                // İsimde kodlanmış tür (nameMatIdx), pieceMaterials/pieceSpeciesPrefabs ile AYNI
+                // indekslemeyi kullanır — bu yüzden her prefilled hücre kendi türüne uygun hayvanı
+                // otomatik gösterir (sabit tek bir tür yerine).
+                if (pieceSpeciesPrefabs != null && nameMatIdx >= 0 && nameMatIdx < pieceSpeciesPrefabs.Length)
+                    AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[nameMatIdx], ghostCube: true);
             }
             else if (cubeName.StartsWith("Cube_"))
             {
@@ -920,11 +966,17 @@ public class LevelManager : MonoBehaviour
                     }
 
                     GridManager.Instance.occupiedCells.Add(cellF);
+                    // Bu eski formatta isimde matIdx kodlanmadığı için, rengin eşleştiği
+                    // materyalin (pieceMaterials'daki) indeksini tür seçimi için de kullanıyoruz —
+                    // pieceMaterials/pieceSpeciesPrefabs aynı indekslemeyi paylaşır.
                     if (prefilledMat != null)
                     {
                         GridManager.Instance.SetCellColor(cellF, GridManager.GetMaterialColor(prefilledMat));
                         int matIdx = FindMaterialIndex(prefilledMat);
                         GridManager.Instance.SetCellMatIndex(cellF, matIdx);
+
+                        if (pieceSpeciesPrefabs != null && matIdx >= 0 && matIdx < pieceSpeciesPrefabs.Length)
+                            AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[matIdx], ghostCube: true);
                     }
                 }
                 else // Normal hedef (Ghost)

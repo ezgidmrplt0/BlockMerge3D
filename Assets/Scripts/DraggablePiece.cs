@@ -67,6 +67,11 @@ public class DraggablePiece : MonoBehaviour
         if (grid == null) grid = GridManager.Instance;
         if (grid == null) return;
 
+        // Kart önizlemesinde PieceCardUI tarafından kapatılan FaceCamera'yı geri aç —
+        // artık gerçek oyun kamerasına göre yüzünü döndürmesi gerekiyor.
+        foreach (var fc in GetComponentsInChildren<FaceCamera>(true))
+            fc.enabled = true;
+
         // Orijinal spawn rotasyonunu koru!
         currentRotation = InitialRotation;
         visualCells     = RotateCellsNoShift(holder.occupiedCells, currentRotation);
