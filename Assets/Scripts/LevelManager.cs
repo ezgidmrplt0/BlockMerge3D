@@ -482,7 +482,15 @@ public class LevelManager : MonoBehaviour
         foreach (var rend in cubeRenderers)
         {
             var mf = rend.GetComponent<MeshFilter>();
-            if (mf != null) mf.sharedMesh = null;
+            if (mf == null) continue;
+
+            // targetCell varsa (prefilled hücre) mesh'i null'lamadan ÖNCE sakla — buz erirken bu
+            // hücre grup halinde yok edilirse (bkz. GridManager.RestoreAsGhostTarget), kutuyu
+            // tekrar bir ghost hedef olarak göstermek için orijinal mesh'e geri ihtiyacımız var.
+            if (targetCell.HasValue && mf.sharedMesh != null)
+                GridManager.Instance?.CacheOriginalPrefilledMesh(targetCell.Value, mf.sharedMesh);
+
+            mf.sharedMesh = null;
         }
 
         GameObject speciesVisual = Instantiate(speciesPrefab, cubeTransform);
@@ -928,27 +936,39 @@ public class LevelManager : MonoBehaviour
                     Mathf.RoundToInt(lp.y / step),
                     Mathf.RoundToInt(lp.z / step));
                 
-                // prefilledColors'dan doğru rengi al
                 Material prefilledMat = null;
                 int pfIndex = holder?.prefilledCells != null ? holder.prefilledCells.IndexOf(cell) : -1;
-                
-                if (pfIndex >= 0 && holder.prefilledColors != null && pfIndex < holder.prefilledColors.Count)
+
+                // ASIL KAYNAK: nameMatIdx (isme gömülü tür) zaten pieceMaterials/pieceSpeciesPrefabs
+                // ile AYNI indekslemeyi kullanıyor (bkz. aşağıdaki AttachSpeciesVisual notu) — bu
+                // yüzden görsel (hangi hayvan gösterilecek) ile oyun mantığının (cellMatIndex, buz
+                // erime/grup eşleşmesi) AYNI türü göstermesi için ikisi de nameMatIdx'ten türetilmeli.
+                // Önceden burada renk-yakınlığı (FindClosestMaterial) kullanılıyordu; bu, editörde
+                // seçilen ham renk pieceMaterials[nameMatIdx]'in rengiyle tam örtüşmediğinde görseldeki
+                // hayvan ile cellMatIndex'in FARKLI türleri işaret etmesine yol açıyordu (ör. ekranda
+                // tür-4 hayvanı görünürken cellMatIndex tür-3'e set ediliyordu, bu yüzden aynı türden
+                // bir parça bile hiç eşleşmiyordu).
+                if (nameMatIdx >= 0 && pieceMaterials != null && nameMatIdx < pieceMaterials.Length && pieceMaterials[nameMatIdx] != null)
                 {
+                    prefilledMat = pieceMaterials[nameMatIdx];
+                }
+                else if (pfIndex >= 0 && holder.prefilledColors != null && pfIndex < holder.prefilledColors.Count)
+                {
+                    // Fallback: nameMatIdx yok/geçersizse (eski/bozuk veri), en yakın renge göre bul.
                     Color targetColor = holder.prefilledColors[pfIndex];
-                    // pieceMaterials'dan en yakın rengi bul
                     prefilledMat = FindClosestMaterial(targetColor);
                 }
-                
+
                 if (prefilledMat == null)
                     prefilledMat = pieceMaterials != null && pieceMaterials.Length > 0 ? pieceMaterials[0] : null;
-                
+
                 if (prefilledMat != null)
                 {
                     var mats = new Material[r.sharedMaterials.Length];
                     for (int i = 0; i < mats.Length; i++) mats[i] = prefilledMat;
                     r.sharedMaterials = mats;
                 }
-                
+
                 GridManager.Instance.occupiedCells.Add(cell);
                 if (prefilledMat != null)
                 {
@@ -982,14 +1002,14 @@ public class LevelManager : MonoBehaviour
                 {
                     // prefilledColors'dan doğru rengi al
                     Material prefilledMat = null;
-                    
+
                     if (holderF?.prefilledColors != null && pfListIdx < holderF.prefilledColors.Count)
                     {
                         Color targetColor = holderF.prefilledColors[pfListIdx];
                         // pieceMaterials'dan en yakın rengi bul
                         prefilledMat = FindClosestMaterial(targetColor);
                     }
-                    
+
                     if (prefilledMat == null)
                         prefilledMat = pieceMaterials?.Length > 0 ? pieceMaterials[0] : null;
 

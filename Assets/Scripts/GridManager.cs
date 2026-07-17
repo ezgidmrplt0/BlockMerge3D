@@ -563,7 +563,33 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset);
+        // Patlatılan katman en üstteki dolu katman değilse (oyuncu katmanları sırasıyla
+        // değil de örn. önce en alttakini tamamladıysa), kanca inip çıkarken hâlâ dolu
+        // olan üst katmanların (ve boş hedef/ghost hücrelerinin) içinden geçer. Bunlar
+        // geçiş süresince geçici olarak gizlenir (bkz. AnimateLayerDisappear) ki kanca
+        // içlerinden "klip" görünmeden geçsin; fiziksel bir sorun yok (yerleştirilmiş
+        // bloklarda Collider zaten devre dışı, Rigidbody hiç yok), sadece görsel bir düzeltme.
+        List<Renderer> renderersAboveClearedLayer = new List<Renderer>();
+        foreach (var kvp in cellObjects)
+        {
+            if (kvp.Key.y <= clearedY || kvp.Value == null) continue;
+            var r = kvp.Value.GetComponentInChildren<Renderer>();
+            if (r != null) renderersAboveClearedLayer.Add(r);
+        }
+        foreach (var kvp in prefilledRenderers)
+        {
+            if (kvp.Key.y > clearedY && kvp.Value != null)
+                renderersAboveClearedLayer.Add(kvp.Value);
+        }
+        // Boş hedef/ghost hücre küpleri de (henüz doldurulmamış grid kılavuzları) kancanın
+        // geçtiği üst katmanlarda görünür durumdaysa aynı şekilde geçici olarak gizlenir.
+        foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Key.y > clearedY && kvp.Value != null)
+                renderersAboveClearedLayer.Add(kvp.Value);
+        }
+
+        AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset, renderersAboveClearedLayer);
 
         // --- MANTIKSAL ÇÖKME (LOGICAL COLLAPSE) ---
         var newAllShapeCells = new HashSet<Vector3Int>();
@@ -1029,7 +1055,7 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset)
+    private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset, List<Renderer> renderersToFadeDuringPass = null)
     {
         if (container == null) return;
 
@@ -1054,6 +1080,35 @@ public class GridManager : MonoBehaviour
             if (sensor == null) sensor = claw.AddComponent<ClawTouchSensor>();
             var clawCollider = claw.GetComponent<Collider>();
             if (clawCollider != null) clawCollider.isTrigger = true;
+
+            // Kancanın iniş/çıkış sırasında içinden geçeceği üst katman blokları için
+            // geçici gizleme durumu (bkz. ExplodeLayer çağrı noktası). Blok materyalleri
+            // Opaque (_Surface: 0, One/Zero blend) olduğundan _BaseColor/_Color alfası
+            // GPU tarafından tamamen yok sayılıyor — property block ile saydamlaştırma
+            // hiçbir görsel etki yapmıyordu. Bunun yerine, materyalden bağımsız kesin
+            // çalışan bir yöntem olan transform scale ile küçültüp gizliyoruz.
+            List<(Transform t, Vector3 originalScale)> passFadeState = null;
+            if (renderersToFadeDuringPass != null && renderersToFadeDuringPass.Count > 0)
+            {
+                passFadeState = new List<(Transform, Vector3)>();
+                foreach (var fr in renderersToFadeDuringPass)
+                {
+                    if (fr == null) continue;
+                    passFadeState.Add((fr.transform, fr.transform.localScale));
+                }
+            }
+
+            const float passFadeDuration = 0.18f;
+
+            void SetPassFade(float t) // t: 0 = orijinal boyut, 1 = tamamen küçülmüş/gizli
+            {
+                if (passFadeState == null) return;
+                foreach (var (tr, originalScale) in passFadeState)
+                {
+                    if (tr == null) continue;
+                    tr.localScale = Vector3.Lerp(originalScale, Vector3.zero, t);
+                }
+            }
 
             // Kancanın pivot kaymasını otomatik hesapla — GERÇEK yakalama noktası (Collider'ın
             // merkezi, kancanın ucuna göre konumlandırılmıştır) referans alınır. Önceden tüm
@@ -1184,7 +1239,11 @@ public class GridManager : MonoBehaviour
 
                 // Kancayı yavaşça yukarı (aboveTargetPos) geri çek (1.2 saniye) — hayvanlar
                 // küçülüp solmadan, kancaya SABİTLENMİŞ haldeyken olduğu gibi taşınır.
+                // Bu hareket de üst katmanların içinden geçer, saydamlık iniş boyunca sürer.
                 seq2.Append(claw.transform.DOMove(aboveTargetPos, 1.2f).SetEase(Ease.InOutQuad));
+
+                // Kanca artık üst katmanların üstünde/dışında (aboveTargetPos) — saydamlığı geri al.
+                seq2.AppendCallback(() => DOVirtual.Float(1f, 0f, passFadeDuration, SetPassFade).SetEase(Ease.InQuad));
 
                 // Kancayı başlangıç konumuna (clawStartPos) geri götür (0.5 saniye)
                 seq2.Append(claw.transform.DOMove(clawStartPos, 0.5f).SetEase(Ease.InOutQuad));
@@ -1220,6 +1279,8 @@ public class GridManager : MonoBehaviour
             {
                 // 2. İniş: kancanın ucundaki Collider bloklara GERÇEKTEN değene kadar aşağı in.
                 // Değme anında (OnTouchOrTimeout) tween erken kesilir ve kanca olduğu yerde durur.
+                // İniş üst katmanların içinden geçeceği için, o katmanlar geçiş boyunca saydamlaşır.
+                DOVirtual.Float(0f, 1f, passFadeDuration, SetPassFade).SetEase(Ease.OutQuad);
                 sensor.Arm(blocks, OnTouchOrTimeout);
                 descendTween = claw.transform.DOMove(overshootTargetPos, 1.2f)
                     .SetEase(Ease.InOutQuad)
@@ -2086,6 +2147,18 @@ public class GridManager : MonoBehaviour
         }
     }
 
+    // AttachSpeciesVisual (LevelManager.cs) tarafından prefilled hücrelere eklenen hayvan
+    // modelinin (çocuk, "SpeciesVisual") ekleneceği ANDA sakladığı orijinal kutu mesh'i —
+    // AttachSpeciesVisual, kutu+hayvan çakışıp çift görünmesin diye kutunun kendi MeshFilter'ını
+    // null'lar; bu hücre daha sonra RestoreAsGhostTarget ile ghost'a döndürülürken kutuya
+    // GERİ mesh verebilmek için burada tutuluyor (bkz. CacheOriginalPrefilledMesh).
+    private Dictionary<Vector3Int, Mesh> prefilledOriginalMesh = new Dictionary<Vector3Int, Mesh>();
+
+    public void CacheOriginalPrefilledMesh(Vector3Int cell, Mesh mesh)
+    {
+        if (mesh != null) prefilledOriginalMesh[cell] = mesh;
+    }
+
     // Bir Renderer'ı (var olan bir hedef ghost'u ya da patlamış bir prefilled küpü) normal,
     // boş "hedef" (ghost) hücre görünümüne döndürür ve targetRenderers'a kaydeder. Prefilled
     // hücrelerde Initialize() hiç ayrı bir ghost objesi üretmediği için, o hücredeki küp
@@ -2094,6 +2167,20 @@ public class GridManager : MonoBehaviour
     private void RestoreAsGhostTarget(Vector3Int cell, Renderer rend)
     {
         if (rend == null) return;
+
+        // Hayvan modeli çocuğunu (varsa) yok et — aksi halde kutu ghost'a dönüştürülse bile
+        // ayrı bir Renderer'a sahip bu çocuk görsel olarak yerinde kalmaya devam ediyordu.
+        var speciesVisual = rend.transform.Find("SpeciesVisual");
+        if (speciesVisual != null) Object.Destroy(speciesVisual.gameObject);
+
+        // Kutunun mesh'i AttachSpeciesVisual tarafından null'lanmış olabilir (bkz. yukarıdaki
+        // not) — materyal değişikliğinin görünür olması için geri veriyoruz.
+        var meshFilter = rend.GetComponent<MeshFilter>();
+        if (meshFilter != null && meshFilter.sharedMesh == null &&
+            prefilledOriginalMesh.TryGetValue(cell, out Mesh originalMesh))
+        {
+            meshFilter.sharedMesh = originalMesh;
+        }
 
         rend.transform.localScale = Vector3.one * CellSize;
         rend.enabled = true;
