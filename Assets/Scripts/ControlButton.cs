@@ -10,25 +10,52 @@ public class ControlButton : MonoBehaviour
     [Tooltip("Basma animasyonu uygulanacak buton kapağı (ControlButtonFbx child'ı)")]
     public Transform buttonCap;
 
-    public float pressDepth = 0.05f;
+    [Header("Joker UI Settings")]
+    [Tooltip("Joker kullanıldığında yok olacak olan şimşek/joker görsel ikonu")]
+    public GameObject jokerIcon;
+
+    [Header("Movement Settings")]
+    [Tooltip("Buton kapağının basıldığındaki yerel kayma miktarı ve yönü (Ebeveyn koordinat sisteminde). Z ekseni derinliktir; eksi değerler içeri basılmayı, artı değerler dışarı çıkmayı temsil eder (Örn: X:0, Y:0, Z:-0.003).")]
+    public Vector3 pressOffset = new Vector3(0, 0, -0.003f);
     public float pressDuration = 0.08f;
     public float releaseDuration = 0.18f;
 
+    [Header("Tactile Click Settings")]
+    [Tooltip("Basma anında buton kapağının kendi Y ekseninde (yükseklik) ne kadar ezileceği (örn. 0.90)")]
+    public float pressSquashY = 0.9f;
+    [Tooltip("Basma anında buton kapağının kendi X ve Z eksenlerinde (genişlik) ne kadar esneyeceği (örn. 1.05)")]
+    public float pressStretchXZ = 1.05f;
+
+    [Header("Easing Settings")]
+    public Ease pressEase = Ease.OutQuad;
+    public Ease releaseEase = Ease.OutBack;
+
     private Camera mainCam;
     private Vector3 restLocalPosition;
+    private Vector3 originalScale;
     private bool isPressed;
 
     private void Awake()
     {
         mainCam = Camera.main;
-        if (buttonCap != null) restLocalPosition = buttonCap.localPosition;
+        if (buttonCap != null)
+        {
+            restLocalPosition = buttonCap.localPosition;
+            originalScale = buttonCap.localScale;
+        }
     }
 
     private void Update()
     {
         if (!isPressed)
         {
-            if (Input.GetMouseButtonDown(0) && HitsSelf(Input.mousePosition)) Press();
+            if (Input.GetMouseButtonDown(0) && HitsSelf(Input.mousePosition))
+            {
+                if (LevelManager.Instance == null || LevelManager.Instance.CanUseJoker)
+                {
+                    Press();
+                }
+            }
         }
         else if (Input.GetMouseButtonUp(0))
         {
@@ -50,15 +77,68 @@ public class ControlButton : MonoBehaviour
     {
         if (buttonCap == null) return;
         isPressed = true;
-        DOTween.Kill(buttonCap);
-        buttonCap.DOLocalMove(restLocalPosition - Vector3.up * pressDepth, pressDuration).SetEase(Ease.OutCubic);
+        
+        buttonCap.DOKill();
+        
+        // Doğrudan ebeveyn (parent) yerel uzayında hareket ettiriyoruz.
+        // Bu sayede Inspector'daki Z değeri doğrudan derinliği (içeri/dışarı) kontrol eder.
+        buttonCap.DOLocalMove(restLocalPosition + pressOffset, pressDuration).SetEase(pressEase);
+        
+        // Ezilme-büzülme (Squash & Stretch) efekti ile tıklama hissini güçlendiriyoruz
+        Vector3 targetScale = new Vector3(
+            originalScale.x * pressStretchXZ, 
+            originalScale.y * pressSquashY, 
+            originalScale.z * pressStretchXZ
+        );
+        buttonCap.DOScale(targetScale, pressDuration).SetEase(pressEase);
+
+        // Şimşek ikonunu animasyonlu bir şekilde küçülterek yok et
+        if (jokerIcon != null)
+        {
+            jokerIcon.transform.DOKill();
+            jokerIcon.transform.DOScale(Vector3.zero, 0.25f)
+                .SetEase(Ease.InBack)
+                .OnComplete(() => jokerIcon.SetActive(false));
+        }
+
+        // Joker fonksiyonu: Son yerleştirilen parçayı yok eder
+        LevelManager.Instance?.UndoLastPlace();
     }
 
     private void Release()
     {
         isPressed = false;
         if (buttonCap == null) return;
-        DOTween.Kill(buttonCap);
-        buttonCap.DOLocalMove(restLocalPosition, releaseDuration).SetEase(Ease.OutBack);
+        
+        buttonCap.DOKill();
+        
+        // Yaylanarak eski konumuna geri dönme
+        buttonCap.DOLocalMove(restLocalPosition, releaseDuration).SetEase(releaseEase);
+        buttonCap.DOScale(originalScale, releaseDuration).SetEase(releaseEase);
+    }
+
+    /// <summary>
+    /// LevelManager tarafından yeni seviyeye geçildiğinde veya seviye sıfırlandığında çağrılır.
+    /// Jokeri ve şimşek ikonunu sıfırlayıp animasyonlu bir şekilde geri getirir.
+    /// </summary>
+    public void ResetJoker()
+    {
+        isPressed = false;
+        
+        if (jokerIcon != null)
+        {
+            jokerIcon.transform.DOKill();
+            jokerIcon.SetActive(true);
+            jokerIcon.transform.localScale = Vector3.zero;
+            // Pop-up scale animasyonu ile geri getir
+            jokerIcon.transform.DOScale(Vector3.one, 0.4f).SetEase(Ease.OutBack);
+        }
+
+        if (buttonCap != null)
+        {
+            buttonCap.DOKill();
+            buttonCap.localPosition = restLocalPosition;
+            buttonCap.localScale = originalScale;
+        }
     }
 }

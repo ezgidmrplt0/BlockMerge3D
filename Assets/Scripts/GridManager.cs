@@ -733,6 +733,33 @@ public class GridManager : MonoBehaviour
         }
     }
 
+    public void RemoveCellAnimated(Vector3Int cell, float delay)
+    {
+        occupiedCells.Remove(cell);
+        cellColors.Remove(cell);
+        cellMatIndex.Remove(cell);
+
+        if (cellObjects.TryGetValue(cell, out var go))
+        {
+            cellObjects.Remove(cell);
+            if (go != null)
+            {
+                DOTween.Kill(go.transform);
+                go.transform.DOScale(Vector3.zero, 0.25f)
+                    .SetEase(Ease.InBack)
+                    .SetDelay(delay)
+                    .OnComplete(() => {
+                        if (go != null) Destroy(go);
+                    });
+            }
+        }
+
+        if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+        {
+            r.enabled = true;
+        }
+    }
+
     public (int cleared, int bonusLines) CheckAndClearLines(System.Action onComplete = null)
     {
         if (!lineClearEnabled) { onComplete?.Invoke(); return (0, 0); }
@@ -2028,39 +2055,12 @@ public class GridManager : MonoBehaviour
         new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
     };
 
-    // Aynı türden (cellMatIndex) 3 veya daha fazla hücre, yan yana VEYA üst üste (6 yönlü
-    // komşuluk) birbirine bağlıysa o gruba "parıldama" efekti (SparkleEffect) verir. Parça
-    // yerleştirildikten sonra ve katman patladıktan/çöktükten sonra çağrılmalı ki gruplar
-    // güncel kalsın (bağlantı koptuğunda ilgili bloklardaki parıldama otomatik durur).
+    // Aynı türden (cellMatIndex) 3 veya daha fazla hücre birbirine bağlandığında oluşan
+    // parıldama/parlama (SparkleEffect) efekti özelliği kaldırıldı.
+    // Bu fonksiyon artık sadece var olan eski parıldama efektlerini durdurup temizler.
     public void RefreshSpeciesSparkle()
     {
-        var shouldSparkle = new HashSet<Vector3Int>();
-        var visited = new HashSet<Vector3Int>();
-
-        foreach (var cell in occupiedCells)
-        {
-            if (visited.Contains(cell)) continue;
-            if (!cellMatIndex.TryGetValue(cell, out int species) || species < 0)
-            {
-                visited.Add(cell);
-                continue;
-            }
-
-            var group = FloodFillSameSpecies(cell, species, SixDirNeighbors);
-            visited.UnionWith(group);
-
-            if (group.Count > 2)
-            {
-                shouldSparkle.UnionWith(group);
-            }
-        }
-
-        // Artık nitelik taşımayan hücrelerdeki parıldamayı durdur
-        var toStop = new List<Vector3Int>();
-        foreach (var cell in sparklingCells)
-        {
-            if (!shouldSparkle.Contains(cell)) toStop.Add(cell);
-        }
+        var toStop = new List<Vector3Int>(sparklingCells);
         foreach (var cell in toStop)
         {
             sparklingCells.Remove(cell);
@@ -2073,18 +2073,6 @@ public class GridManager : MonoBehaviour
                     Object.Destroy(sp);
                 }
             }
-        }
-
-        // Yeni nitelik kazanan hücrelerde parıldamayı başlat
-        foreach (var cell in shouldSparkle)
-        {
-            if (sparklingCells.Contains(cell)) continue;
-            if (!cellObjects.TryGetValue(cell, out var go) || go == null) continue;
-
-            sparklingCells.Add(cell);
-            var sp = go.GetComponent<SparkleEffect>();
-            if (sp == null) sp = go.AddComponent<SparkleEffect>();
-            sp.Begin();
         }
     }
 

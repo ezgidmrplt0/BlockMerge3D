@@ -24,6 +24,7 @@ public class DraggablePiece : MonoBehaviour
     private bool isDragging;
     private bool isPlaced;
     private Vector3Int placedOffset;
+    public Vector3Int PlacedOffset => placedOffset;
     private Vector3 dragOffset3D;
     private Plane dragPlane;
 

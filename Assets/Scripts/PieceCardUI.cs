@@ -228,57 +228,12 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         piece3D.transform.rotation   = Quaternion.identity;
         piece3D.transform.localScale = Vector3.one;
 
-        // Merkezi, mesh'in ham sınır kutusu (renderer bounds) yerine parçanın MANTIKSAL grid
-        // ayak izinden (hücre indekslerinden) hesaplıyoruz. Sebep: ördek gagası/kuyruğu gibi
-        // hücre sınırını aşan görsel çıkıntılar mesh AABB merkezini bir yöne kaydırıyor ve
-        // parça kartın içinde "kaymış" görünüyordu; hücre tabanlı merkez şekil ne olursa olsun
-        // her zaman simetrik/tutarlı kalır.
-        Vector3? cellBasedCenter = null;
-        if (draggable != null && draggable.CurrentCells != null && draggable.CurrentCells.Count > 0)
-        {
-            var cells = draggable.CurrentCells;
-            int minX = cells.Min(c => c.x), maxX = cells.Max(c => c.x);
-            int minY = cells.Min(c => c.y), maxY = cells.Max(c => c.y);
-            int minZ = cells.Min(c => c.z), maxZ = cells.Max(c => c.z);
-            float step = GridManager.Instance != null ? GridManager.Instance.Step : 1f;
-            cellBasedCenter = new Vector3(
-                (minX + maxX + 1) * 0.5f,
-                (minY + maxY + 1) * 0.5f,
-                (minZ + maxZ + 1) * 0.5f) * step;
-        }
+        // Yerel mesh sınırlarını hesaplıyoruz (World-space bounds ilk karede hatalı/stale olduğu için)
+        Bounds localBounds = CalculateLocalBounds(piece3D);
+        localVisualCenter = localBounds.center;
+        localVisualRadius = localBounds.extents.magnitude;
 
-        // Yarıçapı yine mesh sınırlarından hesaplıyoruz ki gaga/kuyruk gibi uçlar karttan
-        // taşmasın — ama YENİ (hücre tabanlı) merkeze göre, eski mesh merkezine göre değil.
-        var renderers = piece3D.GetComponentsInChildren<Renderer>();
-        if (renderers.Length > 0)
-        {
-            Bounds b = renderers[0].bounds;
-            foreach (var r in renderers) b.Encapsulate(r.bounds);
-
-            Vector3 center = cellBasedCenter ?? b.center;
-            localVisualCenter = piece3D.transform.InverseTransformPoint(center);
-
-            float maxDist = 0f;
-            for (int xi = 0; xi < 2; xi++)
-            for (int yi = 0; yi < 2; yi++)
-            for (int zi = 0; zi < 2; zi++)
-            {
-                Vector3 corner = new Vector3(
-                    xi == 0 ? b.min.x : b.max.x,
-                    yi == 0 ? b.min.y : b.max.y,
-                    zi == 0 ? b.min.z : b.max.z);
-                maxDist = Mathf.Max(maxDist, Vector3.Distance(corner, center));
-            }
-            localVisualRadius = maxDist;
-            if (localVisualRadius < 0.001f) localVisualRadius = 1f;
-        }
-        else
-        {
-            localVisualCenter = cellBasedCenter.HasValue
-                ? piece3D.transform.InverseTransformPoint(cellBasedCenter.Value)
-                : Vector3.zero;
-            localVisualRadius = 1f;
-        }
+        if (localVisualRadius < 0.001f) localVisualRadius = 1f;
 
         UpdatePiecePositionAndRotation();
     }
@@ -301,7 +256,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
                 float halfFov = previewCam.fieldOfView * 0.5f * Mathf.Deg2Rad;
                 viewH = 2f * depth * Mathf.Tan(halfFov);
             }
-            float scale   = (viewH * 0.70f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
+            // Görseli daha büyük ve belirgin yapmak için ölçek oranını 0.70f'ten 0.80f'e çıkardık
+            float scale   = (viewH * 0.80f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
 
             Vector3 center = previewCam.transform.position + previewCam.transform.forward * depth;
 
@@ -309,8 +265,6 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
             float azim = 0f;  // Dümdüz, yatay rotasyon yok
             Quaternion baseIso   = Quaternion.Euler(elev, azim, 0f);
             Quaternion targetRot = previewCam.transform.rotation * Quaternion.Inverse(baseIso);
-
-
 
             piece3D.transform.rotation   = targetRot;
             piece3D.transform.position   = center - (targetRot * localVisualCenter * scale);
@@ -338,7 +292,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
             Camera.main.ScreenToWorldPoint(new Vector3(0f, 0f,     depth2)),
             Camera.main.ScreenToWorldPoint(new Vector3(0f, screenH, depth2)));
 
-        float scale2 = (worldH * 0.65f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
+        float scale2 = (worldH * 0.80f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
 
         float elev2 = 90f; // Katman görünümü gibi tam tepeden
         float azim2 = 0f;  // Dümdüz, yatay rotasyon yok
@@ -350,6 +304,98 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         piece3D.transform.localScale = Vector3.one * scale2;
 
         if (draggable != null) draggable.HomePosition = piece3D.transform.position;
+    }
+
+    private static Bounds CalculateLocalBounds(GameObject obj)
+    {
+        Bounds bounds = new Bounds(Vector3.zero, Vector3.zero);
+        bool hasBounds = false;
+        
+        var renderers = obj.GetComponentsInChildren<Renderer>();
+        Transform parentTransform = obj.transform;
+
+        foreach (var r in renderers)
+        {
+            if (r is MeshRenderer || r is SkinnedMeshRenderer)
+            {
+                Bounds rendererLocalBounds;
+                var mf = r.GetComponent<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null)
+                {
+                    rendererLocalBounds = mf.sharedMesh.bounds;
+                }
+                else
+                {
+                    // Fallback
+                    rendererLocalBounds = r.bounds;
+                    Vector3 localCenter = obj.transform.InverseTransformPoint(r.bounds.center);
+                    Vector3 localSize = obj.transform.InverseTransformVector(r.bounds.size);
+                    Bounds tempB = new Bounds(localCenter, localSize);
+                    if (!hasBounds)
+                    {
+                        bounds = tempB;
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(tempB);
+                    }
+                    continue;
+                }
+
+                // Ebeveyn uzayına dönüşüm matrisini yerel TRS (TRS = Translation, Rotation, Scale)
+                // matrislerini çarparak elde ediyoruz. Dünya koordinatlarına çıkmadığımız için
+                // Unity'nin ilk karedeki 'stale/gecikmeli' transform eşitleme hatasından etkilenmez.
+                Matrix4x4 localMatrix = GetLocalToParentMatrix(r.transform, parentTransform);
+                
+                Vector3 center = rendererLocalBounds.center;
+                Vector3 extents = rendererLocalBounds.extents;
+                Vector3[] corners = new Vector3[8]
+                {
+                    center + new Vector3(-extents.x, -extents.y, -extents.z),
+                    center + new Vector3(extents.x, -extents.y, -extents.z),
+                    center + new Vector3(-extents.x, extents.y, -extents.z),
+                    center + new Vector3(extents.x, extents.y, -extents.z),
+                    center + new Vector3(-extents.x, -extents.y, extents.z),
+                    center + new Vector3(extents.x, -extents.y, extents.z),
+                    center + new Vector3(-extents.x, extents.y, extents.z),
+                    center + new Vector3(extents.x, extents.y, extents.z)
+                };
+
+                foreach (var corner in corners)
+                {
+                    Vector3 parentLocalCorner = localMatrix.MultiplyPoint3x4(corner);
+                    if (!hasBounds)
+                    {
+                        bounds = new Bounds(parentLocalCorner, Vector3.zero);
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(parentLocalCorner);
+                    }
+                }
+            }
+        }
+
+        if (!hasBounds)
+        {
+            bounds = new Bounds(Vector3.zero, Vector3.one);
+        }
+        return bounds;
+    }
+
+    private static Matrix4x4 GetLocalToParentMatrix(Transform child, Transform parent)
+    {
+        Matrix4x4 mat = Matrix4x4.identity;
+        Transform curr = child;
+        while (curr != null && curr != parent)
+        {
+            Matrix4x4 localMat = Matrix4x4.TRS(curr.localPosition, curr.localRotation, curr.localScale);
+            mat = localMat * mat;
+            curr = curr.parent;
+        }
+        return mat;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -38,7 +38,7 @@ public class ControlStick : MonoBehaviour
     {
         if (!isDragging)
         {
-            if (Input.GetMouseButtonDown(0) && HitsSelf(Input.mousePosition))
+            if (Input.GetMouseButtonDown(0) && !HitsPieceOrButton(Input.mousePosition))
                 BeginDrag(Input.mousePosition);
         }
         else if (Input.GetMouseButtonUp(0))
@@ -51,14 +51,35 @@ public class ControlStick : MonoBehaviour
         }
     }
 
-    private bool HitsSelf(Vector3 screenPos)
+    private bool HitsPieceOrButton(Vector3 screenPos)
     {
+        // UI Check
+        if (UnityEngine.EventSystems.EventSystem.current != null &&
+            UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+        {
+            return true;
+        }
+
+        // Raycast Check
         if (mainCam == null) mainCam = Camera.main;
         if (mainCam == null) return false;
 
         Ray ray = mainCam.ScreenPointToRay(screenPos);
-        return Physics.Raycast(ray, out RaycastHit hit) &&
-               (hit.transform == transform || hit.transform.IsChildOf(transform));
+        if (Physics.Raycast(ray, out RaycastHit hit))
+        {
+            // Parçalara veya butonlara dokunulduysa döndürmeyi engelle
+            if (hit.transform.GetComponentInParent<DraggablePiece>() != null)
+                return true;
+
+            if (hit.transform.GetComponentInParent<ControlButton>() != null)
+                return true;
+
+            // Kart/Slot veya benzeri etkileşimli nesnelerin isim bazlı kontrolü
+            if (hit.transform.name.Contains("Card") || hit.transform.name.Contains("Slot"))
+                return true;
+        }
+
+        return false;
     }
 
     private void BeginDrag(Vector3 screenPos)

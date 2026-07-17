@@ -28,6 +28,8 @@ public class LevelManager : MonoBehaviour
     public GameObject ActiveMainPiece => activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
     private List<GameObject> placedPieces = new List<GameObject>();
+    private bool isJokerUsedThisLevel = false;
+    public bool CanUseJoker => !isJokerUsedThisLevel && placedPieces != null && placedPieces.Count > 0;
     private GridManager gridManager;
     private Material ghostTargetMat;
 
@@ -714,8 +716,44 @@ public class LevelManager : MonoBehaviour
         return false;
     }
 
+    public void UndoLastPlace()
+    {
+        if (!CanUseJoker) return;
+        isJokerUsedThisLevel = true;
+
+        GameObject lastPieceObj = placedPieces[placedPieces.Count - 1];
+        placedPieces.RemoveAt(placedPieces.Count - 1);
+
+        DraggablePiece piece = lastPieceObj.GetComponent<DraggablePiece>();
+        if (piece != null)
+        {
+            Vector3Int offset = piece.PlacedOffset;
+            var cells = piece.CurrentCells;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                Vector3Int gridCell = cells[i] + offset;
+                gridManager?.RemoveCellAnimated(gridCell, i * 0.05f);
+            }
+
+            // Animasyonlar tamamlandıktan sonra ana parça nesnesini yok et
+            Destroy(lastPieceObj, cells.Count * 0.05f + 0.3f);
+        }
+        else
+        {
+            Destroy(lastPieceObj);
+        }
+    }
+
     public void ClearCurrentLevel()
     {
+        isJokerUsedThisLevel = false;
+
+        var controlButtons = FindObjectsOfType<ControlButton>();
+        foreach (var btn in controlButtons)
+        {
+            if (btn != null) btn.ResetJoker();
+        }
+
         gridManager?.ClearAllCellObjects();
         if (activeMainPiece != null)
         {
