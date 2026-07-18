@@ -617,10 +617,12 @@ public class LevelManager : MonoBehaviour
 
             if (gridManager.IsLayerComplete(placedLayerY))
             {
+                gridManager.IsExplodingLayer = true;
                 if (lpc != null)
                 {
                     lpc.ClosePanel(() =>
                     {
+                        lpc.SetButtonsVisible(false);
                         gridManager.ExplodeLayer(placedLayerY,
                             onLayerComplete: () => {
                                 lpc.BuildLayerButtons();

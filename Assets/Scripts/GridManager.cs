@@ -46,6 +46,7 @@ public class GridManager : MonoBehaviour
     private void Awake() { Instance = this; }
 
     public int ActiveLayerY { get; private set; }
+    public bool IsExplodingLayer { get; set; }
 
     public void SetActiveLayer(int y)
     {
@@ -62,6 +63,7 @@ public class GridManager : MonoBehaviour
         CellSize = cellSize;
         Spacing  = spacing;
         Origin   = origin;
+        IsExplodingLayer = false;
         occupiedCells.Clear();
         targetCells.Clear();
         allShapeCells.Clear();
@@ -257,6 +259,8 @@ public class GridManager : MonoBehaviour
             isPanelMode = true;
         }
 
+        bool applyScale = !IsExplodingLayer;
+
         // Hedef (ghost) renderer'ları kontrol et
         foreach (var kvp in targetRenderers)
         {
@@ -269,12 +273,12 @@ public class GridManager : MonoBehaviour
                     if (cell.y == ActiveLayerY)
                     {
                         r.enabled = true;
-                        r.transform.localScale = Vector3.one * CellSize;
+                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                     }
                     else if (cell.y < ActiveLayerY)
                     {
                         r.enabled = true;
-                        r.transform.localScale = Vector3.one * CellSize;
+                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                     }
                     else
                     {
@@ -284,7 +288,7 @@ public class GridManager : MonoBehaviour
                 else
                 {
                     r.enabled = true; // 3D modunda hepsi görünür
-                    r.transform.localScale = Vector3.one * CellSize;
+                    if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                 }
 
                 // Hücre gerçek (opak) bir parça ile doluysa hedef/ghost küpünü TAMAMEN gizle.
@@ -341,7 +345,7 @@ public class GridManager : MonoBehaviour
                     if (cell.y == ActiveLayerY)
                     {
                         r.enabled = true;
-                        r.transform.localScale = Vector3.one * CellSize;
+                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                         
                         r.GetPropertyBlock(PropBlock);
                         Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
@@ -353,7 +357,7 @@ public class GridManager : MonoBehaviour
                     else if (cell.y < ActiveLayerY)
                     {
                         r.enabled = true;
-                        r.transform.localScale = Vector3.one * CellSize;
+                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                         
                         r.GetPropertyBlock(PropBlock);
                         Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
@@ -370,7 +374,7 @@ public class GridManager : MonoBehaviour
                 else
                 {
                     r.enabled = true; // 3D modunda hepsi görünür
-                    r.transform.localScale = Vector3.one * CellSize;
+                    if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                     
                     r.GetPropertyBlock(PropBlock);
                     Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
@@ -393,7 +397,7 @@ public class GridManager : MonoBehaviour
                     if (cell.y == ActiveLayerY)
                     {
                         cube.SetActive(true);
-                        cube.transform.localScale = Vector3.one * CellSize;
+                        if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
                         
                         Renderer r = cube.GetComponentInChildren<Renderer>();
                         if (r != null)
@@ -409,7 +413,7 @@ public class GridManager : MonoBehaviour
                     else if (cell.y < ActiveLayerY)
                     {
                         cube.SetActive(true);
-                        cube.transform.localScale = Vector3.one * CellSize;
+                        if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
                         
                         Renderer r = cube.GetComponentInChildren<Renderer>();
                         if (r != null)
@@ -430,7 +434,7 @@ public class GridManager : MonoBehaviour
                 else
                 {
                     cube.SetActive(true);
-                    cube.transform.localScale = Vector3.one * CellSize;
+                    if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
                     
                     Renderer r = cube.GetComponentInChildren<Renderer>();
                     if (r != null)
@@ -524,6 +528,7 @@ public class GridManager : MonoBehaviour
     public void CancelLevelAnimations()
     {
         DOTween.Kill(LEVEL_ANIM_ID);
+        IsExplodingLayer = false;
 
         // Kanca kalıcı bir sahne nesnesi — tween'lerini öldürüp evine yolluyoruz.
         GameObject claw = GameObject.Find("Claw");
@@ -555,6 +560,7 @@ public class GridManager : MonoBehaviour
 
     public void ExplodeLayer(int layerY, System.Action onLayerComplete, System.Action onLevelComplete)
     {
+        IsExplodingLayer = true;
         // Bu patlama seviyedeki SON katmanı mı temizliyor? (Şekilde bu katmandan başka
         // hücre kalmamışsa evet.) Öyleyse süreyi HEMEN durdur: kanca + çökme animasyonu
         // ~3.65 sn sürüyor ve bu süre içinde sayaç dolarsa kazanılmış seviyede fail
@@ -693,9 +699,9 @@ public class GridManager : MonoBehaviour
 
         // Katman tamamlandığı o an tebrik yazısını fırlat (ekrana fırlatma efektiyle) ve ekranı sars
         UIManager.Instance?.PlayFloatingPraise(center);
-        CameraOrbit.Instance?.Shake(0.35f, 0.25f);
+        CameraOrbit.Instance?.Shake(0.22f, 0.1f);
 
-        AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset, renderersAboveClearedLayer);
+        AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset, renderersAboveClearedLayer, clearedY);
 
         // --- MANTIKSAL ÇÖKME (LOGICAL COLLAPSE) ---
         var newAllShapeCells = new HashSet<Vector3Int>();
@@ -769,36 +775,37 @@ public class GridManager : MonoBehaviour
         if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
         if (claw != null)
         {
-            collapseDelay = 3.65f; // Yavaşlatılmış kanca animasyonunun bitmesini bekle (EN KÖTÜ durum/üst sınır:
-            // Hizalama: 0.5s, İnme: 1.2s [Collider teması erken tetiklenirse daha kısa sürebilir],
-            // Değme anı toplanma: 0.45s + 0.15s bekleme, Çıkma: 1.2s + ufak ara)
+            collapseDelay = 3.65f;
         }
 
-        foreach (var kvp in cellObjects)
+        if (claw == null)
         {
-            if (kvp.Key.y >= clearedY) // Önceden > clearedY idi, artık 1 azaldıkları için >= clearedY oldu
+            foreach (var kvp in cellObjects)
             {
-                var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
+                if (kvp.Key.y >= clearedY) // Önceden > clearedY idi, artık 1 azaldıkları için >= clearedY oldu
+                {
+                    var t = kvp.Value.transform;
+                    t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
+                }
             }
-        }
 
-        foreach (var kvp in targetRenderers)
-        {
-            if (kvp.Key.y >= clearedY)
+            foreach (var kvp in targetRenderers)
             {
-                var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
+                if (kvp.Key.y >= clearedY)
+                {
+                    var t = kvp.Value.transform;
+                    t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
+                }
             }
-        }
 
-        // Prefilled blokları da görsel olarak aşağı kaydır
-        foreach (var kvp in prefilledRenderers)
-        {
-            if (kvp.Key.y >= clearedY)
+            // Prefilled blokları da görsel olarak aşağı kaydır
+            foreach (var kvp in prefilledRenderers)
             {
-                var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
+                if (kvp.Key.y >= clearedY)
+                {
+                    var t = kvp.Value.transform;
+                    t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
+                }
             }
         }
 
@@ -814,8 +821,10 @@ public class GridManager : MonoBehaviour
             // Win paneli, katmanın görsel çökme/kanca animasyonu (collapseDelay + 0.45s hareket)
             // bitmeden açılmasın — önceden burada anında tetikleniyordu ve 3.65s'lik kanca
             // animasyonunun üzerine hemen biniyordu.
-            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => onLevelComplete?.Invoke())
-                .SetId(LEVEL_ANIM_ID);
+            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => {
+                IsExplodingLayer = false;
+                onLevelComplete?.Invoke();
+            }).SetId(LEVEL_ANIM_ID);
         }
         else
         {
@@ -839,7 +848,11 @@ public class GridManager : MonoBehaviour
             // ActiveLayerY < clearedY: değişmez.
 
             RefreshLayerVisibility();
-            onLayerComplete?.Invoke();
+            
+            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => {
+                IsExplodingLayer = false;
+                onLayerComplete?.Invoke();
+            }).SetId(LEVEL_ANIM_ID);
         }
     }
 
@@ -1162,7 +1175,7 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset, List<Renderer> renderersToFadeDuringPass = null)
+    private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset, List<Renderer> renderersToFadeDuringPass = null, int clearedY = -1)
     {
         if (container == null) return;
 
@@ -1352,6 +1365,10 @@ public class GridManager : MonoBehaviour
                     {
                         if (block != null) block.transform.SetParent(claw.transform, true);
                     }
+                    if (Instance != null && clearedY != -1)
+                    {
+                        Instance.SlideDownRemainingLayers(clearedY);
+                    }
                 });
 
                 // Kancayı yavaşça yukarı (aboveTargetPos) geri çek (1.2 saniye) — hayvanlar
@@ -1392,12 +1409,13 @@ public class GridManager : MonoBehaviour
             }
 
             // 1. Kancayı yatay olarak hedef katmanın ÜSTÜNE getir (0.5 saniye)
+            // İniş sırasında üst katmanların içinden geçileceği için, bu katmanları hemen/hareket başlar başlamaz küçültüyoruz
+            DOVirtual.Float(0f, 1f, passFadeDuration, SetPassFade).SetEase(Ease.OutQuad);
+
             claw.transform.DOMove(aboveTargetPos, 0.5f).SetEase(Ease.InOutQuad).OnComplete(() =>
             {
                 // 2. İniş: kancanın ucundaki Collider bloklara GERÇEKTEN değene kadar aşağı in.
                 // Değme anında (OnTouchOrTimeout) tween erken kesilir ve kanca olduğu yerde durur.
-                // İniş üst katmanların içinden geçeceği için, o katmanlar geçiş boyunca saydamlaşır.
-                DOVirtual.Float(0f, 1f, passFadeDuration, SetPassFade).SetEase(Ease.OutQuad);
                 sensor.Arm(blocks, OnTouchOrTimeout);
                 descendTween = claw.transform.DOMove(overshootTargetPos, 1.2f)
                     .SetEase(Ease.InOutQuad)
@@ -1650,6 +1668,7 @@ public class GridManager : MonoBehaviour
     // CanPlaceOnLayer ve LevelManager.CanShapeFitAnyOpenLayer.
     public bool CanPlace(List<Vector3Int> cells, Vector3Int offset)
     {
+        if (IsExplodingLayer) return false;
         foreach (var c in cells)
         {
             var g = c + offset;
@@ -2580,6 +2599,36 @@ public class GridManager : MonoBehaviour
                 if (r != null && r.material != null) Destroy(r.material);
                 Destroy(shard);
             });
+        }
+    }
+
+    private void SlideDownRemainingLayers(int clearedY)
+    {
+        foreach (var kvp in cellObjects)
+        {
+            if (kvp.Key.y >= clearedY)
+            {
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
+            }
+        }
+
+        foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Key.y >= clearedY)
+            {
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
+            }
+        }
+
+        foreach (var kvp in prefilledRenderers)
+        {
+            if (kvp.Key.y >= clearedY)
+            {
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
+            }
         }
     }
 }

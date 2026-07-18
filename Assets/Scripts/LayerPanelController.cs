@@ -179,6 +179,8 @@ public class LayerPanelController : MonoBehaviour
     {
         if (isTransitioning || cam == null || grid == null) return;
         if (cam.IsInPanelMode && grid.ActiveLayerY == layerY) return;
+        if (grid.IsExplodingLayer) return;
+        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
         isTransitioning = true;
         TutorialEvents.RaiseLayerOpened();
@@ -224,8 +226,11 @@ public class LayerPanelController : MonoBehaviour
         cam.ReturnTo3D(() =>
         {
             isTransitioning = false;
-            SetButtonsVisible(true);
-            RefreshButtonColors();
+            if (grid != null && !grid.IsExplodingLayer)
+            {
+                SetButtonsVisible(true);
+                RefreshButtonColors();
+            }
             if (grid != null) grid.RefreshLayerVisibility();
             onComplete?.Invoke();
         });
@@ -265,9 +270,14 @@ public class LayerPanelController : MonoBehaviour
         }
     }
 
-    private void SetButtonsVisible(bool visible)
+    public void SetButtonsVisible(bool visible)
     {
         foreach (var b in layerButtons)
             if (b != null) b.gameObject.SetActive(visible);
+
+        if (!visible && backButton != null)
+        {
+            backButton.gameObject.SetActive(false);
+        }
     }
 }

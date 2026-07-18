@@ -268,6 +268,7 @@ public class CameraOrbit : MonoBehaviour
     public void SnapRotate(float direction)
     {
         if (DraggablePiece.IsDragging || DOTween.IsTweening(transform) || (IsLocked && !IsInPanelMode)) return;
+        if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return;
         targetYaw -= Mathf.Sign(direction) * 90f;
         TutorialEvents.RaiseBoardRotated();
     }

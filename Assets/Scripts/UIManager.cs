@@ -171,6 +171,7 @@ public class UIManager : MonoBehaviour
     {
         Debug.Log($"[UIManager] ShowWinPanel tetiklendi! Skor: {finalScore}");
         StopTimerPulse();
+        LayerPanelController.Instance?.SetButtonsVisible(false);
         if (winFinalScoreText) winFinalScoreText.text = $"SKOR: {finalScore}";
 
         if (winOverlay == null)
@@ -470,6 +471,7 @@ public class UIManager : MonoBehaviour
     {
         Debug.Log($"[UIManager] ShowLosePanel tetiklendi! Skor: {finalScore}");
         StopTimerPulse();
+        LayerPanelController.Instance?.SetButtonsVisible(false);
         if (loseFinalScoreText) loseFinalScoreText.text = $"SKOR: {finalScore}";
 
         if (loseOverlay == null)
@@ -558,6 +560,8 @@ public class UIManager : MonoBehaviour
     {
         if (winOverlay)  { winOverlay.alpha  = 0f; winOverlay.gameObject.SetActive(false); }
         if (loseOverlay) { loseOverlay.alpha = 0f; loseOverlay.gameObject.SetActive(false); }
+
+        LayerPanelController.Instance?.SetButtonsVisible(true);
 
         // Win Panel Temizliği
         if (winOverlay != null)
@@ -730,7 +734,7 @@ public class UIManager : MonoBehaviour
         // Rastgele tebrik kelimesi seç
         string[] praises = new string[] { "NICE!", "GREAT!", "AMAZING!", "EXCELLENT!", "PERFECT!", "AWESOME!", "SWEET!" };
         tmp.text = praises[Random.Range(0, praises.Length)];
-        tmp.fontSize = 86; // Ekranın boş alanlarında çıkacağı için boyutu daha çarpıcı yapıyoruz
+        tmp.fontSize = 58; // Ekran boyutlarına daha uyumlu olması için boyut düşürüldü
         tmp.fontStyle = FontStyles.Bold | FontStyles.Italic;
         tmp.alignment = TextAlignmentOptions.Center;
 
@@ -753,12 +757,12 @@ public class UIManager : MonoBehaviour
         seq.SetUpdate(true); // Oyun duraklatılmış olsa bile çalışır
         
         // Ekrana fırlatılıyormuş hissi: 
-        // 0.22 saniyede 0'dan 2.4 katına fırlayıp, biraz dışarı/yukarı hareket eder
-        seq.Append(rect.DOScale(2.4f, 0.22f).SetEase(Ease.OutQuad));
+        // 0.22 saniyede 0'dan 1.4 katına fırlayıp, biraz dışarı/yukarı hareket eder (titremeyi azaltmak için yumuşatıldı)
+        seq.Append(rect.DOScale(1.4f, 0.22f).SetEase(Ease.OutQuad));
         seq.Join(rect.DOAnchorPos(new Vector2((startX + endX) * 0.5f, (startY + endY) * 0.5f), 0.22f).SetEase(Ease.OutQuad));
         
-        // Sonra normal boyutunun biraz üzerine (1.2 katına) yaylanarak oturur
-        seq.Append(rect.DOScale(1.2f, 0.15f).SetEase(Ease.OutQuad));
+        // Sonra normal boyuta (1.0 katına) yaylanarak oturur
+        seq.Append(rect.DOScale(1.0f, 0.15f).SetEase(Ease.OutQuad));
         seq.Join(rect.DOAnchorPos(new Vector2(endX, endY), 0.15f).SetEase(Ease.OutQuad));
         
         // Ekranın üstünde hafifçe yükselip süzülerek kaybolma

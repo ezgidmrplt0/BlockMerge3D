@@ -40,6 +40,7 @@ public class DraggablePiece : MonoBehaviour
 
     private bool secondTouchConsumed;
     private bool isSnapped;
+    private Vector3Int lastSnapOffset;
 
     // Smooth transition from card slot variables
     private float dragLerpProgress = 1f;
@@ -66,6 +67,7 @@ public class DraggablePiece : MonoBehaviour
         if (isDragging || isPlaced) return;
         if (grid == null) grid = GridManager.Instance;
         if (grid == null) return;
+        if (grid.IsExplodingLayer) return;
 
         // Kart önizlemesinde PieceCardUI tarafından kapatılan FaceCamera'yı geri aç —
         // artık gerçek oyun kamerasına göre yüzünü döndürmesi gerekiyor.
@@ -163,6 +165,12 @@ public class DraggablePiece : MonoBehaviour
             return;
         }
 
+        if (grid != null && grid.IsExplodingLayer)
+        {
+            if (isDragging) EndDrag();
+            return;
+        }
+
         if (isDragging)
         {
             HandleDrag();
@@ -198,6 +206,7 @@ public class DraggablePiece : MonoBehaviour
     private void TryBeginDrag()
     {
         if (isPlaced) return;
+        if (grid != null && grid.IsExplodingLayer) return;
 
         Ray ray = mainCam.ScreenPointToRay(Input.mousePosition);
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
@@ -250,47 +259,23 @@ public class DraggablePiece : MonoBehaviour
         transform.rotation = Quaternion.identity;
         UpdateBoardCells();
 
+        Vector3 targetDragPos = transform.position;
         Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
-        if (dragPlane.Raycast(mouseRay, out float dist))
+        bool hasDragPlaneHit = dragPlane.Raycast(mouseRay, out float dist);
+        if (hasDragPlaneHit)
         {
-            Vector3 targetDragPos = mouseRay.GetPoint(dist) + dragOffset3D;
-
-            if (dragLerpProgress < 1f)
-            {
-                dragLerpProgress += Time.deltaTime * 7.5f; // ~130ms geçiş süresi
-                if (dragLerpProgress > 1f) dragLerpProgress = 1f;
-
-                transform.position = Vector3.Lerp(dragStartPos, targetDragPos, dragLerpProgress);
-                transform.localScale = Vector3.Lerp(Vector3.one * dragStartScale, Vector3.one, dragLerpProgress);
-            }
-            else
-            {
-                transform.position = targetDragPos;
-                
-                // Velocity-based Squash & Stretch during active dragging
-                Vector3 moveDelta = transform.position - lastPosition;
-                if (moveDelta.magnitude > 0.001f && !isSnapped)
-                {
-                    float speed = moveDelta.magnitude / Time.deltaTime;
-                    float factor = Mathf.Clamp01(speed / 15f) * 0.12f;
-                    transform.localScale = new Vector3(1f - factor * 0.5f, 1f + factor, 1f - factor * 0.5f);
-                }
-                else if (!isSnapped && !DOTween.IsTweening(transform))
-                {
-                    transform.localScale = Vector3.one;
-                }
-            }
-            lastPosition = transform.position;
+            targetDragPos = mouseRay.GetPoint(dist) + dragOffset3D;
         }
 
         // Geçiş esnasında snapping yapılmaz
         bool canSnap = dragLerpProgress >= 1f;
         Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
         bool wasSnapped = isSnapped;
+        Vector3Int snapOff = Vector3Int.zero;
 
-        if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out Vector3Int snapOff))
+        if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out snapOff))
         {
-            transform.position = grid.OffsetToRoot(snapOff);
+            lastSnapOffset = snapOff;
             isSnapped = true;
             if (!wasSnapped)
             {
@@ -309,7 +294,6 @@ public class DraggablePiece : MonoBehaviour
 
             // Görsel odak sistemi güncellemesi
             grid.UpdateVisualFocus(this, true, snapOff);
-
         }
         else
         {
@@ -326,7 +310,45 @@ public class DraggablePiece : MonoBehaviour
 
             // Görsel odak sistemi güncellemesi (snap yok)
             grid.UpdateVisualFocus(this, false, Vector3Int.zero);
+        }
 
+        // --- POSITION & SCALE SETTING ---
+        if (hasDragPlaneHit)
+        {
+            if (dragLerpProgress < 1f)
+            {
+                dragLerpProgress += Time.deltaTime * 7.5f; // ~130ms geçiş süresi
+                if (dragLerpProgress > 1f) dragLerpProgress = 1f;
+
+                transform.position = Vector3.Lerp(dragStartPos, targetDragPos, dragLerpProgress);
+                transform.localScale = Vector3.Lerp(Vector3.one * dragStartScale, Vector3.one, dragLerpProgress);
+            }
+            else
+            {
+                if (isSnapped)
+                {
+                    Vector3 targetSnapPos = grid.OffsetToRoot(snapOff);
+                    transform.position = Vector3.Lerp(transform.position, targetSnapPos, Time.deltaTime * 24f);
+                }
+                else
+                {
+                    transform.position = Vector3.Lerp(transform.position, targetDragPos, Time.deltaTime * 18f);
+
+                    // Velocity-based Squash & Stretch during active dragging
+                    Vector3 moveDelta = transform.position - lastPosition;
+                    if (moveDelta.magnitude > 0.001f)
+                    {
+                        float speed = moveDelta.magnitude / Time.deltaTime;
+                        float factor = Mathf.Clamp01(speed / 15f) * 0.12f;
+                        transform.localScale = new Vector3(1f - factor * 0.5f, 1f + factor, 1f - factor * 0.5f);
+                    }
+                    else if (!DOTween.IsTweening(transform))
+                    {
+                        transform.localScale = Vector3.one;
+                    }
+                }
+            }
+            lastPosition = transform.position;
         }
     }
 
@@ -340,6 +362,11 @@ public class DraggablePiece : MonoBehaviour
         if (grid != null) grid.ClearSnappedPreviewCells();
         if (grid != null) grid.ClearOccludingCells();
         if (grid != null) grid.StopVisualFocus(this);
+
+        if (isSnapped)
+        {
+            transform.position = grid.OffsetToRoot(lastSnapOffset);
+        }
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 
