@@ -74,3 +74,10 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Android imzalama — keystore ASLA repoya girmemeli.
+# Sızarsa uygulaman başkası tarafından imzalanabilir; kaybedersen
+# uygulamayı bir daha güncelleyemezsin. Ayrı ve yedekli bir yerde tut.
+*.keystore
+*.jks
+keystore.properties
