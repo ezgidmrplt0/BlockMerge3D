@@ -24,6 +24,7 @@ public class ButtonAnimator : MonoBehaviour, IPointerEnterHandler, IPointerExitH
             transform.localScale = originalScale;
             // Tıklama anında premium yaylanma efekti
             transform.DOPunchScale(Vector3.one * 0.12f, 0.32f, 8, 0.4f);
+            AudioManager.Instance?.PlayButtonClickSound();
         });
     }
 

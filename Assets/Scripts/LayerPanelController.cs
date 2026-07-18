@@ -49,7 +49,10 @@ public class LayerPanelController : MonoBehaviour
 
         if (backButton != null)
         {
-            backButton.onClick.AddListener(() => ClosePanel());
+            backButton.onClick.AddListener(() => {
+                AudioManager.Instance?.PlayButtonClickSound();
+                ClosePanel();
+            });
             backButton.gameObject.SetActive(false);
         }
 
@@ -139,7 +142,10 @@ public class LayerPanelController : MonoBehaviour
             tmp.fontSize = buttonFontSize;
 
             Button btn = btnObj.GetComponent<Button>();
-            btn.onClick.AddListener(() => OpenPanel(layerY));
+            btn.onClick.AddListener(() => {
+                AudioManager.Instance?.PlayButtonClickSound();
+                OpenPanel(layerY);
+            });
             layerButtons.Add(btn);
         }
 

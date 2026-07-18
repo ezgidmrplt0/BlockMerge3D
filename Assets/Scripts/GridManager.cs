@@ -2338,6 +2338,11 @@ public class GridManager : MonoBehaviour
     // / FloodFillSameSpecies).
     private IEnumerator AnimateThawAndDestroy(HashSet<Vector3Int> cellsToThaw, HashSet<Vector3Int> cellsToDestroy, System.Action onComplete)
     {
+        if (cellsToThaw != null && cellsToThaw.Count > 0)
+        {
+            AudioManager.Instance?.PlayIceMeltSound();
+        }
+
         foreach (var cell in cellsToThaw)
         {
             frozenCells.Remove(cell);

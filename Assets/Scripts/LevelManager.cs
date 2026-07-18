@@ -581,6 +581,7 @@ public class LevelManager : MonoBehaviour
         int idx = activePieces.IndexOf(piece.gameObject);
         if (idx < 0) return;
 
+        AudioManager.Instance?.PlayPlacementSound();
         TutorialEvents.RaisePiecePlaced();
 
         // İlgili kartı boşalt
