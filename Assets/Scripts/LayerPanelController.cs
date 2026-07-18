@@ -32,6 +32,16 @@ public class LayerPanelController : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
+    /// <summary>Öğretici göstergesinin (bkz. TutorialOverlay) parmağı hangi butonun
+    /// üzerine koyacağını bilmesi için: EN ALT katmanın (y=GridMinY) butonu. Butonlar
+    /// çalışma zamanında BuildLayerButtons içinde üretildiği için sahneden
+    /// referanslanamıyor. Liste alttan üste sıralı (index 0 = en alt katman = ekranın
+    /// en altındaki buton, bkz. anchoredPosition hesabı).</summary>
+    public RectTransform FirstLayerButton =>
+        layerButtons.Count > 0 && layerButtons[0] != null
+            ? layerButtons[0].transform as RectTransform
+            : null;
+
     private void Start()
     {
         grid = GridManager.Instance;
@@ -171,6 +181,7 @@ public class LayerPanelController : MonoBehaviour
         if (cam.IsInPanelMode && grid.ActiveLayerY == layerY) return;
 
         isTransitioning = true;
+        TutorialEvents.RaiseLayerOpened();
 
         float step = grid.Step;
         Vector3 layerCenter = Vector3.zero;

@@ -269,6 +269,7 @@ public class CameraOrbit : MonoBehaviour
     {
         if (DraggablePiece.IsDragging || DOTween.IsTweening(transform) || (IsLocked && !IsInPanelMode)) return;
         targetYaw -= Mathf.Sign(direction) * 90f;
+        TutorialEvents.RaiseBoardRotated();
     }
 
     private void Update()

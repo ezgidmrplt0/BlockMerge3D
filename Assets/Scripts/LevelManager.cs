@@ -77,6 +77,11 @@ public class LevelManager : MonoBehaviour
     {
         ClearCurrentLevel();
 
+        // currentLevel alanı vardı ama HİÇ atanmıyordu (yalnızca inspector'daki değer
+        // duruyordu) — seviyeye özel ayarların (bkz. randomizeSpawnRotation) doğru
+        // seviyeden okunması için burada set ediliyor.
+        currentLevel = level;
+
         // Önceki seviyeden kalan swipe döndürmesini yeni ana şekil pivot'a
         // parent'lanmadan ÖNCE nötrle (aksi halde SetParent eski açıyı telafi
         // eden bir local rotasyon kilitler ve şekil kalıcı olarak yanlış görünür).
@@ -159,6 +164,10 @@ public class LevelManager : MonoBehaviour
 
         var lpc = FindObjectOfType<LayerPanelController>();
         if (lpc != null) lpc.ResetPanel();
+
+        // Öğretici adımları (varsa) burada başlar — kartlar spawn edilip panel
+        // sıfırlandıktan SONRA, çünkü gösterge kart/buton konumlarını okuyor.
+        TutorialOverlay.Instance?.BeginForLevel(level);
     }
 
     [Header("Color Palette Settings (Material-Based)")]
@@ -211,6 +220,11 @@ public class LevelManager : MonoBehaviour
 
     private Quaternion GetRandom90DegreeRotation()
     {
+        // Öğretici seviyeler parçanın YÖNÜNÜ tasarımın parçası olarak kullanır (bkz.
+        // LevelData.randomizeSpawnRotation) — orada rastgelelik kapalıdır.
+        if (currentLevel != null && !currentLevel.randomizeSpawnRotation)
+            return Quaternion.identity;
+
         float ry = Random.Range(0, 4) * 90f;
         return Quaternion.Euler(0, ry, 0);
     }
@@ -567,6 +581,8 @@ public class LevelManager : MonoBehaviour
         int idx = activePieces.IndexOf(piece.gameObject);
         if (idx < 0) return;
 
+        TutorialEvents.RaisePiecePlaced();
+
         // İlgili kartı boşalt
         if (pieceToCard.TryGetValue(piece.gameObject, out var card))
         {
@@ -869,10 +885,21 @@ public class LevelManager : MonoBehaviour
         return false;
     }
 
+    /// <summary>Öğreticinin joker adımı jokeri TÜKETMEMELİ: joker seviye başına tek
+    /// kullanımlıktır ve oyuncunun onu asıl hata yaptığı anda elinde bulması gerekir.
+    /// Öğretici adımı tamamlanınca hakkı geri veriyoruz (bkz. TutorialOverlay).</summary>
+    public void RestoreJoker()
+    {
+        isJokerUsedThisLevel = false;
+        foreach (var btn in FindObjectsOfType<ControlButton>())
+            if (btn != null) btn.ResetJoker();
+    }
+
     public void UndoLastPlace()
     {
         if (!CanUseJoker) return;
         isJokerUsedThisLevel = true;
+        TutorialEvents.RaiseJokerUsed();
 
         GameObject lastPieceObj = placedPieces[placedPieces.Count - 1];
         placedPieces.RemoveAt(placedPieces.Count - 1);
@@ -1244,12 +1271,26 @@ public class LevelManager : MonoBehaviour
         panelGO.transform.SetParent(canvas.transform, false);
         var panelRT = panelGO.GetComponent<RectTransform>();
         
-        // Position it at the bottom-right corner of the screen (as a smaller 140x140 square card)
         panelRT.anchorMin = new Vector2(1f, 0f);
         panelRT.anchorMax = new Vector2(1f, 0f);
         panelRT.pivot = new Vector2(1f, 0f);
-        panelRT.anchoredPosition = new Vector2(-40f, 100f);
         panelRT.sizeDelta = new Vector2(140f, 140f);
+
+        // Konum, BottomPiecePanel'e GÖRELİ hesaplanır — sabit (-40, 100) değeri
+        // panel yukarı alınınca önizlemeyi aşağıda bırakıyor ve joker butonunun
+        // üstüne biniyordu. Panelin altındaki özgün boşluğu (≈152 birim) koruyoruz,
+        // böylece panel nereye taşınırsa önizleme de onunla birlikte gider.
+        const float GAP_BELOW_PANEL = 152f;
+        float previewY = 100f;
+        var bottomPanel = canvas.transform.Find("BottomPiecePanel") as RectTransform;
+        var canvasRT    = canvas.transform as RectTransform;
+        if (bottomPanel != null && canvasRT != null)
+        {
+            float panelBottom = bottomPanel.anchorMin.y * canvasRT.rect.height
+                                + bottomPanel.anchoredPosition.y;
+            previewY = Mathf.Max(20f, panelBottom - GAP_BELOW_PANEL);
+        }
+        panelRT.anchoredPosition = new Vector2(-40f, previewY);
 
         var panelImg = panelGO.AddComponent<Image>();
         panelImg.sprite = cardSprite;
