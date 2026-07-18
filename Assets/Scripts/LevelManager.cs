@@ -1548,7 +1548,7 @@ public class LevelManager : MonoBehaviour
 
         float depth = 3.5f;
         float viewH = 2f * nextPiecePreviewCam.orthographicSize;
-        float scale = (viewH * 0.70f * 0.5f) / Mathf.Max(nextPieceVisualRadius, 0.001f);
+        float scale = (viewH * 0.90f * 0.5f) / Mathf.Max(nextPieceVisualRadius, 0.001f);
 
         Vector3 center = nextPiecePreviewCam.transform.position + nextPiecePreviewCam.transform.forward * depth;
 

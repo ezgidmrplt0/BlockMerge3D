@@ -295,8 +295,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
                 float halfFov = previewCam.fieldOfView * 0.5f * Mathf.Deg2Rad;
                 viewH = 2f * depth * Mathf.Tan(halfFov);
             }
-            // Görseli daha büyük ve belirgin yapmak için ölçek oranını 0.70f'ten 0.80f'e çıkardık
-            float scale   = (viewH * 0.80f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
+            // Görseli daha büyük ve belirgin yapmak için ölçek oranını 0.80f'ten 1.00f'e çıkardık (0.2 arttırıldı)
+            float scale   = (viewH * 1.00f * 0.5f) / Mathf.Max(localVisualRadius, 0.001f);
 
             Vector3 center = previewCam.transform.position + previewCam.transform.forward * depth;
 

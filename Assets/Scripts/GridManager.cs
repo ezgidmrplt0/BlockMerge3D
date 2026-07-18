@@ -645,6 +645,10 @@ public class GridManager : MonoBehaviour
                 renderersAboveClearedLayer.Add(kvp.Value);
         }
 
+        // Katman tamamlandığı o an tebrik yazısını fırlat (ekrana fırlatma efektiyle) ve ekranı sars
+        UIManager.Instance?.PlayFloatingPraise(center);
+        CameraOrbit.Instance?.Shake(0.35f, 0.25f);
+
         AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset, renderersAboveClearedLayer);
 
         // --- MANTIKSAL ÇÖKME (LOGICAL COLLAPSE) ---

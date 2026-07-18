@@ -73,9 +73,13 @@ public class GameManager : MonoBehaviour
         blockingAnimations = 0;
         Score              = 0;
         currentTargetScore = level.targetScore;
-        totalTime          = level.timeLimit;
-        remainingTime      = level.timeLimit;
-        timerRunning       = level.timeLimit > 0f;
+
+        // Eğer seviye süresi ayarlanmamışsa (0 veya daha az ise), test edebilmeniz ve oynayabilmeniz için varsayılan olarak 60 saniye süre veriyoruz.
+        float limit = level.timeLimit > 0f ? level.timeLimit : 60f;
+        totalTime          = limit;
+        remainingTime      = limit;
+        timerRunning       = true;
+
         UIManager.Instance?.OnLevelStart(currentTargetScore, remainingTime);
     }
 
