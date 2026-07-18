@@ -71,52 +71,88 @@ public class GridManager : MonoBehaviour
 
         targetRenderers.Clear();
         prefilledRenderers.Clear();
-        float step = cellSize + spacing;
+
+        var shapeHolder = mainShape != null ? mainShape.GetComponent<CubeShapeDataHolder>() : null;
 
         if (mainShape != null)
         {
-            var holder = mainShape.GetComponent<CubeShapeDataHolder>();
-            List<Vector3Int> prefilled = holder != null && holder.prefilledCells != null
-                ? holder.prefilledCells
-                : new List<Vector3Int>();
-
             // Mantıksal grid'i yalnızca görünür Renderer'lardan kurarsak,
             // panelde gizli olan üst katmanlar hiç kaydedilmez.
             // Bu yüzden bütün hücreleri doğrudan CubeShapeDataHolder'dan alıyoruz.
             bool loadedLogicalCellsFromHolder =
-                holder != null &&
-                holder.occupiedCells != null &&
-                holder.occupiedCells.Count > 0;
+                shapeHolder != null &&
+                shapeHolder.occupiedCells != null &&
+                shapeHolder.occupiedCells.Count > 0;
 
             if (loadedLogicalCellsFromHolder)
             {
-                foreach (var cell in holder.occupiedCells)
+                foreach (var cell in shapeHolder.occupiedCells)
                 {
                     allShapeCells.Add(cell);
 
-                    if (prefilled.Contains(cell))
+                    if (shapeHolder.IsCellPrefilled(cell))
                         occupiedCells.Add(cell);
-                    
+
                     targetCells.Add(cell);
                 }
             }
 
-            // true: Kapalı/disabled çocuk Renderer'ları da bul.
-            foreach (var r in mainShape.GetComponentsInChildren<Renderer>(true))
+            // Hücre -> Renderer eşlemesi YAPIDAN kurulur (şeklin her doğrudan çocuğu bir
+            // hücredir; küp prefabı kullanılıyorsa Renderer o çocuğun altında olabilir),
+            // hücre koordinatı da o çocuğun KONUMUNDAN. Obje ismi ("Cube_x_y_z" /
+            // "Prefilled_matIdx_x_y_z") artık yalnızca holder verisi olmayan eski
+            // prefab'lar için fallback'tir — yeniden adlandırma seviyeyi bozmaz.
+            float step = shapeHolder != null ? shapeHolder.Step : cellSize + spacing;
+            if (step <= 0.0001f) step = 1f;
+
+            foreach (Transform cellRoot in mainShape.transform)
             {
+                // true: Kapalı/disabled Renderer'ları da bul.
+                var r = cellRoot.GetComponentInChildren<Renderer>(true);
                 if (r == null) continue;
 
-                string name = r.gameObject.name;
-                bool isCube = name.StartsWith("Cube_");
-                bool isPrefilled = name.StartsWith("Prefilled_");
-                if (!isCube && !isPrefilled) continue;
+                string name = cellRoot.gameObject.name;
+                bool nameIsCube      = name.StartsWith("Cube_");
+                bool nameIsPrefilled = name.StartsWith("Prefilled_");
 
-                Vector3 localPos = mainShape.transform.InverseTransformPoint(r.transform.position);
-                int x = Mathf.RoundToInt(localPos.x / step);
-                int y = Mathf.RoundToInt(localPos.y / step);
-                int z = Mathf.RoundToInt(localPos.z / step);
+                Vector3Int cell;
+                int  holderMatIdx = -1;
+                bool isPrefilled;
 
-                var cell = new Vector3Int(x, y, z);
+                if (shapeHolder != null)
+                {
+                    cell = shapeHolder.WorldToCell(cellRoot.position);
+                    // Holder'ın tanımadığı çocuklar (dekor, efekt...) hücre değildir.
+                    // Holder'da hücre listesi hiç yoksa eski isim filtresine düşülür.
+                    if (loadedLogicalCellsFromHolder)
+                    {
+                        if (!allShapeCells.Contains(cell))
+                        {
+                            // Renderer'ı olan ama holder'ın tanımadığı bir çocuk: ya dekor/efekt
+                            // (zararsız), ya da cellSize/spacing ile çocuk konumları tutmuyor
+                            // (seviye görünmez olur). Sessizce yutmak yerine uyarıyoruz.
+                            Debug.LogWarning($"[GridManager] '{cellRoot.name}' -> hücre {cell} " +
+                                $"CubeShapeDataHolder.occupiedCells içinde yok, atlanıyor. " +
+                                $"(step={step}) Şekil: {mainShape.name}", cellRoot);
+                            continue;
+                        }
+                    }
+                    else if (!nameIsCube && !nameIsPrefilled) continue;
+
+                    // Holder prefilled listesi boş olan eski prefab'larda isim hâlâ geçerli kaynak.
+                    isPrefilled = shapeHolder.TryGetPrefilledInfo(cell, out holderMatIdx, out _)
+                                  || nameIsPrefilled;
+                }
+                else
+                {
+                    if (!nameIsCube && !nameIsPrefilled) continue;
+                    Vector3 localPos = mainShape.transform.InverseTransformPoint(cellRoot.position);
+                    cell = new Vector3Int(
+                        Mathf.RoundToInt(localPos.x / step),
+                        Mathf.RoundToInt(localPos.y / step),
+                        Mathf.RoundToInt(localPos.z / step));
+                    isPrefilled = nameIsPrefilled;
+                }
 
                 // Holder verisi yoksa eski Renderer tabanlı sistemi fallback olarak kullan.
                 if (!loadedLogicalCellsFromHolder)
@@ -125,7 +161,7 @@ public class GridManager : MonoBehaviour
                     targetCells.Add(cell);
                 }
 
-                if (isPrefilled || prefilled.Contains(cell))
+                if (isPrefilled)
                 {
                     occupiedCells.Add(cell);
                     prefilledRenderers[cell] = r;
@@ -133,10 +169,17 @@ public class GridManager : MonoBehaviour
                     if (r.sharedMaterial != null)
                         cellColors[cell] = GetMaterialColor(r.sharedMaterial);
 
-                    // "Prefilled_matIdx_x_y_z" -> parse matIdx
-                    var parts = name.Split('_');
-                    if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedIdx))
-                        cellMatIndex[cell] = parsedIdx;
+                    if (holderMatIdx >= 0)
+                    {
+                        cellMatIndex[cell] = holderMatIdx;
+                    }
+                    else
+                    {
+                        // Eski veri: tür indeksi "Prefilled_matIdx_x_y_z" isminde kodlanmış.
+                        var parts = name.Split('_');
+                        if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedIdx))
+                            cellMatIndex[cell] = parsedIdx;
+                    }
                 }
                 else
                 {
@@ -145,7 +188,6 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        var shapeHolder = mainShape != null ? mainShape.GetComponent<CubeShapeDataHolder>() : null;
         if (shapeHolder != null && shapeHolder.gridSize != Vector3Int.zero)
         {
             gridMinX = 0;

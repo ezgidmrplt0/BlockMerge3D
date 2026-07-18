@@ -374,20 +374,32 @@ public class DraggablePiece : MonoBehaviour
                 child.rotation = targetWorldRotFinal * Quaternion.Euler(30f, -45f, 15f);
                 child.localScale = Vector3.one * 0.6f;
 
-                // DOTween kart atma animasyonu
+                // DOTween kart atma animasyonu.
+                // SetLink: bu küpler AŞAĞIDA grid.AddCell ile grid'e devrediliyor ve katman
+                // tamamlanırsa GridManager onları animasyon sürerken YOK EDİYOR. Link olmadan
+                // DOTween yok edilmiş Transform'a yazmaya çalışıp safe-mode hatası basıyordu.
                 float duration = 0.3f;
-                child.DOMove(targetWorldPos, duration).SetEase(Ease.OutBack);
-                child.DORotateQuaternion(targetWorldRotFinal, duration).SetEase(Ease.OutBack);
+                var childGO = child.gameObject;
+                child.DOMove(targetWorldPos, duration).SetEase(Ease.OutBack).SetLink(childGO);
+                child.DORotateQuaternion(targetWorldRotFinal, duration).SetEase(Ease.OutBack).SetLink(childGO);
 
                 Transform finalChild = child;
                 // Ezgi: hücreye tam oturmuş görünmesi için yerleşim sonrası ölçek hücre
                 // boyutunun biraz üzerinde (+0.1) tutuluyor.
-                child.DOScale(Vector3.one * 1.1f, duration).SetEase(Ease.OutBack).OnComplete(() =>
-                {
-                    // Yerleştiğinde tatmin edici esneme/sıkışma etkisi
-                    finalChild.DOPunchScale(new Vector3(0.08f, -0.15f, 0.08f), 0.32f, 10, 1f).SetEase(Ease.OutQuad);
-                    onChildSettled();
-                });
+                child.DOScale(Vector3.one * 1.1f, duration).SetEase(Ease.OutBack)
+                    .SetLink(childGO)
+                    .OnComplete(() =>
+                    {
+                        // Yerleştiğinde tatmin edici esneme/sıkışma etkisi
+                        if (finalChild != null)
+                            finalChild.DOPunchScale(new Vector3(0.08f, -0.15f, 0.08f), 0.32f, 10, 1f)
+                                .SetEase(Ease.OutQuad).SetLink(childGO);
+                    })
+                    // OnComplete DEĞİL, OnKill: küp animasyon biterken yok edilirse OnComplete
+                    // hiç çalışmaz, sayaç sıfıra inmez ve EndBlockingAnimation çağrılmadığı için
+                    // GameManager.blockingAnimations kalıcı >0 kalıp WIN PANELİNİ SONSUZA DEK
+                    // ERTELER. OnKill hem normal bitişte hem de erken ölümde tam bir kez çalışır.
+                    .OnKill(() => onChildSettled());
 
                 var rend  = child.GetComponentInChildren<Renderer>();
                 Material usedMat = rend != null ? (rend.sharedMaterial ?? rend.material) : null;

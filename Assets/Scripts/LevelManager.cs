@@ -915,140 +915,91 @@ public class LevelManager : MonoBehaviour
     private void ApplyTargetGhost(GameObject shape)
     {
         if (ghostTargetMaterial == null) return;
-        
-        foreach (var r in shape.GetComponentsInChildren<Renderer>())
+
+        var holder = shape.GetComponent<CubeShapeDataHolder>();
+
+        // Hücreler yapıdan okunur (şeklin her doğrudan çocuğu bir hücredir), hücrenin
+        // prefilled olup olmadığı ve TÜRÜ (matIdx) holder'ın kendi listelerinden gelir —
+        // aynı liste LevelSolver'ın çözülebilirlik kontrolünde kullandığı listedir, böylece
+        // ekranda görünen hayvan ile oyun mantığının türü ayrışamaz. İsme gömülü
+        // "Prefilled_matIdx_..." yalnızca holder verisi olmayan eski prefab'lar için fallback.
+        foreach (Transform cellRoot in shape.transform)
         {
-            string cubeName = r.gameObject.name;
-            
-            if (cubeName.StartsWith("Prefilled_"))
+            var renderers = cellRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0) continue;
+
+            string cubeName = cellRoot.gameObject.name;
+            bool nameIsPrefilled = cubeName.StartsWith("Prefilled_");
+            bool nameIsCube      = cubeName.StartsWith("Cube_");
+            if (holder == null && !nameIsPrefilled && !nameIsCube) continue;
+
+            Vector3Int cell = holder != null
+                ? holder.WorldToCell(cellRoot.position)
+                : WorldToCellFallback(shape, cellRoot.position);
+
+            int   matIdx         = -1;
+            Color prefilledColor = Color.white;
+            bool  isPrefilled    = false;
+            if (holder != null)
+                isPrefilled = holder.TryGetPrefilledInfo(cell, out matIdx, out prefilledColor);
+
+            if (!isPrefilled && nameIsPrefilled)
             {
-                // "Prefilled_matIdx_x_y_z" formatından türü (matIdx) ve koordinatları oku
+                // Eski veri: tür indeksi isimde kodlanmış.
+                isPrefilled = true;
                 var parts = cubeName.Split('_');
-                int nameMatIdx = -1;
-                if (parts.Length >= 2) int.TryParse(parts[1], out nameMatIdx);
+                if (parts.Length >= 2) int.TryParse(parts[1], out matIdx);
+            }
 
-                // GridManager'a kaydet
-                var holder = shape.GetComponent<CubeShapeDataHolder>();
-                float step = holder != null ? holder.cellSize + holder.spacing : 1f;
-                Vector3 lp = shape.transform.InverseTransformPoint(r.transform.position);
-                var cell = new Vector3Int(
-                    Mathf.RoundToInt(lp.x / step),
-                    Mathf.RoundToInt(lp.y / step),
-                    Mathf.RoundToInt(lp.z / step));
-                
+            if (isPrefilled)
+            {
                 Material prefilledMat = null;
-                int pfIndex = holder?.prefilledCells != null ? holder.prefilledCells.IndexOf(cell) : -1;
+                if (pieceMaterials != null && matIdx >= 0 && matIdx < pieceMaterials.Length)
+                    prefilledMat = pieceMaterials[matIdx];
 
-                // ASIL KAYNAK: nameMatIdx (isme gömülü tür) zaten pieceMaterials/pieceSpeciesPrefabs
-                // ile AYNI indekslemeyi kullanıyor (bkz. aşağıdaki AttachSpeciesVisual notu) — bu
-                // yüzden görsel (hangi hayvan gösterilecek) ile oyun mantığının (cellMatIndex, buz
-                // erime/grup eşleşmesi) AYNI türü göstermesi için ikisi de nameMatIdx'ten türetilmeli.
-                // Önceden burada renk-yakınlığı (FindClosestMaterial) kullanılıyordu; bu, editörde
-                // seçilen ham renk pieceMaterials[nameMatIdx]'in rengiyle tam örtüşmediğinde görseldeki
-                // hayvan ile cellMatIndex'in FARKLI türleri işaret etmesine yol açıyordu (ör. ekranda
-                // tür-4 hayvanı görünürken cellMatIndex tür-3'e set ediliyordu, bu yüzden aynı türden
-                // bir parça bile hiç eşleşmiyordu).
-                if (nameMatIdx >= 0 && pieceMaterials != null && nameMatIdx < pieceMaterials.Length && pieceMaterials[nameMatIdx] != null)
-                {
-                    prefilledMat = pieceMaterials[nameMatIdx];
-                }
-                else if (pfIndex >= 0 && holder.prefilledColors != null && pfIndex < holder.prefilledColors.Count)
-                {
-                    // Fallback: nameMatIdx yok/geçersizse (eski/bozuk veri), en yakın renge göre bul.
-                    Color targetColor = holder.prefilledColors[pfIndex];
-                    prefilledMat = FindClosestMaterial(targetColor);
-                }
+                // Tür indeksi yok/geçersizse (bozuk veri) en yakın renge göre bul.
+                if (prefilledMat == null && holder != null)
+                    prefilledMat = FindClosestMaterial(prefilledColor);
 
                 if (prefilledMat == null)
                     prefilledMat = pieceMaterials != null && pieceMaterials.Length > 0 ? pieceMaterials[0] : null;
 
                 if (prefilledMat != null)
                 {
-                    var mats = new Material[r.sharedMaterials.Length];
-                    for (int i = 0; i < mats.Length; i++) mats[i] = prefilledMat;
-                    r.sharedMaterials = mats;
+                    foreach (var r in renderers)
+                    {
+                        var mats = new Material[r.sharedMaterials.Length];
+                        for (int i = 0; i < mats.Length; i++) mats[i] = prefilledMat;
+                        r.sharedMaterials = mats;
+                    }
                 }
 
                 GridManager.Instance.occupiedCells.Add(cell);
+
                 if (prefilledMat != null)
                 {
                     GridManager.Instance.SetCellColor(cell, GridManager.GetMaterialColor(prefilledMat));
-                    // matIdx'i de güncelle
-                    int matIdx = FindMaterialIndex(prefilledMat);
+                    // matIdx bilinmiyorsa (eski/bozuk veri) materyalden geri türet;
+                    // pieceMaterials ve pieceSpeciesPrefabs aynı indekslemeyi paylaşır.
+                    if (matIdx < 0) matIdx = FindMaterialIndex(prefilledMat);
                     GridManager.Instance.SetCellMatIndex(cell, matIdx);
                 }
 
-                // İsimde kodlanmış tür (nameMatIdx), pieceMaterials/pieceSpeciesPrefabs ile AYNI
-                // indekslemeyi kullanır — bu yüzden her prefilled hücre kendi türüne uygun hayvanı
-                // otomatik gösterir (sabit tek bir tür yerine).
-                if (pieceSpeciesPrefabs != null && nameMatIdx >= 0 && nameMatIdx < pieceSpeciesPrefabs.Length)
-                    AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[nameMatIdx], cell);
+                if (pieceSpeciesPrefabs != null && matIdx >= 0 && matIdx < pieceSpeciesPrefabs.Length)
+                    AttachSpeciesVisual(cellRoot, pieceSpeciesPrefabs[matIdx], cell);
             }
-            else if (cubeName.StartsWith("Cube_"))
+            else // Normal hedef (Ghost)
             {
-                // Koordinat hesapla
-                var holderF = shape.GetComponent<CubeShapeDataHolder>();
-                float stepF = holderF != null ? holderF.cellSize + holderF.spacing : 1f;
-                Vector3 lpF = shape.transform.InverseTransformPoint(r.transform.position);
-                var cellF = new Vector3Int(
-                    Mathf.RoundToInt(lpF.x / stepF),
-                    Mathf.RoundToInt(lpF.y / stepF),
-                    Mathf.RoundToInt(lpF.z / stepF));
-
-                var prefilledList = holderF?.prefilledCells;
-                int pfListIdx = prefilledList != null ? prefilledList.IndexOf(cellF) : -1;
-
-                if (pfListIdx >= 0) // Eski format: Cube_ isimli ama prefilledCells'te var
+                bool frozen = holder != null && holder.IsCellFrozen(cell);
+                foreach (var r in renderers)
                 {
-                    // prefilledColors'dan doğru rengi al
-                    Material prefilledMat = null;
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    r.receiveShadows = false;
+                    if (frozen) continue;
 
-                    if (holderF?.prefilledColors != null && pfListIdx < holderF.prefilledColors.Count)
-                    {
-                        Color targetColor = holderF.prefilledColors[pfListIdx];
-                        // pieceMaterials'dan en yakın rengi bul
-                        prefilledMat = FindClosestMaterial(targetColor);
-                    }
-
-                    if (prefilledMat == null)
-                        prefilledMat = pieceMaterials?.Length > 0 ? pieceMaterials[0] : null;
-
-                    if (prefilledMat != null)
-                    {
-                        var mats2 = new Material[r.sharedMaterials.Length];
-                        for (int i = 0; i < mats2.Length; i++) mats2[i] = prefilledMat;
-                        r.sharedMaterials = mats2;
-                    }
-
-                    GridManager.Instance.occupiedCells.Add(cellF);
-                    // Bu eski formatta isimde matIdx kodlanmadığı için, rengin eşleştiği
-                    // materyalin (pieceMaterials'daki) indeksini tür seçimi için de kullanıyoruz —
-                    // pieceMaterials/pieceSpeciesPrefabs aynı indekslemeyi paylaşır.
-                    if (prefilledMat != null)
-                    {
-                        GridManager.Instance.SetCellColor(cellF, GridManager.GetMaterialColor(prefilledMat));
-                        int matIdx = FindMaterialIndex(prefilledMat);
-                        GridManager.Instance.SetCellMatIndex(cellF, matIdx);
-
-                        if (pieceSpeciesPrefabs != null && matIdx >= 0 && matIdx < pieceSpeciesPrefabs.Length)
-                            AttachSpeciesVisual(r.transform, pieceSpeciesPrefabs[matIdx], cellF);
-                    }
-                }
-                else // Normal hedef (Ghost)
-                {
-                    if (holderF != null && holderF.frozenCells != null && holderF.frozenCells.Contains(cellF))
-                    {
-                        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                        r.receiveShadows = false;
-                    }
-                    else
-                    {
-                        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                        r.receiveShadows = false;
-                        var mats = new Material[r.sharedMaterials.Length];
-                        for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
-                        r.sharedMaterials = mats;
-                    }
+                    var mats = new Material[r.sharedMaterials.Length];
+                    for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
+                    r.sharedMaterials = mats;
                 }
             }
         }
@@ -1056,6 +1007,17 @@ public class LevelManager : MonoBehaviour
         foreach (var col in shape.GetComponentsInChildren<Collider>())
             col.enabled = true;
     }
+
+    /// <summary>CubeShapeDataHolder'ı olmayan eski şekiller için hücre hesabı.</summary>
+    private static Vector3Int WorldToCellFallback(GameObject shape, Vector3 worldPos)
+    {
+        Vector3 lp = shape.transform.InverseTransformPoint(worldPos);
+        return new Vector3Int(
+            Mathf.RoundToInt(lp.x),
+            Mathf.RoundToInt(lp.y),
+            Mathf.RoundToInt(lp.z));
+    }
+
 
     // Gerçek yerleştirme HÂLÂ sadece o an odaklanılan katmana (ActiveLayerY) izin veriyor —
     // oyuncu başka bir katmanda çalışmak için panelden o katmana GEÇMELİ (bkz. GridManager.CanPlace

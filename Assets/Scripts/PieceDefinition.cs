@@ -2,11 +2,16 @@ using UnityEngine;
 using System.Collections.Generic;
 
 // ═══════════════════════════════════════════════════════════════════
-//  PIECE DEFINITION  —  Resmi Parça Kütüphanesi Kaydı (Faz 1)
-//  BlockMerge3D  •  CubeShapeDataHolder tabanlı prefab'lardan migration
-//  aracıyla üretilir; şu an sadece yazarlık/kütüphane katmanıdır —
-//  LevelManager'ın çalışma zamanı spawn akışına henüz bağlanmamıştır
-//  (bkz. LevelData.pieceDefinitions).
+//  PIECE DEFINITION  —  Resmi Parça Kütüphanesi Kaydı
+//  BlockMerge3D  •  CubeShapeDataHolder tabanlı prefab'lardan
+//  PieceDefinitionMigrationWindow ile üretilir.
+//
+//  ÜRETİM ZAMANI varlığıdır, çalışma zamanı değil: AILevelDesignerWindow
+//  Assets/PieceDefinitions/ altındaki tanımlardan bir havuz örnekler
+//  (SampleEligiblePool), SolutionFirstBuilder bu havuzla şekli döşer ve
+//  sonuç ÇÖZÜMDEKİ rotasyonda prefab'lara pişirilip
+//  LevelData.complementaryPieces'a yazılır. LevelManager bu yüzden
+//  PieceDefinition'ı hiç görmez.
 // ═══════════════════════════════════════════════════════════════════
 
 [CreateAssetMenu(fileName = "NewPieceDefinition", menuName = "BlockMerge3D/Piece Definition")]
