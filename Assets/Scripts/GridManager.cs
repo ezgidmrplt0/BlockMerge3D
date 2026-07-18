@@ -507,6 +507,52 @@ public class GridManager : MonoBehaviour
     // Çökme matematiği zaten Y-göreceli (clearedY'nin üstündeki her şey 1 aşağı kayar), tek
     // fark ActiveLayerY'nin artık "hangi katman patladı" değil "kamera/panel hangi katmana
     // odaklanmış" anlamına gelmesi — bu yüzden patlamadan sonra ayrıca güncelleniyor (aşağıda).
+    /// <summary>Katman patlatma/kanca animasyonlarının ortak DOTween kimliği.
+    /// Seviye yeniden yüklenirken hepsi tek çağrıyla öldürülebilsin diye.</summary>
+    public const string LEVEL_ANIM_ID = "BM3D_LevelAnim";
+
+    /// <summary>
+    /// Devam eden TÜM katman animasyonlarını iptal eder, kancayı yerine döndürür ve
+    /// artık animasyon konteynerlerini yok eder. Seviye yeniden yüklenirken (Retry /
+    /// NextLevel) çağrılmalı.
+    ///
+    /// Bu olmadan: Retry'a basıldıktan sonra önceki seviyenin kanca animasyonu
+    /// çalışmaya devam ediyordu; daha kötüsü, bekleyen DOVirtual.DelayedCall
+    /// çağrıları (onLevelComplete/onLayerComplete) YENİ seviyeye ateşlenip
+    /// yanlışlıkla kazanma akışını tetikleyebiliyordu.
+    /// </summary>
+    public void CancelLevelAnimations()
+    {
+        DOTween.Kill(LEVEL_ANIM_ID);
+
+        // Kanca kalıcı bir sahne nesnesi — tween'lerini öldürüp evine yolluyoruz.
+        GameObject claw = GameObject.Find("Claw");
+        if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
+        if (claw != null)
+        {
+            claw.transform.DOKill();
+            if (clawHomeCaptured)
+            {
+                claw.transform.position = clawHomePos;
+                claw.transform.rotation = clawHomeRot;
+            }
+            var col = claw.GetComponent<Collider>();
+            if (col != null) col.isTrigger = false;
+        }
+
+        // Patlama animasyonu için üretilen geçici konteynerler (bloklar onlara
+        // parent'lanıyor) seviye temizliğinde sahipsiz kalıyordu.
+        foreach (var leftover in GameObject.FindObjectsOfType<Transform>())
+        {
+            if (leftover != null && leftover.name == "LayerAnimContainer")
+                Destroy(leftover.gameObject);
+        }
+    }
+
+    private static Vector3    clawHomePos;
+    private static Quaternion clawHomeRot;
+    private static bool       clawHomeCaptured;
+
     public void ExplodeLayer(int layerY, System.Action onLayerComplete, System.Action onLevelComplete)
     {
         // Bu patlama seviyedeki SON katmanı mı temizliyor? (Şekilde bu katmandan başka
@@ -768,7 +814,8 @@ public class GridManager : MonoBehaviour
             // Win paneli, katmanın görsel çökme/kanca animasyonu (collapseDelay + 0.45s hareket)
             // bitmeden açılmasın — önceden burada anında tetikleniyordu ve 3.65s'lik kanca
             // animasyonunun üzerine hemen biniyordu.
-            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => onLevelComplete?.Invoke());
+            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => onLevelComplete?.Invoke())
+                .SetId(LEVEL_ANIM_ID);
         }
         else
         {
@@ -1128,6 +1175,16 @@ public class GridManager : MonoBehaviour
         {
             Vector3 clawStartPos = claw.transform.position;
             Quaternion clawStartRot = claw.transform.rotation;
+
+            // Kancanın dinlenme konumunu bir kez saklıyoruz: seviye yeniden
+            // yüklendiğinde animasyon yarıda kesilirse buraya döndürülecek
+            // (bkz. CancelLevelAnimations).
+            if (!clawHomeCaptured)
+            {
+                clawHomePos = clawStartPos;
+                clawHomeRot = clawStartRot;
+                clawHomeCaptured = true;
+            }
             // layerCenter artık ExplodeLayer'da sınırlayıcı kutu (bounding box) ortası olarak
             // kusursuz/grid-kesin hesaplanıyor (bkz. ExplodeLayer) — kanca her zaman katmanın
             // TAM geometrik merkezine iner, ortalamadan kaynaklanan kaymalar olmaz.
@@ -1243,7 +1300,7 @@ public class GridManager : MonoBehaviour
 
             void RunGrabAndLift()
             {
-                var seq2 = DOTween.Sequence().SetLink(claw);
+                var seq2 = DOTween.Sequence().SetLink(claw).SetId(LEVEL_ANIM_ID);
 
                 // Kancanın ucu katmana TAM DEĞDİĞİ AN: hayvanlar merkezde sıkı bir 3D küre
                 // (top gibi) oluşturacak şekilde toplansın (Fibonacci küresel dağılımı).
@@ -1350,7 +1407,7 @@ public class GridManager : MonoBehaviour
         }
 
         // EĞER KANCA YOKSA: Varsayılan hızlı dökülme/düşme animasyonu (Fallback)
-        var seq = DOTween.Sequence().SetLink(container);
+        var seq = DOTween.Sequence().SetLink(container).SetId(LEVEL_ANIM_ID);
         for (int i = 0; i < blocks.Count; i++)
         {
             var block = blocks[i];

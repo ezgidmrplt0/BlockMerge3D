@@ -47,6 +47,9 @@ public class ControlButton : MonoBehaviour
 
     private void Update()
     {
+        // Seviye bittiyse joker kullanılamaz (bkz. GameManager.IsLevelOver).
+        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
+
         if (!isPressed)
         {
             if (Input.GetMouseButtonDown(0) && HitsSelf(Input.mousePosition))

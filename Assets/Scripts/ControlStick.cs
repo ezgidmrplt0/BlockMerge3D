@@ -36,6 +36,9 @@ public class ControlStick : MonoBehaviour
 
     private void Update()
     {
+        // Seviye bittiyse tahta döndürülemez (bkz. GameManager.IsLevelOver).
+        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
+
         if (!isDragging)
         {
             if (Input.GetMouseButtonDown(0) && !HitsPieceOrButton(Input.mousePosition))

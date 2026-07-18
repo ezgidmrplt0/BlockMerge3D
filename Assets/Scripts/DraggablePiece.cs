@@ -154,6 +154,15 @@ public class DraggablePiece : MonoBehaviour
 
     private void Update()
     {
+        // Seviye bittiyse (kazanma/kaybetme paneli açık) parça sürüklenemez.
+        // Girdi Physics.Raycast ile okunduğu için UI paneli bunu KENDİLİĞİNDEN
+        // engellemiyordu — panel açıkken arkada oynamaya devam edilebiliyordu.
+        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver)
+        {
+            if (isDragging) EndDrag();
+            return;
+        }
+
         if (isDragging)
         {
             HandleDrag();

@@ -14,6 +14,11 @@ public class GameManager : MonoBehaviour
     public int Score { get; private set; }
     public int CurrentLevelNumber => currentLevelIndex + 1;
 
+    /// <summary>Seviye bitti (kazanıldı ya da kaybedildi) — kazanma paneli açılmayı
+    /// bekliyorsa da true. Oyun içi girdiler (parça sürükleme, tahta döndürme, joker)
+    /// bu andan itibaren KAPANMALI: panel açıkken arkada oynanmaya devam edilebiliyordu.</summary>
+    public bool IsLevelOver => levelComplete || winLocked;
+
     private bool  levelComplete;
     private bool  winLocked;           // Son katman temizlenmeye başladı — artık kaybedilemez
     private bool  pendingWin;          // Bloklayan animasyonlar biterken kazanma bekliyor

@@ -926,6 +926,11 @@ public class LevelManager : MonoBehaviour
 
     public void ClearCurrentLevel()
     {
+        // Devam eden katman/kanca animasyonlarını ve bekleyen gecikmeli çağrılarını
+        // İLK İŞ olarak iptal et — aksi halde Retry'dan sonra önceki seviyenin
+        // animasyonu oynamaya devam ediyor ve callback'leri yeni seviyeye sızıyor.
+        gridManager?.CancelLevelAnimations();
+
         isJokerUsedThisLevel = false;
 
         var controlButtons = FindObjectsOfType<ControlButton>();
