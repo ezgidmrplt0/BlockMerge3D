@@ -509,6 +509,20 @@ public class GridManager : MonoBehaviour
     // odaklanmış" anlamına gelmesi — bu yüzden patlamadan sonra ayrıca güncelleniyor (aşağıda).
     public void ExplodeLayer(int layerY, System.Action onLayerComplete, System.Action onLevelComplete)
     {
+        // Bu patlama seviyedeki SON katmanı mı temizliyor? (Şekilde bu katmandan başka
+        // hücre kalmamışsa evet.) Öyleyse süreyi HEMEN durdur: kanca + çökme animasyonu
+        // ~3.65 sn sürüyor ve bu süre içinde sayaç dolarsa kazanılmış seviyede fail
+        // paneli açılıyordu. Kontrol, hücreler aşağıda silinmeden ÖNCE yapılmalı.
+        bool isFinalLayer = true;
+        foreach (var c in allShapeCells)
+        {
+            if (c.y != layerY) { isFinalLayer = false; break; }
+        }
+        if (isFinalLayer && allShapeCells.Count > 0)
+        {
+            GameManager.Instance?.FreezeTimerForPendingWin();
+        }
+
         List<Vector3Int> cellsToRemove = new List<Vector3Int>();
         foreach (var c in targetCells)
         {

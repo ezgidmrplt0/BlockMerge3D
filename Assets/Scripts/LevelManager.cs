@@ -685,6 +685,18 @@ public class LevelManager : MonoBehaviour
             }
         }
 
+        // Eldeki HİÇBİR parça sığmıyor. Ama bu, seviyenin bittiği anlamına GELMEZ: eldeki üç
+        // kart havuzdan rastgele dağıtıldı ve dağıtıldıkları anda sığıyorlardı — tahta doldukça
+        // sığmaz oldular (bkz. PrepareNextPieceIndex, filtre yalnızca dağıtım anında bakıyor).
+        // Havuzda hâlâ sığan bir parça varsa bu bir KAYIP değil, kötü bir dağıtımdır; oyuncuyu
+        // cezalandırmak yerine ölü eli yeniliyoruz.
+        if (TryRefreshDeadHand())
+        {
+            Debug.Log("♻️ Eldeki parçaların hiçbiri sığmıyordu, ama havuzda sığan parça var — " +
+                      "el yenilendi (game over yerine).");
+            return;
+        }
+
         // GEÇİCİ TEŞHİS LOGU: gerçek "level fail" tetiklenmeden hemen önce TÜM katmanların tam
         // durumunu döker — özellikle hangi katmanların buzla ne kadar kaplı olduğunu görmek için
         // (bkz. buz/renk patlama mekanizmasının "kesin garanti değildir" notu, GridManager.cs).
@@ -694,6 +706,66 @@ public class LevelManager : MonoBehaviour
         // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin hiçbirinde HİÇBİR
         // katmandaki boş hücrelere yerleşemiyorsa gelir (bkz. CanShapeFitAnyOpenLayer).
         GameManager.Instance?.GameOver();
+    }
+
+    /// <summary>
+    /// Eldeki parçaların hiçbiri sığmadığında çağrılır. Seviyenin parça HAVUZUNDA
+    /// (allPiecePrefabs) hâlâ yerleştirilebilir bir parça varsa, ölü kartları atıp eli
+    /// yeniden dağıtır ve true döner — böylece kazanılabilir bir tahtada kötü dağıtım
+    /// yüzünden kaybedilmez. Havuzda da sığan parça yoksa false döner ve çağıran taraf
+    /// gerçek game over'ı tetikler.
+    ///
+    /// Bu gerekliydi çünkü seviyeler SolutionFirstBuilder ile TAM döşenecek şekilde
+    /// üretiliyor, ama çalışma zamanı bu kümeyi rastgele dağıtıyor: örn. DENEME2'nin
+    /// havuzunda üç adet 1 hücrelik parça varken oyuncuya 2/4/2 hücrelik üç ölü kart
+    /// dağıtılıp tahtada iki adet tek hücrelik delik kalınca oyun "kaybettin" diyordu.
+    /// </summary>
+    private bool TryRefreshDeadHand()
+    {
+        if (allPiecePrefabs == null || allPiecePrefabs.Count == 0) return false;
+
+        bool poolHasPlaceable = false;
+        foreach (var prefab in allPiecePrefabs)
+        {
+            if (prefab != null && CanShapeFitAnyOpenLayer(prefab)) { poolHasPlaceable = true; break; }
+        }
+        if (!poolHasPlaceable) return false;
+
+        // Ölü kartları boşalt.
+        for (int i = activePieces.Count - 1; i >= 0; i--)
+        {
+            var go = activePieces[i];
+            if (go != null)
+            {
+                // ClearPiece, yerleştirilmemiş parçayı kendisi yok eder (bkz. PieceCardUI) —
+                // bu yüzden ayrıca Destroy çağırmıyoruz. Kartı olmayan parça varsa (spawn
+                // sırasında boş kart bulunamamış olabilir) onu elle temizliyoruz.
+                if (pieceToCard.TryGetValue(go, out var card))
+                {
+                    card.ClearPiece();
+                    pieceToCard.Remove(go);
+                }
+                else
+                {
+                    Destroy(go);
+                }
+            }
+            activePieces.RemoveAt(i);
+            if (i < activePieceDataIndices.Count) activePieceDataIndices.RemoveAt(i);
+            if (i < activeIsSmart.Count)          activeIsSmart.RemoveAt(i);
+        }
+
+        // Torbayı sıfırla: kurtarıcı parçalar (ör. 1x1 dolgular) bu seviyede zaten bir kez
+        // dağıtılmış olabilir ve spawnedPieceIndices onları availableIndices'ten dışlıyor
+        // olurdu — o zaman yeniden dağıtım da ölü kartlar üretirdi.
+        spawnedPieceIndices.Clear();
+        nextPieceIndex = -1;
+        PrepareNextPieceIndex();
+
+        for (int i = 0; i < maxVisiblePieces; i++)
+            SpawnRandomPiece();
+
+        return true;
     }
 
     // Artık fail HERHANGİ bir katmana sığmamaya bağlı olduğu için, tek bir katman değil TÜM

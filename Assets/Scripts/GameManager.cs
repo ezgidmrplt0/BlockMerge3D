@@ -15,6 +15,7 @@ public class GameManager : MonoBehaviour
     public int CurrentLevelNumber => currentLevelIndex + 1;
 
     private bool  levelComplete;
+    private bool  winLocked;           // Son katman temizlenmeye başladı — artık kaybedilemez
     private bool  pendingWin;          // Bloklayan animasyonlar biterken kazanma bekliyor
     private int   blockingAnimations;  // Win panelini erteleyen (parça yerleşimi/merge) animasyon sayısı
     private int   currentLevelIndex;
@@ -67,6 +68,7 @@ public class GameManager : MonoBehaviour
     private void StartLevel(LevelData level)
     {
         levelComplete      = false;
+        winLocked          = false;
         pendingWin         = false;
         blockingAnimations = 0;
         Score              = 0;
@@ -124,9 +126,29 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Seviyenin SON katmanı temizlenmeye başladığında (kanca animasyonu başlar başlamaz)
+    /// çağrılır — bkz. GridManager.ExplodeLayer. Sayaç anında durur, çünkü bu noktadan
+    /// sonra seviye kazanılmıştır ve geri dönüşü yoktur; win paneli yalnızca animasyon
+    /// bitince açılacaktır.
+    ///
+    /// Bu olmadan ~3.65 sn'lik kanca + çökme animasyonu boyunca sayaç işlemeye devam
+    /// ediyordu ve süre o sırada biterse KAZANILMIŞ seviyede fail paneli açılıyordu.
+    /// </summary>
+    public void FreezeTimerForPendingWin()
+    {
+        winLocked    = true;
+        timerRunning = false;
+        UIManager.Instance?.UpdateTimer(remainingTime, totalTime);
+    }
+
     public void GameOver()
     {
-        if (levelComplete) return;
+        // Son katman temizlenmeye başladıysa seviye fiilen kazanılmıştır; animasyon
+        // sürerken gelen hiçbir kayıp sebebi (süre dolması, elde sığan parça kalmaması...)
+        // kabul edilmez. pendingWin bu pencerede HENÜZ true olmaz (CheckWin animasyondan
+        // sonra çalışır), o yüzden ayrı bir kilit gerekiyor.
+        if (levelComplete || winLocked) return;
         levelComplete = true;
         timerRunning = false;
         UIManager.Instance?.ShowLosePanel(Score);
