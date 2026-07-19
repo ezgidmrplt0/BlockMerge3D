@@ -630,6 +630,8 @@ public class GridManager : MonoBehaviour
             }
             var col = claw.GetComponent<Collider>();
             if (col != null) col.isTrigger = false;
+            // Animasyon yarıda kesildiyse pençeler kapalı kalmasın.
+            SetClawGrip(claw, 0f);
         }
 
         // Patlama animasyonu için üretilen geçici konteynerler (bloklar onlara
@@ -639,6 +641,41 @@ public class GridManager : MonoBehaviour
             if (leftover != null && leftover.name == "LayerAnimContainer")
                 Destroy(leftover.gameObject);
         }
+    }
+
+    // ─── Kanca pençe animasyonu ───────────────────────────────────────────────
+    // Claw.fbx üç menteşeyi AYRI kliplerde ihraç ediyor; üçü tek bir klipte
+    // birleştirilir (Assets/Prefabs/ClawClose.anim, legacy). Animator/Controller
+    // kurmak yerine klip elle örnekleniyor — böylece pençenin kapanma hızı
+    // kancanın iniş/kaldırma hareketiyle birebir senkronlanabiliyor.
+    // t=0 → pençeler AÇIK, t=1 → KAPALI.
+    //
+    // Kanca modelinde Animation bileşeni/klip yoksa tüm bu çağrılar sessizce
+    // hiçbir şey yapmaz — eski tek parça kancayla da güvenle çalışır.
+    private static AnimationClip clawGripClip;
+
+    private static AnimationClip GetClawGripClip(GameObject claw)
+    {
+        if (clawGripClip != null) return clawGripClip;
+        if (claw == null) return null;
+        var anim = claw.GetComponent<Animation>();
+        if (anim != null) clawGripClip = anim.GetClip("ClawClose");
+        return clawGripClip;
+    }
+
+    private static void SetClawGrip(GameObject claw, float t01)
+    {
+        var clip = GetClawGripClip(claw);
+        if (clip == null || claw == null) return;
+        clip.SampleAnimation(claw, Mathf.Clamp01(t01) * clip.length);
+    }
+
+    private static Tween AnimateClawGrip(GameObject claw, float from, float to, float duration)
+    {
+        var clip = GetClawGripClip(claw);
+        if (clip == null || claw == null) return null;
+        return DOVirtual.Float(from, to, duration, v => SetClawGrip(claw, v))
+            .SetEase(Ease.OutQuad).SetId(LEVEL_ANIM_ID).SetLink(claw);
     }
 
     private static Vector3    clawHomePos;
@@ -1416,6 +1453,9 @@ public class GridManager : MonoBehaviour
             {
                 var seq2 = DOTween.Sequence().SetLink(claw).SetId(LEVEL_ANIM_ID);
 
+                // Uç katmana değdi: pençeler hayvanlar toplanırken kapansın.
+                AnimateClawGrip(claw, 0f, 1f, ballDuration);
+
                 // Kancanın ucu katmana TAM DEĞDİĞİ AN: hayvanlar merkezde sıkı bir 3D küre
                 // (top gibi) oluşturacak şekilde toplansın (Fibonacci küresel dağılımı).
                 for (int i = 0; i < blocks.Count; i++)
@@ -1488,9 +1528,21 @@ public class GridManager : MonoBehaviour
                 {
                     if (claw != null)
                     {
-                        claw.transform.DetachChildren();
+                        // DetachChildren() KULLANILMAZ: eski kanca tek parça mesh'ti ve
+                        // çocuğu yoktu, ama eklemli modelin çocukları kancanın KENDİ
+                        // gövdesidir (mil, kasa, menteşeler). Hepsini söküp ortada
+                        // bırakıyordu — kanca ilk katmandan sonra görünmez oluyordu.
+                        // Yalnızca taşınmak üzere kancaya bağlanan blokları ayırıyoruz.
+                        foreach (var block in blocks)
+                        {
+                            if (block != null && block.transform.parent == claw.transform)
+                                block.transform.SetParent(null, true);
+                        }
+
                         claw.transform.position = clawStartPos;
                         claw.transform.rotation = clawStartRot;
+                        // Yükü bıraktı: pençeler bir sonraki tur için açık kalsın.
+                        SetClawGrip(claw, 0f);
                     }
                     if (container != null) Object.Destroy(container);
                     foreach (var block in blocks)
@@ -1512,6 +1564,9 @@ public class GridManager : MonoBehaviour
             // 1. Kancayı yatay olarak hedef katmanın ÜSTÜNE getir (0.5 saniye)
             // İniş sırasında üst katmanların içinden geçileceği için, bu katmanları hemen/hareket başlar başlamaz küçültüyoruz
             DOVirtual.Float(0f, 1f, passFadeDuration, SetPassFade).SetEase(Ease.OutQuad);
+
+            // Kanca inmeye pençeleri AÇIK başlar.
+            SetClawGrip(claw, 0f);
 
             claw.transform.DOMove(aboveTargetPos, 0.5f).SetEase(Ease.InOutQuad).OnComplete(() =>
             {
