@@ -82,13 +82,16 @@ public class TutorialOverlay : MonoBehaviour
     // bunları parlatır (bkz. RestrictDragHighlights). HighlightTutorialTargetCells doldurur.
     private readonly HashSet<Vector3Int> dragHighlightCells = new HashSet<Vector3Int>();
 
+    private bool IsLevel3 =>
+        (currentLevel != null && (currentLevel.levelName == "Tutorial_3_Layers" || currentLevel.levelName.StartsWith("Tutorial_3")))
+        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 3);
+
     /// <summary>Sürükleme sırasında geçerli tüm konumların parlaması KAPATILIP yalnızca
-    /// öğreticinin gösterdiği hedefin (DragHighlightCells) parlaması gereken an. Sadece
-    /// engel öğreticisinin sürükleme adımında true olur.</summary>
+    /// öğreticinin gösterdiği hedefin (DragHighlightCells) parlaması gereken an.</summary>
     public bool RestrictDragHighlights =>
         running && stepIndex >= 0 && stepIndex < steps.Count
         && steps[stepIndex] == TutorialStepType.DragPieceToBoard
-        && currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle";
+        && (IsLevel3 || (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle"));
 
     public IReadOnlyCollection<Vector3Int> DragHighlightCells => dragHighlightCells;
 
@@ -137,6 +140,10 @@ public class TutorialOverlay : MonoBehaviour
             steps.Add(TutorialStepType.DragPieceToBoard); // Yanlış yerleştirme
             steps.Add(TutorialStepType.UseJoker);
             steps.Add(TutorialStepType.DragPieceToBoard); // Jokerden sonraki doğru yerleştirme
+        }
+        else if (IsLevel3)
+        {
+            steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else
         {
@@ -269,6 +276,9 @@ public class TutorialOverlay : MonoBehaviour
 
         if (active)
         {
+            bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 5;
+            if (!isTutorialLevel) return;
+
             PieceCardUI card = null;
             int targetSlot = GetTargetCardIndex();
             if (LevelManager.Instance != null && LevelManager.Instance.pieceCards != null && targetSlot < LevelManager.Instance.pieceCards.Count)
@@ -281,13 +291,13 @@ public class TutorialOverlay : MonoBehaviour
                 var draggable = card.Draggable;
                 var cells = draggable.CurrentCells;
 
-                if (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle")
+                if (IsLevel3 || (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle"))
                 {
                     var res = RunSolver();
                     if (res.success && res.cardOffsets.TryGetValue(targetSlot, out Vector3Int correctOffset))
                     {
                         Vector3Int targetOffset = correctOffset;
-                        if (dragStepCount == 0) // First drag is wrong
+                        if (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle" && dragStepCount == 0) // Tutorial 4 first drag is wrong
                         {
                             targetOffset = FindWrongOffset(targetSlot, cells, correctOffset);
                         }
@@ -297,6 +307,20 @@ public class TutorialOverlay : MonoBehaviour
                             var target = c + targetOffset;
                             GridManager.Instance.highlightedCells.Add(target);
                             dragHighlightCells.Add(target); // sürükleme sırasında da sadece burası parlasın
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: Solver bulunamadıysa sadece ilk geçerli konumu parlat
+                        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
+                        if (offsets != null && offsets.Count > 0)
+                        {
+                            Vector3Int firstOff = offsets[0];
+                            foreach (var c in cells)
+                            {
+                                GridManager.Instance.highlightedCells.Add(c + firstOff);
+                                dragHighlightCells.Add(c + firstOff);
+                            }
                         }
                     }
                 }

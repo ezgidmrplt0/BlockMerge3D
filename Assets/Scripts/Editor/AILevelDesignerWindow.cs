@@ -432,13 +432,41 @@ public class AILevelDesignerWindow : EditorWindow
 
         EditorGUILayout.Space(8);
 
-        // 3. Öneri Değerleri Önizlemesi (Dashboard Panel)
-        EditorGUILayout.LabelField("📈  ÖNERİLEN PARAMETRELER", EditorStyles.miniBoldLabel);
+        // 3. SEVİYE PARAMETRELERİ (Elle Düzenlenebilir)
+        EditorGUILayout.LabelField("⚙️  SEVİYE PARAMETRELERİ (Elle Düzenlenebilir)", EditorStyles.miniBoldLabel);
         EditorGUILayout.BeginHorizontal();
-        DrawStatBlock("⏱️ Süre Sınırı", $"{levelTime} sn");
-        DrawStatBlock("🧱 Hazır Küp", $"%{prefillPercentage * 100f:F0}");
-        DrawStatBlock("❄️ Buz Küpü", $"%{icePercentage * 100f:F0}");
-        DrawStatBlock("🧩 Parça Boyutu", $"{minPieceSize}-{maxPieceSize}");
+
+        // ⏱️ Süre Sınırı
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+        EditorGUILayout.LabelField("⏱️ Süre Sınırı", EditorStyles.miniLabel);
+        levelTime = EditorGUILayout.FloatField(levelTime, GUILayout.Height(20));
+        levelTime = Mathf.Max(0f, levelTime);
+        EditorGUILayout.EndVertical();
+
+        // 🧱 Hazır Küp Oranı (%)
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+        EditorGUILayout.LabelField($"🧱 Hazır Küp (%{prefillPercentage * 100f:F0})", EditorStyles.miniLabel);
+        prefillPercentage = EditorGUILayout.Slider(prefillPercentage, 0f, 0.5f);
+        EditorGUILayout.EndVertical();
+
+        // ❄️ Buz Küpü Oranı (%)
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+        EditorGUILayout.LabelField($"❄️ Buz Küpü (%{icePercentage * 100f:F0})", EditorStyles.miniLabel);
+        icePercentage = EditorGUILayout.Slider(icePercentage, 0f, 0.5f);
+        EditorGUILayout.EndVertical();
+
+        // 🧩 Parça Boyutu (Min - Max)
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+        EditorGUILayout.LabelField("🧩 Parça Boyutu", EditorStyles.miniLabel);
+        EditorGUILayout.BeginHorizontal();
+        minPieceSize = EditorGUILayout.IntField(minPieceSize, GUILayout.Width(35), GUILayout.Height(20));
+        EditorGUILayout.LabelField("-", GUILayout.Width(8));
+        maxPieceSize = EditorGUILayout.IntField(maxPieceSize, GUILayout.Width(35), GUILayout.Height(20));
+        minPieceSize = Mathf.Clamp(minPieceSize, 1, maxPieceSize);
+        maxPieceSize = Mathf.Clamp(maxPieceSize, minPieceSize, 10);
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+
         EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.Space(6);

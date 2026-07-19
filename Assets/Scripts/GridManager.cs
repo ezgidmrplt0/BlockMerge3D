@@ -122,24 +122,40 @@ public class GridManager : MonoBehaviour
 
     private void Update()
     {
+        // Grid hücre parlatma (sarı yerleştirme vurgusu) sadece ilk 5 tutorial seviyesinde aktiftir
+        bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 5;
+
         // 1. Dinamik parlatma güncellemesi (sürüklenen parça varsa)
-        if (DraggablePiece.activeDrag != null)
+        if (DraggablePiece.activeDrag != null && isTutorialLevel)
         {
             highlightedCells.Clear();
             var drag = DraggablePiece.activeDrag;
             if (drag.IsBeingDragged && !drag.IsPlaced)
             {
                 var tut = TutorialOverlay.Instance;
-                // Engel öğreticisi: geçerli TÜM konumları parlatma; yalnızca öğreticinin
-                // işaret ettiği hedef hücreler parlasın (bkz. TutorialOverlay.DragHighlightCells).
-                // Ancak öğretici o adım için bir hedef ÜRETEMEDİYSE (solver çözüm bulamadı,
-                // parça bu katmana sığmıyor...) kısıtlamayı uygulama — aksi halde hiçbir grid
-                // yanmaz ve oyuncu tıkanır. Bu durumda normal "tüm geçerli konumlar" davranışına dön.
+                bool isLevel3 = (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 3)
+                    || (LevelManager.Instance != null && LevelManager.Instance.currentLevel != null && LevelManager.Instance.currentLevel.levelName.StartsWith("Tutorial_3"));
+
                 if (tut != null && tut.RestrictDragHighlights && tut.DragHighlightCells.Count > 0)
                 {
                     foreach (var c in tut.DragHighlightCells)
                     {
                         highlightedCells.Add(c);
+                    }
+                }
+                else if (isLevel3)
+                {
+                    // SADECE LEVEL 3: 3'lü tüm geçerli konumları parlatma!
+                    // Yalnızca tek bir doğru konuma (2 hücreye) yerleşecek yer sarı parlasın.
+                    var cells = drag.CurrentCells;
+                    var offsets = GetPossibleOffsetsOnLayer(cells, ActiveLayerY);
+                    if (offsets != null && offsets.Count > 0)
+                    {
+                        Vector3Int targetOff = offsets[0];
+                        foreach (var c in cells)
+                        {
+                            highlightedCells.Add(c + targetOff);
+                        }
                     }
                 }
                 else
@@ -158,9 +174,9 @@ public class GridManager : MonoBehaviour
         }
         else
         {
-            // Sürüklenen parça yoksa ve TutorialOverlay DragPieceToBoard adımında değilse temizle
+            // Sürüklenen parça yoksa veya tutorial seviyesi değilse temizle
             bool tutorialHighlighting = false;
-            if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsDragStepActive)
+            if (isTutorialLevel && TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsDragStepActive)
             {
                 tutorialHighlighting = true;
             }
@@ -502,12 +518,12 @@ public class GridManager : MonoBehaviour
                     r.GetPropertyBlock(PropBlock);
                     if (isFrozenHere)
                     {
-                        Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
-                        if (isPanelMode && cell.y < ActiveLayerY) iceColor.a = 0.15f; // Faded ice
+                        Color iceColor = new Color(0.06f, 0.32f, 0.58f, 0.90f);
+                        if (isPanelMode && cell.y < ActiveLayerY) iceColor.a = 0.2f; // Faded ice
                         PropBlock.SetColor("_BaseColor", iceColor);
                         PropBlock.SetColor("_Color", iceColor);
 
-                        Color emissionColor = new Color(0.1f, 0.4f, 0.7f) * (isPanelMode && cell.y < ActiveLayerY ? 0.2f : 1.8f);
+                        Color emissionColor = new Color(0.01f, 0.06f, 0.15f) * (isPanelMode && cell.y < ActiveLayerY ? 0.2f : 1.0f);
                         PropBlock.SetColor("_EmissionColor", emissionColor);
                     }
                     else
@@ -2826,10 +2842,10 @@ public class GridManager : MonoBehaviour
             if (r != null && blockShader != null)
             {
                 r.material = new Material(blockShader);
-                r.material.color = new Color(0.8f, 0.95f, 1.0f, 0.85f); // Frosty ice-blue
+                r.material.color = new Color(0.06f, 0.32f, 0.58f, 0.90f);
                 
                 r.material.EnableKeyword("_EMISSION");
-                r.material.SetColor("_EmissionColor", new Color(0.15f, 0.5f, 0.85f) * 2.5f);
+                r.material.SetColor("_EmissionColor", new Color(0.01f, 0.06f, 0.15f));
             }
 
             Vector3 burstDir = Random.insideUnitSphere * Random.Range(1.8f, 3.2f);
