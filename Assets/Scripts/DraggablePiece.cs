@@ -269,7 +269,16 @@ public class DraggablePiece : MonoBehaviour
 
         // Geçiş esnasında snapping yapılmaz
         bool canSnap = dragLerpProgress >= 1f;
-        Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(PieceWorldCenter()));
+
+        // Snap testi parçanın MEVCUT konumundan değil, farenin sürüklediği HEDEF
+        // konumdan yapılır. Aksi halde geri besleme döngüsü oluşuyordu: parça snap
+        // olunca snap konumuna çekiliyor, sonraki karede test yine oradan yapıldığı
+        // için aynı snap bulunuyor ve parça fare uzaklaşsa bile hücreye ÇİVİLENİYORDU
+        // (snap durumundayken parça fareye doğru hiç hareket etmiyor, bkz. aşağıdaki
+        // konum bloğu — dolayısıyla isSnapped'i false yapacak hiçbir şey kalmıyordu).
+        Vector3 snapProbeCenter = PieceWorldCenter();
+        if (hasDragPlaneHit) snapProbeCenter += targetDragPos - transform.position;
+        Ray snapRay = mainCam.ScreenPointToRay(mainCam.WorldToScreenPoint(snapProbeCenter));
         bool wasSnapped = isSnapped;
         Vector3Int snapOff = Vector3Int.zero;
 
@@ -281,6 +290,12 @@ public class DraggablePiece : MonoBehaviour
             {
                 // Snap pop animation: squash and stretch click effect!
                 DOTween.Kill(transform);
+                // ÖNEMLİ: DOPunchScale o anki ölçeği "dinlenme değeri" olarak kaydeder ve
+                // animasyon sonunda oraya döner. Aşağıdaki hız bazlı squash&stretch her
+                // karede ölçeği 1'den saptırdığı için, snap anında punch bu SAPMIŞ değeri
+                // taban alıyordu; grid'e her girip çıkışta taban biraz daha büyüyüp parça
+                // gözle görülür şekilde şişiyordu. Punch'tan önce tabanı sıfırlıyoruz.
+                transform.localScale = Vector3.one;
                 transform.DOPunchScale(new Vector3(0.08f, -0.1f, 0.08f), 0.15f, 10, 1f);
             }
 
@@ -334,9 +349,11 @@ public class DraggablePiece : MonoBehaviour
                 {
                     transform.position = Vector3.Lerp(transform.position, targetDragPos, Time.deltaTime * 18f);
 
-                    // Velocity-based Squash & Stretch during active dragging
+                    // Velocity-based Squash & Stretch during active dragging.
+                    // Punch animasyonu sürerken YAZILMAZ: ikisi aynı karede ölçeğe
+                    // yazınca çekişip parçanın dinlenme ölçeğini bozuyorlardı.
                     Vector3 moveDelta = transform.position - lastPosition;
-                    if (moveDelta.magnitude > 0.001f)
+                    if (moveDelta.magnitude > 0.001f && !DOTween.IsTweening(transform))
                     {
                         float speed = moveDelta.magnitude / Time.deltaTime;
                         float factor = Mathf.Clamp01(speed / 15f) * 0.12f;
