@@ -264,16 +264,14 @@ public class LayerPanelController : MonoBehaviour
             }
         }
 
-        // Sync NextPiecePreviewPanel visibility with the card slot panel
-        var canvas = GameObject.Find("UICanvas");
-        if (canvas != null)
-        {
-            var nextPanel = canvas.transform.Find("NextPiecePreviewPanel");
-            if (nextPanel != null)
-            {
-                nextPanel.gameObject.SetActive(visible);
-            }
-        }
+        // Sıradaki parça önizlemesini kart paneliyle birlikte göster/gizle.
+        // İSİMLE ARAMA YOK: panel çalışma zamanında yeniden üretiliyor ve seviye
+        // geçişinde eskisi Destroy ile işaretlenmiş ama hâlâ hiyerarşide oluyor;
+        // Transform.Find o eskisini döndürüp yenisini görünür bırakıyordu.
+        var previewPanel = LevelManager.Instance != null
+            ? LevelManager.Instance.NextPiecePreviewPanel
+            : null;
+        if (previewPanel != null) previewPanel.SetActive(visible);
     }
 
     public void SetButtonsVisible(bool visible)

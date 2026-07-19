@@ -151,7 +151,14 @@ public class GameManager : MonoBehaviour
         UIManager.Instance?.UpdateTimer(remainingTime, totalTime);
     }
 
-    public void GameOver()
+    /// <summary>Seviyenin neden kaybedildiği — kaybetme panelindeki başlık buna göre değişir.</summary>
+    public enum LoseReason
+    {
+        TimeUp,     // süre doldu
+        NoMoves,    // eldeki hiçbir parça hiçbir katmana sığmıyor
+    }
+
+    public void GameOver(LoseReason reason = LoseReason.TimeUp)
     {
         // Son katman temizlenmeye başladıysa seviye fiilen kazanılmıştır; animasyon
         // sürerken gelen hiçbir kayıp sebebi (süre dolması, elde sığan parça kalmaması...)
@@ -160,12 +167,12 @@ public class GameManager : MonoBehaviour
         if (levelComplete || winLocked) return;
         levelComplete = true;
         timerRunning = false;
-        UIManager.Instance?.ShowLosePanel(Score);
+        UIManager.Instance?.ShowLosePanel(Score, reason);
     }
 
     private void OnTimerExpired()
     {
-        GameOver();
+        GameOver(LoseReason.TimeUp);
     }
 
     // ─── Navigation ──────────────────────────────────────────────────────────

@@ -69,6 +69,7 @@ public class UIManager : MonoBehaviour
     public void OnLevelStart(int targetScore, float timeLimit)
     {
         HidePanelsImmediate();
+        RestoreGameplayUI();   // yalnızca RetryBtn; kartları LayerPanelController yönetir
         displayedScore = 0;
         currentTargetScore = targetScore > 0 ? targetScore : 100;
         if (scoreText)
@@ -164,6 +165,54 @@ public class UIManager : MonoBehaviour
     // ─── Win / Lose ───────────────────────────────────────────────────────────
 
     private GameObject activeSunburst;
+
+    /// <summary>
+    /// Seviye bitiş paneli (kazanma/kaybetme) açılırken oynanış arayüzünü gizler,
+    /// yeni seviye başlarken geri getirir.
+    ///
+    /// Panel açıkken parça kartları, sıradaki parça önizlemesi ve sağ üstteki yeniden
+    /// başlat butonu ekranda kalmaya devam ediyordu — panelin altında/yanında görünüp
+    /// hem dağınık duruyor hem de bitmiş bir seviyede hâlâ oynanabilirmiş izlenimi
+    /// veriyordu.
+    ///
+    /// Katman butonları burada YÖNETİLMEZ: onları zaten
+    /// LayerPanelController.SetButtonsVisible çağrıları kapatıp açıyor.
+    /// </summary>
+    private void HideGameplayUI()
+    {
+        SetUIObjectsActive(false, "BottomPiecePanel", "RetryBtn");
+
+        // Sıradaki parça paneli çalışma zamanında üretiliyor; isimle aramak yerine
+        // LevelManager'ın tuttuğu referans kullanılır (bkz. oradaki not).
+        var preview = LevelManager.Instance != null ? LevelManager.Instance.NextPiecePreviewPanel : null;
+        if (preview != null) preview.SetActive(false);
+    }
+
+    /// <summary>
+    /// Seviye başlarken YALNIZCA yeniden başlat butonu geri getirilir.
+    ///
+    /// Parça kartları ve sıradaki parça önizlemesi BİLEREK açılmaz: onlar oyuncu bir
+    /// katmana girince görünmeli ve bunu LayerPanelController yönetiyor
+    /// (OpenPanel -> göster, ResetPanel/ClosePanel -> gizle). Burada hepsini birden
+    /// açmak, LoadLevel'ın sonundaki ResetPanel'ın gizlemesini hemen geri alıyordu;
+    /// Retry'dan sonra kartlar katmana girilmeden, genel bakışta beliriyordu.
+    /// </summary>
+    private void RestoreGameplayUI()
+    {
+        SetUIObjectsActive(true, "RetryBtn");
+    }
+
+    private void SetUIObjectsActive(bool active, params string[] names)
+    {
+        var canvas = GameObject.Find("UICanvas");
+        if (canvas == null) return;
+
+        foreach (var n in names)
+        {
+            var t = canvas.transform.Find(n);
+            if (t != null) t.gameObject.SetActive(active);
+        }
+    }
     private Vector2    trophyStartPos;
     private bool       trophyPosSaved = false;
 
@@ -172,6 +221,7 @@ public class UIManager : MonoBehaviour
         Debug.Log($"[UIManager] ShowWinPanel tetiklendi! Skor: {finalScore}");
         StopTimerPulse();
         LayerPanelController.Instance?.SetButtonsVisible(false);
+        HideGameplayUI();
         if (winFinalScoreText) winFinalScoreText.text = $"SKOR: {finalScore}";
 
         if (winOverlay == null)
@@ -467,12 +517,30 @@ public class UIManager : MonoBehaviour
         });
     }
 
-    public void ShowLosePanel(int finalScore)
+    public void ShowLosePanel(int finalScore,
+                             GameManager.LoseReason reason = GameManager.LoseReason.TimeUp)
     {
-        Debug.Log($"[UIManager] ShowLosePanel tetiklendi! Skor: {finalScore}");
+        Debug.Log($"[UIManager] ShowLosePanel tetiklendi! Skor: {finalScore}  sebep: {reason}");
         StopTimerPulse();
         LayerPanelController.Instance?.SetButtonsVisible(false);
+        HideGameplayUI();
         if (loseFinalScoreText) loseFinalScoreText.text = $"SKOR: {finalScore}";
+
+        // Başlık kayıp sebebine göre: süre dolduysa "TIME'S UP", hamle kalmadıysa
+        // "LEVEL FAILED". Başlık sahnedeki LoseOverlay/Title objesi.
+        if (loseOverlay != null)
+        {
+            var titleTr = loseOverlay.transform.Find("Title");
+            if (titleTr == null) titleTr = FindChildRecursive(loseOverlay.transform, "Title");
+            if (titleTr != null)
+            {
+                var titleText = titleTr.GetComponent<TextMeshProUGUI>();
+                if (titleText != null)
+                    titleText.text = reason == GameManager.LoseReason.NoMoves
+                        ? "LEVEL FAILED"
+                        : "TIME'S UP";
+            }
+        }
 
         if (loseOverlay == null)
         {

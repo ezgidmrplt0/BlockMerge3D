@@ -53,6 +53,13 @@ public class LevelManager : MonoBehaviour
     private int nextPieceSpeciesIndex = -1;
     private Material nextPieceMaterial;
 
+    /// <summary>Çalışma zamanında üretilen "sıradaki parça" kartı. İSİMLE aranmamalı:
+    /// seviye yeniden yüklenirken eski panel Destroy ile işaretleniyor ama Unity onu
+    /// kare sonuna kadar hiyerarşide tutuyor; o arada aynı isimde İKİ panel bulunuyor
+    /// ve Transform.Find silinmeyi bekleyen eskisini döndürüp yenisini görünür
+    /// bırakıyordu (Retry sonrası önizlemenin genel bakışta kalması bundandı).</summary>
+    public GameObject NextPiecePreviewPanel { get; private set; }
+
     private GameObject nextPiecePreviewParent;
     private Camera nextPiecePreviewCam;
     private GameObject nextPiecePreview3D;
@@ -724,7 +731,8 @@ public class LevelManager : MonoBehaviour
 
         // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin hiçbirinde HİÇBİR
         // katmandaki boş hücrelere yerleşemiyorsa gelir (bkz. CanShapeFitAnyOpenLayer).
-        GameManager.Instance?.GameOver();
+        // Süre değil, HAMLE kalmadığı için kaybedildi — panelde "LEVEL FAILED" yazsın.
+        GameManager.Instance?.GameOver(GameManager.LoseReason.NoMoves);
     }
 
     /// <summary>
@@ -1097,12 +1105,23 @@ public class LevelManager : MonoBehaviour
             }
             else // Normal hedef (Ghost)
             {
-                bool frozen = holder != null && holder.IsCellFrozen(cell);
+                // Buz hücreleri de ghost materyalini ALIR. Önceden muaftılar ve seviyenin
+                // küp prefabının kendi materyaliyle kalıyorlardı; bu, farklı prefab kullanan
+                // seviyelerde buzun FARKLI görünmesine yol açıyordu:
+                //   Level6/Level9  -> Untitled1.fbx  (saydam materyal)  erime solması GÖRÜNÜR
+                //   Level10+       -> Obje.prefab    (opak materyal)    alfa hiçbir şey yapmaz,
+                //                                                      buz bir anda kaybolur
+                // IceBreakEffect.PlayIceMelt eritme hissini materyalin ALFASINI düşürerek
+                // verdiği için, materyalin saydam olması şart. Ghost materyali saydam ve
+                // tüm seviyelerde ortak — böylece buz her yerde aynı eriyor.
+                //
+                // Buzun mavi rengi zaten materyalden değil, GridManager.RefreshLayerVisibility'nin
+                // MaterialPropertyBlock ile bastığı tint'ten geliyor; materyali değiştirmek
+                // buzun rengini bozmaz.
                 foreach (var r in renderers)
                 {
                     r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     r.receiveShadows = false;
-                    if (frozen) continue;
 
                     var mats = new Material[r.sharedMaterials.Length];
                     for (int i = 0; i < mats.Length; i++) mats[i] = ghostTargetMaterial;
@@ -1277,6 +1296,10 @@ public class LevelManager : MonoBehaviour
         // 2. Create Next Piece Card (Perfect square matching GUI_52 styling)
         GameObject panelGO = new GameObject("NextPiecePreviewPanel", typeof(RectTransform));
         panelGO.transform.SetParent(canvas.transform, false);
+        NextPiecePreviewPanel = panelGO;
+        // Seviye her zaman genel bakışla başlar; önizleme katmana girilince açılır
+        // (bkz. LayerPanelController.SetBottomPanelVisible).
+        panelGO.SetActive(false);
         var panelRT = panelGO.GetComponent<RectTransform>();
         
         panelRT.anchorMin = new Vector2(1f, 0f);

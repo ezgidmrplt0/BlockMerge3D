@@ -20,6 +20,11 @@ public class GridManager : MonoBehaviour
     private HashSet<Vector3Int> occludedGridCells           = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> sparklingCells               = new HashSet<Vector3Int>(); // Aynı türden 3+ bağlı grup parıldıyor
 
+    // Erime animasyonu SÜREN buz hücreleri. RefreshLayerVisibility bunlara dokunmaz:
+    // erime efekti renderer.material üzerinden çalışırken, tazeleme MaterialPropertyBlock
+    // ile aynı renderer'ın rengini EZİYOR ve buz gri/tuhaf bir renge bürünüyordu.
+    private readonly HashSet<Vector3Int> meltingIceCells = new HashSet<Vector3Int>();
+
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
     public float  Step     => CellSize + Spacing;
@@ -266,6 +271,17 @@ public class GridManager : MonoBehaviour
         {
             Vector3Int cell = kvp.Key;
             Renderer r = kvp.Value;
+
+            // ERİME SÜRERKEN DOKUNMA. IceBreakEffect.PlayIceMelt solma efektini
+            // renderer.material üzerinden yapıyor; buradaki renk yazımı ise
+            // MaterialPropertyBlock ile ve o materyal özelliklerini EZİYOR.
+            // Erime ortasında araya giren bir tazeleme (ör. prefilled hücre
+            // patlayınca RestoreAsGhostTarget'ın senkron çağırdığı tazeleme)
+            // solmakta olan buzun üzerine ghost rengini damgalıyor ve buz
+            // gri/tuhaf bir renge bürünüyordu. Erime bitince callback zaten
+            // hücreyi ghost'a çevirip tazelemeyi kendisi tetikliyor.
+            if (meltingIceCells.Contains(cell)) continue;
+
             if (r != null)
             {
                 if (isPanelMode)
@@ -757,6 +773,17 @@ public class GridManager : MonoBehaviour
             newFrozenCells.Add(newC);
         }
 
+        // Erime bayrakları da aynı kaymayı yemeli; yoksa çökmeden sonra o hücre
+        // kalıcı olarak görünürlük tazelemesinden muaf kalırdı.
+        var newMelting = new HashSet<Vector3Int>();
+        foreach (var c in meltingIceCells)
+        {
+            if (c.y == clearedY) continue;
+            newMelting.Add(c.y > clearedY ? new Vector3Int(c.x, c.y - 1, c.z) : c);
+        }
+        meltingIceCells.Clear();
+        foreach (var c in newMelting) meltingIceCells.Add(c);
+
         allShapeCells = newAllShapeCells;
         targetCells = newTargetCells;
         occupiedCells = newOccupiedCells;
@@ -1087,6 +1114,9 @@ public class GridManager : MonoBehaviour
         }
         cellObjects.Clear();
         cellColors.Clear();
+        // Yarıda kalan erime bayrakları sonraki seviyeye sızarsa o hücreler
+        // görünürlük tazelemesinden kalıcı olarak muaf kalırdı.
+        meltingIceCells.Clear();
     }
 
     private IEnumerator BumpAnimation(Transform target)
@@ -2376,7 +2406,13 @@ public class GridManager : MonoBehaviour
         {
             if (targetRenderers.TryGetValue(cell, out var rend) && rend != null)
             {
+                // Erime boyunca bu hücreyi görünürlük tazelemesinden muaf tut; aksi
+                // halde araya giren bir RefreshLayerVisibility, MaterialPropertyBlock
+                // ile solma efektinin üzerine ghost rengini damgalıyor (bkz. oradaki not).
+                meltingIceCells.Add(cell);
+
                 System.Action onThisIceDone = () => {
+                    meltingIceCells.Remove(cell);
                     RestoreAsGhostTarget(cell, rend);
                     onOneEffectDone();
                 };
@@ -2412,11 +2448,31 @@ public class GridManager : MonoBehaviour
                 // Prefilled hücrenin kendi ayrı bir "hedef ghost" objesi yok — kendi
                 // renderer'ı yok edilmez, RestoreAsGhostTarget ile ghost'a dönüştürülür
                 // (bkz. o fonksiyonun üstündeki not).
+                //
+                // GÖRSEL EŞİTLİK: oyuncu küpü yok edilirken AnimateAndDestroy oynuyor;
+                // prefilled hücrede ise farklı bir kıvılcım efekti vardı ve etki ANINDA
+                // bitiyordu. İkisi birebir aynı görünsün diye, prefilled hücrenin
+                // görselinin GEÇİCİ BİR KOPYASI çıkarılıp ona AYNI animasyon oynatılıyor.
+                // Gerçek hücre arkada hemen ghost'a dönüşüyor — bu da oyuncu küpü
+                // yolundaki "alttaki ghost'u hemen aç" davranışının aynısı.
                 prefilledRenderers.Remove(cell);
-                Color shardColor = prefRend.sharedMaterial != null ? GetMaterialColor(prefRend.sharedMaterial) : Color.white;
-                CreateShatterEffect(prefRend.transform.position, shardColor);
+
+                GameObject visualClone = Instantiate(
+                    prefRend.gameObject, prefRend.transform.position, prefRend.transform.rotation);
+                visualClone.name = "PrefilledBurst";
+                visualClone.transform.localScale = prefRend.transform.lossyScale;
+
+                foreach (var cc in visualClone.GetComponentsInChildren<Collider>(true))
+                    cc.enabled = false;
+                // Görünürlük aynası kopyada kalırsa, orijinal renderer ghost'a dönüşünce
+                // kopyanın hayvanı da onunla birlikte kaybolurdu.
+                foreach (var mirror in visualClone.GetComponentsInChildren<RendererVisibilityMirror>(true))
+                    Destroy(mirror);
+                foreach (var rr in visualClone.GetComponentsInChildren<Renderer>(true))
+                    rr.enabled = true;
+
                 RestoreAsGhostTarget(cell, prefRend);
-                onOneEffectDone();
+                AnimateAndDestroy(visualClone, 0f, true, onOneEffectDone);
             }
             else
             {
