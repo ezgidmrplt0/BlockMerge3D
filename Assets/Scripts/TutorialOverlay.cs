@@ -130,13 +130,13 @@ public class TutorialOverlay : MonoBehaviour
 
         if (level.levelName == "Tutorial_4_Obstacle")
         {
+            // Öğretici: katmana gir → yanlış yerleştir → jokerle geri al → jokerden
+            // sonraki DOĞRU hamleyi göster, sonra KAPAN. Kalan hamleleri (ve tahta
+            // döndürmeyi) oyuncu kendisi yapar.
             steps.Add(TutorialStepType.TapLayerButton);
-            steps.Add(TutorialStepType.DragPieceToBoard); // Wrong placement
+            steps.Add(TutorialStepType.DragPieceToBoard); // Yanlış yerleştirme
             steps.Add(TutorialStepType.UseJoker);
-            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 1
-            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 2
-            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 3
-            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 4
+            steps.Add(TutorialStepType.DragPieceToBoard); // Jokerden sonraki doğru yerleştirme
         }
         else
         {
