@@ -25,6 +25,70 @@ public class GridManager : MonoBehaviour
     // ile aynı renderer'ın rengini EZİYOR ve buz gri/tuhaf bir renge bürünüyordu.
     private readonly HashSet<Vector3Int> meltingIceCells = new HashSet<Vector3Int>();
 
+    // ─── Buz görseli ──────────────────────────────────────────────────────────
+    // Buz artık hedef küpünün boyanmış hali değil, kendi 3D modeli
+    // (Assets/Resources/IceCube.prefab — Ice.fbx'ten üretildi, saydam materyal,
+    // ışık/collider/gölge çıkarıldı). Model hücre küpüne çocuk olarak eklenir,
+    // küpün kendi renderer'ı kapatılır.
+    private readonly Dictionary<Vector3Int, GameObject> iceVisuals = new Dictionary<Vector3Int, GameObject>();
+    private static GameObject icePrefabCache;
+
+    private static GameObject IcePrefab
+    {
+        get
+        {
+            if (icePrefabCache == null) icePrefabCache = Resources.Load<GameObject>("IceCube");
+            return icePrefabCache;
+        }
+    }
+
+    /// <summary>Hücrede buz modeli yoksa oluşturur. Modelin pivotu MERKEZDE ve hücre
+    /// küpünün pivotu da hücre merkezinde olduğu için ofset gerekmiyor.</summary>
+    private void EnsureIceVisual(Vector3Int cell, Renderer host)
+    {
+        if (host == null) return;
+        if (iceVisuals.TryGetValue(cell, out var existing) && existing != null) return;
+
+        var prefab = IcePrefab;
+        if (prefab == null) return;
+
+        var go = Instantiate(prefab, host.transform);
+        go.name = $"Ice_{cell.x}_{cell.y}_{cell.z}";
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        iceVisuals[cell] = go;
+    }
+
+    /// <summary>Erime SÜRERKEN çağrılırsa modeli silmez — erime efekti onun
+    /// materyali üzerinde çalışıyor, ortadan kaldırmak efekti ve callback'ini
+    /// öldürürdü (bkz. meltingIceCells).</summary>
+    private void RemoveIceVisual(Vector3Int cell)
+    {
+        if (meltingIceCells.Contains(cell)) return;
+        ForceRemoveIceVisual(cell);
+    }
+
+    private void ForceRemoveIceVisual(Vector3Int cell)
+    {
+        if (iceVisuals.TryGetValue(cell, out var go))
+        {
+            if (go != null) Destroy(go);
+            iceVisuals.Remove(cell);
+        }
+    }
+
+    private GameObject GetIceVisual(Vector3Int cell)
+    {
+        iceVisuals.TryGetValue(cell, out var go);
+        return go;
+    }
+
+    private void ClearAllIceVisuals()
+    {
+        foreach (var kv in iceVisuals) if (kv.Value != null) Destroy(kv.Value);
+        iceVisuals.Clear();
+    }
+
     public float  CellSize { get; private set; }
     public float  Spacing  { get; private set; }
     public float  Step     => CellSize + Spacing;
@@ -397,10 +461,30 @@ public class GridManager : MonoBehaviour
                     r.enabled = false;
                 }
 
+                // Buz artık kendi 3D modeliyle gösteriliyor: modeli hücreye ekle ve
+                // altındaki küpün renderer'ını kapat ki buzun içinden sırıtmasın.
+                // Panel modunda alt katmanlar soluklaşırken model gizlenir.
+                bool isFrozenHere = frozenCells.Contains(cell);
+                if (isFrozenHere)
+                {
+                    EnsureIceVisual(cell, r);
+                    var iceGo = GetIceVisual(cell);
+                    if (iceGo != null)
+                    {
+                        bool faded = isPanelMode && cell.y < ActiveLayerY;
+                        iceGo.SetActive(!faded);
+                        if (!faded) r.enabled = false;
+                    }
+                }
+                else
+                {
+                    RemoveIceVisual(cell);
+                }
+
                 if (r.enabled)
                 {
                     r.GetPropertyBlock(PropBlock);
-                    if (frozenCells.Contains(cell))
+                    if (isFrozenHere)
                     {
                         Color iceColor = new Color(0.75f, 0.9f, 1.0f, 0.75f);
                         if (isPanelMode && cell.y < ActiveLayerY) iceColor.a = 0.15f; // Faded ice
@@ -904,6 +988,19 @@ public class GridManager : MonoBehaviour
 
         // Erime bayrakları da aynı kaymayı yemeli; yoksa çökmeden sonra o hücre
         // kalıcı olarak görünürlük tazelemesinden muaf kalırdı.
+        // Buz MODELLERİNİN sözlüğü de aynı kaymayı yer. Model, hücre küpünün çocuğu
+        // olduğu için görsel olarak zaten birlikte iniyor; sözlük kaydırılmazsa eski
+        // koordinatta kalır ve RefreshLayerVisibility aynı hücreye İKİNCİ bir buz üretir.
+        var newIce = new Dictionary<Vector3Int, GameObject>();
+        foreach (var kvp in iceVisuals)
+        {
+            if (kvp.Value == null) continue;
+            if (kvp.Key.y == clearedY) { Destroy(kvp.Value); continue; }   // patlayan katmanin buzu gider
+            newIce[kvp.Key.y > clearedY ? new Vector3Int(kvp.Key.x, kvp.Key.y - 1, kvp.Key.z) : kvp.Key] = kvp.Value;
+        }
+        iceVisuals.Clear();
+        foreach (var kvp in newIce) iceVisuals[kvp.Key] = kvp.Value;
+
         var newMelting = new HashSet<Vector3Int>();
         foreach (var c in meltingIceCells)
         {
@@ -1243,6 +1340,7 @@ public class GridManager : MonoBehaviour
         }
         cellObjects.Clear();
         cellColors.Clear();
+        ClearAllIceVisuals();
         // Yarıda kalan erime bayrakları sonraki seviyeye sızarsa o hücreler
         // görünürlük tazelemesinden kalıcı olarak muaf kalırdı.
         meltingIceCells.Clear();
@@ -2599,15 +2697,21 @@ public class GridManager : MonoBehaviour
                 // ile solma efektinin üzerine ghost rengini damgalıyor (bkz. oradaki not).
                 meltingIceCells.Add(cell);
 
+                var iceGo = GetIceVisual(cell);
+
                 System.Action onThisIceDone = () => {
                     meltingIceCells.Remove(cell);
+                    ForceRemoveIceVisual(cell);   // erime bitti, model gider
                     RestoreAsGhostTarget(cell, rend);
                     onOneEffectDone();
                 };
 
                 if (IceBreakEffect.Instance != null)
                 {
-                    IceBreakEffect.PlayIceMelt(rend.gameObject, onThisIceDone);
+                    // Erime BUZ MODELİNE oynatılır: hedef küpün renderer'ı buzluyken
+                    // kapalı olduğu için ona oynatmak görünmez kalırdı. Model materyali
+                    // saydam olduğu için PlayIceMelt'in alfa solması artık gerçekten çalışır.
+                    IceBreakEffect.PlayIceMelt(iceGo != null ? iceGo : rend.gameObject, onThisIceDone);
                 }
                 else
                 {

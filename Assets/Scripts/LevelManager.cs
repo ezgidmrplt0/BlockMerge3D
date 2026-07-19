@@ -1120,6 +1120,13 @@ public class LevelManager : MonoBehaviour
                 // buzun rengini bozmaz.
                 foreach (var r in renderers)
                 {
+                    // BUZ MODELİNE DOKUNMA. Buz, hücre küpünün ÇOCUĞU olarak ekleniyor
+                    // (bkz. GridManager.EnsureIceVisual) ve bu döngü hücrenin tüm alt
+                    // renderer'larını geziyor; işaretlenmezse buzun kendi saydam
+                    // materyali ghost materyaliyle ezilir ve buz, sıradan bir ghost
+                    // küpü gibi görünürdü.
+                    if (r.GetComponentInParent<IceVisualMarker>() != null) continue;
+
                     r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     r.receiveShadows = false;
 

@@ -108,6 +108,8 @@ public class TutorialOverlay : MonoBehaviour
         stepIndex = -1;
         running   = false;
         HideIcon();
+        HideStepText();
+        HideSpotlight();
 
         if (level == null) return;
 
@@ -144,6 +146,8 @@ public class TutorialOverlay : MonoBehaviour
             running = false;
             HighlightTutorialTargetCells(false);
             HideIcon();
+            HideStepText();
+            HideSpotlight();
             return;
         }
 
@@ -207,6 +211,8 @@ public class TutorialOverlay : MonoBehaviour
         HighlightTutorialTargetCells(false);
         KillLoop();
         HideIcon();
+        HideStepText();
+        HideSpotlight();
         // Eylemin kendi animasyonu (panel açılışı, tahta dönüşü, parça yerleşimi)
         // bitsin diye kısa bir nefes payı.
         Invoke(nameof(AdvanceStep), 0.6f);
@@ -305,6 +311,65 @@ public class TutorialOverlay : MonoBehaviour
             case TutorialStepType.SwipeToRotate:   PlaySwipe(); break;
             case TutorialStepType.DragPieceToBoard: PlayDrag();  break;
             case TutorialStepType.UseJoker:        PlayJoker(); break;
+        }
+
+        ApplySpotlightFor(type);
+    }
+
+    /// <summary>Adımın hedefine göre karartmadaki deliği konumlandırır.
+    /// Ölçüler cömert tutuluyor: delik hedefi sıkıştırırsa oyuncu neye
+    /// bakacağını değil, neyin kesildiğini fark ediyor.</summary>
+    private void ApplySpotlightFor(TutorialStepType type)
+    {
+        var canvasRect = canvas != null ? canvas.transform as RectTransform : null;
+        if (canvasRect == null) return;
+        float W = canvasRect.rect.width, H = canvasRect.rect.height;
+
+        switch (type)
+        {
+            case TutorialStepType.TapLayerButton:
+            {
+                // Katman butonu bir UI elemanı: karartmanın ÜSTÜNE çıkarılıp
+                // gerçekten parlak bırakılıyor, hale gerekmiyor.
+                var btn = LayerPanelController.Instance != null
+                    ? LayerPanelController.Instance.FirstLayerButton : null;
+                if (btn == null) { HideSpotlight(); return; }
+                ShowSpotlight(Vector2.zero, 0f, btn);
+                // Katman butonu sağ kenarda: yazı SOLUNA gelsin.
+                ShowStepText(TextFor(type), WorldToCanvas(btn.position), -1);
+                break;
+            }
+            case TutorialStepType.SwipeToRotate:
+                // Döndürülen şey tahtanın kendisi: sahne kararır, tahta parlak kalır.
+                ShowSpotlight(Vector2.zero, 0f, BoardObject());
+                ShowStepText(TextFor(type), new Vector2(0f, H * 0.30f), 0);
+                break;
+
+            case TutorialStepType.DragPieceToBoard:
+            {
+                // İki hedef birden: kartlar (UI, üste çıkarılır) ve tahtadaki hücreler
+                // (3D, karartmanın üstüne alınır). Hücreler ayrıca sarı vurguyla
+                // yanıp sönüyor; karartma üzerinde çok daha belirgin duruyorlar.
+                var cardsPanel = canvasRect.Find("BottomPiecePanel");
+                ShowSpotlight(Vector2.zero, 0f, BoardObject(), cardsPanel);
+                // Kartların hemen ÜSTÜNDE: hem kaynağa hem tahtaya yakın.
+                float cardsY = cardsPanel != null
+                    ? (cardsPanel as RectTransform).anchoredPosition.y : -H * 0.28f;
+                ShowStepText(TextFor(type), new Vector2(0f, cardsY + 200f), 0);
+                break;
+            }
+            case TutorialStepType.UseJoker:
+            {
+                // Joker 3D bir nesne: sahne kararır, YALNIZCA buton parlak kalır.
+                var jokerBtn = FindObjectOfType<ControlButton>();
+                if (jokerBtn == null) { HideSpotlight(); return; }
+                ShowSpotlight(Vector2.zero, 0f, jokerBtn.gameObject);
+                var jr = jokerBtn.GetComponentInChildren<Renderer>();
+                Vector3 jw = jr != null ? jr.bounds.center : jokerBtn.transform.position;
+                // Joker sağ altta: yazı SOLUNA gelsin.
+                ShowStepText(TextFor(type), WorldObjectToCanvas(jw), -1);
+                break;
+            }
         }
     }
 
@@ -445,6 +510,380 @@ public class TutorialOverlay : MonoBehaviour
         iconGroup.alpha          = 0f;
 
         return true;
+    }
+
+    // ─── Adım metni ───────────────────────────────────────────────────────────
+    // Parmak "nereye" diyor ama "neden" demiyordu. Tek satırlık metin, göstergenin
+    // taşıdığı bilginin çoğunu tek başına veriyor.
+    private TMPro.TextMeshProUGUI stepText;
+    private CanvasGroup           stepTextGroup;
+
+    private static string TextFor(TutorialStepType type)
+    {
+        switch (type)
+        {
+            // Tebrik yazılarıyla (NICE! / GREAT!) aynı dil ve aynı ton: kısa,
+            // büyük harf, emir kipi.
+            case TutorialStepType.TapLayerButton:   return "ENTER THE LAYER";
+            case TutorialStepType.SwipeToRotate:    return "SWIPE TO ROTATE";
+            case TutorialStepType.DragPieceToBoard: return "DRAG A PIECE";
+            case TutorialStepType.UseJoker:         return "TAP TO UNDO";
+            default:                                return "";
+        }
+    }
+
+    private void EnsureStepText()
+    {
+        if (stepText != null || canvas == null) return;
+
+        var go = new GameObject("TutorialStepText",
+            typeof(RectTransform), typeof(CanvasRenderer), typeof(CanvasGroup));
+        go.transform.SetParent(canvas.transform, false);
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(700f, 120f);
+
+        // Görünüm, tebrik yazılarıyla (NICE! / GREAT! — bkz. UIManager.PlayFloatingPraise)
+        // AYNI dili konuşsun diye birebir aynı stil: kalın+italik, 58 punto, canlı renk,
+        // koyu kontur. Oyuncu bu görünümü zaten "oyunun bana seslendiği an" diye tanıyor.
+        stepText = go.AddComponent<TMPro.TextMeshProUGUI>();
+        stepText.enableWordWrapping = false;
+        stepText.alignment = TMPro.TextAlignmentOptions.Center;
+        stepText.fontSize  = 58f;
+        stepText.fontStyle = TMPro.FontStyles.Bold | TMPro.FontStyles.Italic;
+        stepText.color     = new Color(1f, 0.85f, 0.1f);   // altın sarısı
+        stepText.raycastTarget = false;
+        stepText.outlineColor = new Color32(20, 20, 20, 255);
+        stepText.outlineWidth = 0.25f;
+
+        // Oyunun geri kalanıyla aynı font
+        var ui = UIManager.Instance;
+        if (ui != null && ui.scoreText != null) stepText.font = ui.scoreText.font;
+        else if (TMPro.TMP_Settings.defaultFontAsset != null) stepText.font = TMPro.TMP_Settings.defaultFontAsset;
+
+        stepTextGroup = go.GetComponent<CanvasGroup>();
+        stepTextGroup.alpha = 0f;
+        stepTextGroup.blocksRaycasts = false;
+        stepTextGroup.interactable   = false;
+    }
+
+    /// <summary>Metni HEDEFİN YANINDA gösterir. anchoredPos hedefin canvas konumu,
+    /// side ise metnin hangi tarafa yerleşeceği (-1 sol, +1 sağ, 0 üst).</summary>
+    private void ShowStepText(string text, Vector2 anchoredPos, int side)
+    {
+        EnsureStepText();
+        if (stepText == null) return;
+
+        stepText.text = text;
+        stepText.gameObject.SetActive(true);
+        stepText.ForceMeshUpdate();
+
+        // Metin hedefe DEĞMESİN: kendi genişliğinin yarısı + boşluk kadar kaydırılır.
+        float half = Mathf.Max(120f, stepText.preferredWidth * 0.5f);
+        Vector2 pos = anchoredPos;
+        if (side < 0)      pos.x -= half + 60f;
+        else if (side > 0) pos.x += half + 60f;
+        else               pos.y += 130f;
+
+        // Ekrandan taşarsa karşı tarafa geç.
+        var canvasRect = canvas.transform as RectTransform;
+        float limit = canvasRect.rect.width * 0.5f - half - 20f;
+        if (pos.x < -limit) pos.x = anchoredPos.x + half + 60f;
+        if (pos.x >  limit) pos.x = anchoredPos.x - half - 60f;
+
+        var rt = stepText.rectTransform;
+        rt.anchoredPosition = pos;
+        rt.SetAsLastSibling();
+
+        // Tebrik yazılarındaki "fırlayıp yaylanarak oturma" hissi.
+        stepTextGroup.DOKill();
+        rt.DOKill();
+        stepTextGroup.alpha = 0f;
+        rt.localScale = Vector3.zero;
+        DOTween.Sequence().SetLink(stepText.gameObject)
+            .Append(rt.DOScale(1.25f, 0.20f).SetEase(Ease.OutQuad))
+            .Join(stepTextGroup.DOFade(1f, 0.20f))
+            .Append(rt.DOScale(1f, 0.14f).SetEase(Ease.OutBack))
+            // Sonra hafifçe nabız atarak dikkat çekmeye devam etsin
+            .Append(rt.DOScale(1.06f, 0.55f).SetEase(Ease.InOutSine).SetLoops(-1, LoopType.Yoyo));
+    }
+
+    private void HideStepText()
+    {
+        if (stepText == null) return;
+        stepTextGroup.DOKill();
+        stepText.gameObject.SetActive(false);
+    }
+
+    // ─── Karartma (spotlight) ─────────────────────────────────────────────────
+    // Hedef dışındaki her yer karartılır. Gerçek bir "delik" için shader/maske
+    // yerine DÖRT panel kullanılıyor: hedef dikdörtgenin üstü/altı/solu/sağı.
+    // Böylece hedef bölge gerçekten karartılmamış kalıyor ve hem UI hem 3D
+    // hedeflerde çalışıyor.
+    private Image        dimPanel;      // tek parça, tam ekran
+    private Image        glowImage;     // 3D hedefler için yumuşak yuvarlak hale
+    private CanvasGroup  dimGroup;
+    private static Sprite glowSprite;
+
+    // Karartmanın üstüne çıkarılan UI hedeflerinin ESKİ sıraları — adım bitince
+    // yerlerine geri konmaları için.
+    private readonly List<(Transform tr, int index)> liftedTargets = new List<(Transform, int)>();
+
+    // ─── 3D sahne karartması ──────────────────────────────────────────────────
+    // UI karartması (ekran-üstü canvas) 3D nesneleri KAÇINILMAZ olarak örter, bu
+    // yüzden "sadece şu küp parlasın" UI ile yapılamıyordu. Çözüm iki parçalı:
+    //   1) Kameranın önüne, derinliğe YAZMAYAN ve her şeyin üstüne çizilen koyu
+    //      bir düzlem konur → tüm 3D sahne kararır.
+    //   2) Hedef nesnelerin materyalleri bu düzlemden SONRA çizilecek render
+    //      sırasına alınır → sadece onlar karartmanın üzerinde parlak kalır.
+    private const int DIM3D_QUEUE   = 3900;
+    private const int TARGET3D_QUEUE = 3950;
+
+    private GameObject dim3D;
+    private readonly List<(Renderer r, Material[] mats)> lifted3D = new List<(Renderer, Material[])>();
+
+    private void Ensure3DDim()
+    {
+        if (dim3D != null) return;
+        var cam = Camera.main;
+        if (cam == null) return;
+
+        dim3D = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        dim3D.name = "Tutorial3DDim";
+        Destroy(dim3D.GetComponent<Collider>());
+        dim3D.transform.SetParent(cam.transform, false);
+
+        // Kameranın hemen önünde, görüş alanını tamamen kaplayacak boyutta.
+        float dist = cam.nearClipPlane + 0.05f;
+        dim3D.transform.localPosition = new Vector3(0f, 0f, dist);
+        dim3D.transform.localRotation = Quaternion.identity;
+        float h = cam.orthographic ? cam.orthographicSize * 2f
+                                   : 2f * dist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        dim3D.transform.localScale = new Vector3(h * cam.aspect * 1.2f, h * 1.2f, 1f);
+
+        var sh = Shader.Find("Universal Render Pipeline/Unlit");
+        if (sh == null) sh = Shader.Find("Unlit/Color");
+        var mat = new Material(sh);
+        mat.SetColor("_BaseColor", new Color(0f, 0f, 0f, 0.72f));
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", new Color(0f, 0f, 0f, 0.72f));
+        mat.SetFloat("_Surface", 1f);
+        mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetFloat("_ZWrite", 0f);
+        mat.SetFloat("_ZTest", (float)UnityEngine.Rendering.CompareFunction.Always); // her şeyin üstüne
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        mat.renderQueue = DIM3D_QUEUE;
+
+        var rend = dim3D.GetComponent<Renderer>();
+        rend.sharedMaterial = mat;
+        rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        rend.receiveShadows = false;
+        dim3D.SetActive(false);
+    }
+
+    /// <summary>Bir 3D nesneyi karartmanın ÜSTÜNE çıkarır: materyalleri örneklenip
+    /// render sırası karartma düzleminin arkasına alınır. Materyal örneği alınıyor
+    /// çünkü render queue paylaşımlı materyalde değiştirilirse aynı materyali
+    /// kullanan TÜM nesneler etkilenirdi.</summary>
+    private void Lift3D(GameObject target)
+    {
+        if (target == null) return;
+        foreach (var r in target.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null) continue;
+            lifted3D.Add((r, r.sharedMaterials));
+            var copies = new Material[r.sharedMaterials.Length];
+            for (int i = 0; i < copies.Length; i++)
+            {
+                if (r.sharedMaterials[i] == null) continue;
+                copies[i] = new Material(r.sharedMaterials[i]) { renderQueue = TARGET3D_QUEUE };
+                copies[i].SetFloat("_ZTest", (float)UnityEngine.Rendering.CompareFunction.Always);
+            }
+            r.materials = copies;
+        }
+    }
+
+    // Sürüklenen parça tahtanın çocuğu DEĞİL, ayrı bir dünya nesnesi — 3D karartma
+    // açıkken kararırdı. Sürükleme adımı boyunca elde tutulan/sürüklenen parça da
+    // öne alınır. Parça değiştikçe (yeni parça çekildikçe) takip edilir.
+    private GameObject liftedPiece;
+
+    private void LateUpdate()
+    {
+        if (dim3D == null || !dim3D.activeSelf) { liftedPiece = null; return; }
+        if (!IsDragStepActive) return;
+
+        var drag = DraggablePiece.activeDrag;
+        var current = drag != null ? drag.gameObject : null;
+        if (current != liftedPiece)
+        {
+            liftedPiece = current;
+            if (current != null) Lift3D(current);
+        }
+    }
+
+    /// <summary>Oyun tahtası (Main_Shape). Hücreler onun çocukları olduğu için
+    /// tahtayı öne almak bütün hücreleri öne alır.</summary>
+    private GameObject BoardObject()
+    {
+        if (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
+            return LevelManager.Instance.ActiveMainPiece;
+        return GameObject.Find("Main_Shape");
+    }
+
+    private void Restore3D()
+    {
+        for (int i = lifted3D.Count - 1; i >= 0; i--)
+        {
+            var (r, mats) = lifted3D[i];
+            if (r != null) r.sharedMaterials = mats;
+        }
+        lifted3D.Clear();
+        if (dim3D != null) dim3D.SetActive(false);
+    }
+
+    /// <summary>Kenarları eriyen yuvarlak hale dokusu. Dosya bağımlılığı olmasın
+    /// diye çalışma zamanında üretiliyor.</summary>
+    private static Sprite GetGlowSprite()
+    {
+        if (glowSprite != null) return glowSprite;
+        const int S = 128;
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[S * S];
+        Vector2 c = new Vector2(S * 0.5f, S * 0.5f);
+        for (int y = 0; y < S; y++)
+            for (int x = 0; x < S; x++)
+            {
+                float d = Vector2.Distance(new Vector2(x, y), c) / (S * 0.5f);
+                float a = Mathf.Clamp01(1f - d);
+                a = a * a;                       // kenarlara doğru hızlı sönüm
+                px[y * S + x] = new Color(1f, 1f, 1f, a);
+            }
+        tex.SetPixels(px); tex.Apply();
+        glowSprite = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f));
+        return glowSprite;
+    }
+
+    private void EnsureDim()
+    {
+        if (dimPanel != null || canvas == null) return;
+
+        var host = new GameObject("TutorialDim", typeof(RectTransform), typeof(CanvasGroup));
+        host.transform.SetParent(canvas.transform, false);
+        var hrt = host.GetComponent<RectTransform>();
+        hrt.anchorMin = Vector2.zero; hrt.anchorMax = Vector2.one;
+        hrt.offsetMin = Vector2.zero; hrt.offsetMax = Vector2.zero;
+
+        dimGroup = host.GetComponent<CanvasGroup>();
+        dimGroup.alpha = 0f;
+        // Karartma tıklamayı ENGELLEMEZ: öğretici oyuncuyu kilitlemiyor.
+        dimGroup.blocksRaycasts = false;
+        dimGroup.interactable   = false;
+
+        var dimGo = new GameObject("Dim", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        dimGo.transform.SetParent(host.transform, false);
+        dimPanel = dimGo.GetComponent<Image>();
+        dimPanel.color = new Color(0f, 0f, 0f, 0.66f);
+        dimPanel.raycastTarget = false;
+        var drt = dimGo.GetComponent<RectTransform>();
+        drt.anchorMin = Vector2.zero; drt.anchorMax = Vector2.one;
+        drt.offsetMin = Vector2.zero; drt.offsetMax = Vector2.zero;
+
+        var glowGo = new GameObject("Glow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        glowGo.transform.SetParent(host.transform, false);
+        glowImage = glowGo.GetComponent<Image>();
+        glowImage.sprite = GetGlowSprite();
+        glowImage.raycastTarget = false;
+        glowImage.color = new Color(1f, 1f, 0.85f, 0.30f);
+        var grt = glowGo.GetComponent<RectTransform>();
+        grt.anchorMin = grt.anchorMax = new Vector2(0.5f, 0.5f);
+        grt.pivot = new Vector2(0.5f, 0.5f);
+        glowGo.SetActive(false);
+    }
+
+    /// <summary>Tam ekran karartma açar. UI hedefleri karartmanın ÜSTÜNE çıkarılır
+    /// (gerçekten parlak kalırlar). 3D hedefler için — ekran-üstü bir UI katmanı
+    /// onları kaçınılmaz olarak örttüğü için — konumlarına yumuşak bir hale konur.</summary>
+    private void ShowSpotlight(Vector2 glowCenter, float glowSize, params Transform[] uiTargets)
+    {
+        ShowSpotlight(glowCenter, glowSize, null, uiTargets);
+    }
+
+    /// <summary>target3D verilirse 3D sahne de kararır ve YALNIZCA o nesne parlak kalır.</summary>
+    private void ShowSpotlight(Vector2 glowCenter, float glowSize, GameObject target3D, params Transform[] uiTargets)
+    {
+        EnsureDim();
+        if (dimPanel == null) return;
+
+        RestoreLifted();
+        Restore3D();
+
+        // 3D hedef varsa karartmayı SADECE 3D düzlem yapar.
+        //
+        // Sebebi: UI karartması ekran-üstü canvas'ta ve HER ŞEYİN üstüne çizilir —
+        // 3D nesneyi render sırasıyla ne kadar öne alırsak alalım UI karartması onu
+        // yine örter. İkisi birlikte açıkken tahta karanlık kalıyordu. 3D düzlem
+        // kameranın önünde durduğu için sahneyi zaten karartıyor; öne alınan nesne
+        // ondan sonra çizildiği için parlak kalıyor.
+        bool has3D = target3D != null;
+        if (has3D)
+        {
+            Ensure3DDim();
+            if (dim3D != null) dim3D.SetActive(true);
+            Lift3D(target3D);
+        }
+        dimPanel.enabled = !has3D;
+
+        dimGroup.transform.SetAsLastSibling();
+        dimGroup.gameObject.SetActive(true);
+        dimGroup.DOKill();
+        dimGroup.DOFade(1f, 0.25f).SetLink(dimGroup.gameObject);
+
+        if (glowSize > 0f)
+        {
+            glowImage.gameObject.SetActive(true);
+            glowImage.rectTransform.anchoredPosition = glowCenter;
+            glowImage.rectTransform.sizeDelta = Vector2.one * glowSize;
+        }
+        else glowImage.gameObject.SetActive(false);
+
+        // UI hedeflerini karartmanın üstüne al (eski sıralarını saklayarak).
+        if (uiTargets != null)
+        {
+            foreach (var t in uiTargets)
+            {
+                if (t == null || t.parent != canvas.transform) continue;
+                liftedTargets.Add((t, t.GetSiblingIndex()));
+                t.SetAsLastSibling();
+            }
+        }
+
+        // Parmak ve metin her zaman en üstte.
+        if (icon != null)     icon.SetAsLastSibling();
+        if (stepText != null) stepText.transform.SetAsLastSibling();
+    }
+
+    private void RestoreLifted()
+    {
+        for (int i = liftedTargets.Count - 1; i >= 0; i--)
+        {
+            var (tr, idx) = liftedTargets[i];
+            if (tr != null) tr.SetSiblingIndex(idx);
+        }
+        liftedTargets.Clear();
+    }
+
+    private void HideSpotlight()
+    {
+        RestoreLifted();
+        Restore3D();
+        if (dimGroup == null) return;
+        dimGroup.DOKill();
+        dimGroup.gameObject.SetActive(false);
+        dimGroup.alpha = 0f;
+        if (dimPanel != null) dimPanel.enabled = true;   // sonraki adım için varsayılan
     }
 
     private void PlaceIcon(Vector2 anchoredPos)
