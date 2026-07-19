@@ -52,6 +52,10 @@ public class GridManager : MonoBehaviour
 
     public HashSet<Vector3Int> highlightedCells = new HashSet<Vector3Int>();
 
+    /// <summary>Bir önceki karede vurgulanan hücreler. Vurgudan ÇIKAN hücrenin sarı
+    /// damgasının geri alınabilmesi için tutulur (bkz. Update).</summary>
+    private readonly HashSet<Vector3Int> lastHighlightedCells = new HashSet<Vector3Int>();
+
     private void Update()
     {
         // 1. Dinamik parlatma güncellemesi (sürüklenen parça varsa)
@@ -86,6 +90,23 @@ public class GridManager : MonoBehaviour
                 highlightedCells.Clear();
             }
         }
+
+        // 1b. Vurgulaması BİTEN hücrelerin rengini geri al.
+        // Vurgulama, MaterialPropertyBlock ile sarı bir damga basıyor ama küme
+        // boşalınca damgayı KALDIRMIYORDU; hücre, başka bir sistem rengini yeniden
+        // yazana kadar sarı kalıyordu (parça yerleştirildikten sonra tahtada sarı
+        // kalan hücrelerin sebebi buydu). Damgayı basan taraf geri almaktan da
+        // sorumlu: bir hücre vurgudan çıktığı anda görünürlük tazelemesi çağrılıp
+        // hücrenin gerçek rengi geri yazılır.
+        bool highlightEnded = false;
+        foreach (var c in lastHighlightedCells)
+        {
+            if (!highlightedCells.Contains(c)) { highlightEnded = true; break; }
+        }
+        if (highlightEnded) RefreshLayerVisibility();
+
+        lastHighlightedCells.Clear();
+        foreach (var c in highlightedCells) lastHighlightedCells.Add(c);
 
         // 2. Parıldayan hücrelerin animasyonu (altın sarısı puls efekti)
         if (highlightedCells.Count > 0)
@@ -1588,10 +1609,21 @@ public class GridManager : MonoBehaviour
             {
                 // 2. İniş: kancanın ucundaki Collider bloklara GERÇEKTEN değene kadar aşağı in.
                 // Değme anında (OnTouchOrTimeout) tween erken kesilir ve kanca olduğu yerde durur.
-                sensor.Arm(blocks, OnTouchOrTimeout);
+                // Kanca artık İLK TEMASTA durmuyor; iniş hedefine (blokların içine
+                // ayarlanmış overshootTargetPos) kadar tam süre boyunca iniyor.
+                //
+                // Neden: duruş noktası eskiden Collider temasına bağlıydı ve bu, blok
+                // collider'ı OLAN seviyelerde kancanın hayvanların ÜSTÜNDE, erken ve
+                // hızlıca durmasına yol açıyordu. Collider'ı olmayan seviyelerde ise
+                // temas hiç gerçekleşmediği için kanca emniyet yolundan tam derine
+                // iniyordu — ve istenen görüntü buydu. Artık her seviyede aynı:
+                // derinliği HEDEF belirliyor, collider'lar oynanış için (snap
+                // hassasiyeti, parçaya tıklama, joystick ayrımı) serbest kalıyor.
+                //
+                // sensor BİLEREK Arm edilmiyor; erken kesme yok.
                 descendTween = claw.transform.DOMove(overshootTargetPos, 1.2f)
                     .SetEase(Ease.InOutQuad)
-                    .OnComplete(OnTouchOrTimeout); // Collider hiç değmezse emniyet (timeout) düşüşü
+                    .OnComplete(OnTouchOrTimeout);
             });
             return;
         }
