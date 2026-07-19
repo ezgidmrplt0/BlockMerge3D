@@ -630,8 +630,8 @@ public class GridManager : MonoBehaviour
             }
             var col = claw.GetComponent<Collider>();
             if (col != null) col.isTrigger = false;
-            // Animasyon yarıda kesildiyse pençeler kapalı kalmasın.
-            SetClawGrip(claw, 0f);
+            // Animasyon yarıda kesildiyse pençeler kapalı (default) kalsın.
+            SetClawGrip(claw, 1f);
         }
 
         // Patlama animasyonu için üretilen geçici konteynerler (bloklar onlara
@@ -1475,7 +1475,8 @@ public class GridManager : MonoBehaviour
                         float z = Mathf.Sin(theta) * rRadius;
                         ballOffset = new Vector3(x, y, z);
                     }
-                    Vector3 targetPos = layerCenter + ballOffset;
+                    Vector3 grabCenter = new Vector3(layerCenter.x, claw.transform.position.y + clawVisualYOffset + 0.3f, layerCenter.z);
+                    Vector3 targetPos = grabCenter + ballOffset;
 
                     block.transform.DOMove(targetPos, ballDuration).SetEase(Ease.OutBack);
 
@@ -1523,6 +1524,18 @@ public class GridManager : MonoBehaviour
                 // Kancayı başlangıç konumuna (clawStartPos) geri götür (0.5 saniye)
                 seq2.Append(claw.transform.DOMove(clawStartPos, 0.5f).SetEase(Ease.InOutQuad));
 
+                // Evine ulaştı: pençeleri AÇIP yükünü bıraksın (0.4 saniye) ve hayvanları küçülterek delikten düşme efekti ver
+                seq2.Append(DOVirtual.Float(1f, 0f, 0.4f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
+                seq2.Join(DOVirtual.Float(1.2f, 0f, 0.35f, scale => {
+                    foreach (var block in blocks)
+                    {
+                        if (block != null) block.transform.localScale = Vector3.one * scale;
+                    }
+                }).SetEase(Ease.InQuad));
+
+                // Bir sonraki tur için pençeleri tekrar kapatıp dinlenme moduna geçsin (0.3 saniye)
+                seq2.Append(DOVirtual.Float(0f, 1f, 0.3f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
+
                 // Temizlik
                 seq2.OnComplete(() =>
                 {
@@ -1541,8 +1554,8 @@ public class GridManager : MonoBehaviour
 
                         claw.transform.position = clawStartPos;
                         claw.transform.rotation = clawStartRot;
-                        // Yükü bıraktı: pençeler bir sonraki tur için açık kalsın.
-                        SetClawGrip(claw, 0f);
+                        // Yükü bıraktı: pençeler bir sonraki tur için kapalı (varsayılan durum) kalsın.
+                        SetClawGrip(claw, 1f);
                     }
                     if (container != null) Object.Destroy(container);
                     foreach (var block in blocks)
@@ -1565,8 +1578,11 @@ public class GridManager : MonoBehaviour
             // İniş sırasında üst katmanların içinden geçileceği için, bu katmanları hemen/hareket başlar başlamaz küçültüyoruz
             DOVirtual.Float(0f, 1f, passFadeDuration, SetPassFade).SetEase(Ease.OutQuad);
 
-            // Kanca inmeye pençeleri AÇIK başlar.
-            SetClawGrip(claw, 0f);
+            // Başlangıçta kanca kapalıdır.
+            SetClawGrip(claw, 1f);
+
+            // Kanca hareket ederken pençeleri AÇILIR (1'den 0'a).
+            AnimateClawGrip(claw, 1f, 0f, 0.5f);
 
             claw.transform.DOMove(aboveTargetPos, 0.5f).SetEase(Ease.InOutQuad).OnComplete(() =>
             {
