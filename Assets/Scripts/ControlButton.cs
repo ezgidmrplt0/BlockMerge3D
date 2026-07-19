@@ -55,6 +55,13 @@ public class ControlButton : MonoBehaviour
         {
             if (Input.GetMouseButtonDown(0) && HitsSelf(Input.mousePosition))
             {
+                // Tutorial check: Öğretici çalışıyorsa sadece UseJoker adımında tıklamaya izin ver
+                if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+                {
+                    if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.UseJoker)
+                        return; // Blokla
+                }
+
                 if (LevelManager.Instance == null || LevelManager.Instance.CanUseJoker)
                 {
                     Press();

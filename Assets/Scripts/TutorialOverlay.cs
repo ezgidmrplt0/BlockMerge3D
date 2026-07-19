@@ -70,6 +70,12 @@ public class TutorialOverlay : MonoBehaviour
 
     private int  stepIndex = -1;
     private bool running;
+    private LevelData currentLevel;
+    private int dragStepCount = 0;
+
+    public bool IsRunning => running;
+    public TutorialStepType? CurrentStep => running && stepIndex >= 0 && stepIndex < steps.Count ? (TutorialStepType?)steps[stepIndex] : null;
+    public bool IsDragStepActive => running && stepIndex >= 0 && stepIndex < steps.Count && steps[stepIndex] == TutorialStepType.DragPieceToBoard;
 
     private void Awake()
     {
@@ -93,6 +99,8 @@ public class TutorialOverlay : MonoBehaviour
     /// <summary>Seviye yüklenince LevelManager tarafından çağrılır.</summary>
     public void BeginForLevel(LevelData level)
     {
+        currentLevel = level;
+        dragStepCount = 0;
         StopAllCoroutines();
         KillLoop();
         steps.Clear();
@@ -101,10 +109,26 @@ public class TutorialOverlay : MonoBehaviour
         running   = false;
         HideIcon();
 
-        if (level == null || level.tutorialSteps == null || level.tutorialSteps.Count == 0) return;
+        if (level == null) return;
 
-        steps.AddRange(level.tutorialSteps);
+        if (level.levelName == "Tutorial_4_Obstacle")
+        {
+            steps.Add(TutorialStepType.TapLayerButton);
+            steps.Add(TutorialStepType.DragPieceToBoard); // Wrong placement
+            steps.Add(TutorialStepType.UseJoker);
+            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 1
+            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 2
+            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 3
+            steps.Add(TutorialStepType.DragPieceToBoard); // Correct placement 4
+        }
+        else
+        {
+            if (level.tutorialSteps == null || level.tutorialSteps.Count == 0) return;
+            steps.AddRange(level.tutorialSteps);
+        }
+
         running = true;
+        HighlightTutorialTargetCells(false); // Reset highlights
         // Katman butonları BuildLayerButtons içinde gecikmeli üretiliyor; ayrıca
         // seviye açılış animasyonunun üstüne binmesin diye kısa bir bekleme.
         Invoke(nameof(AdvanceStep), startDelay);
@@ -118,15 +142,27 @@ public class TutorialOverlay : MonoBehaviour
         if (stepIndex >= steps.Count)
         {
             running = false;
+            HighlightTutorialTargetCells(false);
             HideIcon();
             return;
         }
 
         // Oyuncu bu eylemi öğretici buraya gelmeden yaptıysa adımı gösterme, atla.
-        if (alreadyDone.Contains(steps[stepIndex]))
+        // Tekrarlanan sürükleme adımlarında erken tamamlama olamayacağı için atlama yapma.
+        bool shouldSkip = alreadyDone.Contains(steps[stepIndex]) && steps[stepIndex] != TutorialStepType.DragPieceToBoard;
+        if (shouldSkip)
         {
             AdvanceStep();
             return;
+        }
+
+        if (steps[stepIndex] == TutorialStepType.DragPieceToBoard)
+        {
+            HighlightTutorialTargetCells(true);
+        }
+        else
+        {
+            HighlightTutorialTargetCells(false);
         }
 
         ShowStep(steps[stepIndex]);
@@ -136,7 +172,17 @@ public class TutorialOverlay : MonoBehaviour
 
     private void OnLayerOpened()  => CompleteIfCurrent(TutorialStepType.TapLayerButton);
     private void OnBoardRotated() => CompleteIfCurrent(TutorialStepType.SwipeToRotate);
-    private void OnPiecePlaced()  => CompleteIfCurrent(TutorialStepType.DragPieceToBoard);
+    private void OnPiecePlaced()
+    {
+        if (running && stepIndex >= 0 && stepIndex < steps.Count && steps[stepIndex] == TutorialStepType.DragPieceToBoard)
+        {
+            if (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle")
+            {
+                dragStepCount++;
+            }
+        }
+        CompleteIfCurrent(TutorialStepType.DragPieceToBoard);
+    }
 
     private void OnJokerUsed()
     {
@@ -158,11 +204,93 @@ public class TutorialOverlay : MonoBehaviour
         if (!running || stepIndex < 0 || stepIndex >= steps.Count) return;
         if (steps[stepIndex] != type) return;
 
+        HighlightTutorialTargetCells(false);
         KillLoop();
         HideIcon();
         // Eylemin kendi animasyonu (panel açılışı, tahta dönüşü, parça yerleşimi)
         // bitsin diye kısa bir nefes payı.
         Invoke(nameof(AdvanceStep), 0.6f);
+    }
+
+    public int GetTargetCardIndex()
+    {
+        if (LevelManager.Instance != null && LevelManager.Instance.pieceCards != null && GridManager.Instance != null)
+        {
+            // 1. Önce aktif katmana yerleşebilen ilk kartı hedefle
+            for (int i = 0; i < LevelManager.Instance.pieceCards.Count; i++)
+            {
+                var c = LevelManager.Instance.pieceCards[i];
+                if (c != null && c.HasPiece && c.Draggable != null)
+                {
+                    var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(c.Draggable.CurrentCells, GridManager.Instance.ActiveLayerY);
+                    if (offsets != null && offsets.Count > 0)
+                    {
+                        return i;
+                    }
+                }
+            }
+
+            // 2. Fallback: Dolu ilk kartı hedefle
+            for (int i = 0; i < LevelManager.Instance.pieceCards.Count; i++)
+            {
+                var c = LevelManager.Instance.pieceCards[i];
+                if (c != null && c.HasPiece) return i;
+            }
+        }
+        return 0;
+    }
+
+    public void HighlightTutorialTargetCells(bool active)
+    {
+        if (GridManager.Instance == null) return;
+        GridManager.Instance.highlightedCells.Clear();
+
+        if (active)
+        {
+            PieceCardUI card = null;
+            int targetSlot = GetTargetCardIndex();
+            if (LevelManager.Instance != null && LevelManager.Instance.pieceCards != null && targetSlot < LevelManager.Instance.pieceCards.Count)
+            {
+                card = LevelManager.Instance.pieceCards[targetSlot];
+            }
+
+            if (card != null && card.Draggable != null)
+            {
+                var draggable = card.Draggable;
+                var cells = draggable.CurrentCells;
+
+                if (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle")
+                {
+                    var res = RunSolver();
+                    if (res.success && res.cardOffsets.TryGetValue(targetSlot, out Vector3Int correctOffset))
+                    {
+                        Vector3Int targetOffset = correctOffset;
+                        if (dragStepCount == 0) // First drag is wrong
+                        {
+                            targetOffset = FindWrongOffset(targetSlot, cells, correctOffset);
+                        }
+
+                        foreach (var c in cells)
+                        {
+                            GridManager.Instance.highlightedCells.Add(c + targetOffset);
+                        }
+                    }
+                }
+                else
+                {
+                    var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
+                    foreach (var off in offsets)
+                    {
+                        foreach (var c in cells)
+                        {
+                            GridManager.Instance.highlightedCells.Add(c + off);
+                        }
+                    }
+                }
+            }
+        }
+
+        GridManager.Instance.RefreshLayerVisibility();
     }
 
     // ─── Görsel ───────────────────────────────────────────────────────────────
@@ -243,19 +371,28 @@ public class TutorialOverlay : MonoBehaviour
 
     private void PlayDrag()
     {
+        int targetSlot = GetTargetCardIndex();
         Vector2 from = new Vector2(0f, -Screen.height * 0.28f);   // kart bölgesi
         var cards = LevelManager.Instance != null ? LevelManager.Instance.pieceCards : null;
-        if (cards != null)
+        if (cards != null && targetSlot < cards.Count && cards[targetSlot] != null)
         {
-            foreach (var c in cards)
-            {
-                if (c == null) continue;
-                var rt = c.transform as RectTransform;
-                if (rt != null) { from = WorldToCanvas(rt.position) + tipOffset; break; }
-            }
+            var rt = cards[targetSlot].transform as RectTransform;
+            if (rt != null) { from = WorldToCanvas(rt.position) + tipOffset; }
         }
 
         Vector2 to = ScreenCenter() + tipOffset;
+
+        // If we are highlighting cells, we animate the pointer to the center of the highlighted cells!
+        if (GridManager.Instance != null && GridManager.Instance.highlightedCells.Count > 0)
+        {
+            Vector3 centerWorld = Vector3.zero;
+            foreach (var cell in GridManager.Instance.highlightedCells)
+            {
+                centerWorld += GridManager.Instance.CellToWorld(cell);
+            }
+            centerWorld /= GridManager.Instance.highlightedCells.Count;
+            to = WorldObjectToCanvas(centerWorld) + tipOffset;
+        }
 
         PlaceIcon(from);
         loop = DOTween.Sequence().SetLink(icon.gameObject).SetLoops(-1)
@@ -368,5 +505,125 @@ public class TutorialOverlay : MonoBehaviour
         RectTransformUtility.ScreenPointToLocalPointInRectangle(
             canvasRect, screenPoint, uiCam, out Vector2 local);
         return local;
+    }
+    public struct SolverResult
+    {
+        public bool success;
+        public Dictionary<int, Vector3Int> cardOffsets;
+    }
+
+    private List<Vector3Int> RotateCells(List<Vector3Int> cells, int angleY)
+    {
+        var q = Quaternion.Euler(0f, angleY, 0f);
+        var result = new List<Vector3Int>(cells.Count);
+        foreach (var c in cells)
+        {
+            Vector3 v = q * new Vector3(c.x, c.y, c.z);
+            result.Add(new Vector3Int(
+                Mathf.RoundToInt(v.x),
+                Mathf.RoundToInt(v.y),
+                Mathf.RoundToInt(v.z)));
+        }
+        return result;
+    }
+
+    private SolverResult RunSolver()
+    {
+        SolverResult res = new SolverResult();
+        res.success = false;
+        res.cardOffsets = new Dictionary<int, Vector3Int>();
+
+        if (GridManager.Instance == null || LevelManager.Instance == null) return res;
+
+        var targetCells = new HashSet<Vector3Int>(GridManager.Instance.targetCells);
+        var occupiedCells = new HashSet<Vector3Int>(GridManager.Instance.occupiedCells);
+        int layerY = GridManager.Instance.ActiveLayerY;
+
+        targetCells.RemoveWhere(c => c.y != layerY);
+        var layerOccupied = new HashSet<Vector3Int>();
+        foreach (var c in occupiedCells)
+        {
+            if (c.y == layerY) layerOccupied.Add(c);
+        }
+
+        var cards = LevelManager.Instance.pieceCards;
+        var solverPieces = new List<(int slotIndex, List<Vector3Int> cells)>();
+        for (int i = 0; i < cards.Count; i++)
+        {
+            if (cards[i] != null && cards[i].HasPiece && cards[i].Draggable != null)
+            {
+                solverPieces.Add((i, new List<Vector3Int>(cards[i].Draggable.CurrentCells)));
+            }
+        }
+
+        bool Solve(int idx)
+        {
+            if (idx >= solverPieces.Count) return true;
+
+            var item = solverPieces[idx];
+            var baseCells = item.cells;
+            int[] rots = { 0, 90, 180, 270 };
+
+            foreach (int r in rots)
+            {
+                var cells = r == 0 ? baseCells : RotateCells(baseCells, r);
+                var seen = new HashSet<Vector3Int>();
+
+                foreach (var t in targetCells)
+                {
+                    if (layerOccupied.Contains(t)) continue;
+                    foreach (var c in cells)
+                    {
+                        var off = t - c;
+                        if (!seen.Add(off)) continue;
+
+                        bool canPlace = true;
+                        foreach (var pc in cells)
+                        {
+                            var g = pc + off;
+                            if (!targetCells.Contains(g) || layerOccupied.Contains(g))
+                            {
+                                canPlace = false;
+                                break;
+                            }
+                        }
+
+                        if (canPlace)
+                        {
+                            foreach (var pc in cells) layerOccupied.Add(pc + off);
+                            res.cardOffsets[item.slotIndex] = off;
+
+                            if (Solve(idx + 1)) return true;
+
+                            res.cardOffsets.Remove(item.slotIndex);
+                            foreach (var pc in cells) layerOccupied.Remove(pc + off);
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        if (Solve(0))
+        {
+            res.success = true;
+        }
+
+        return res;
+    }
+
+    private Vector3Int FindWrongOffset(int slotIndex, List<Vector3Int> cells, Vector3Int correctOffset)
+    {
+        if (GridManager.Instance == null) return correctOffset;
+        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
+        foreach (var off in offsets)
+        {
+            if (off != correctOffset)
+            {
+                return off;
+            }
+        }
+        return correctOffset;
     }
 }

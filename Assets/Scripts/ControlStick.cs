@@ -39,6 +39,13 @@ public class ControlStick : MonoBehaviour
         // Seviye bittiyse tahta döndürülemez (bkz. GameManager.IsLevelOver).
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
+        // Tutorial check: Öğretici çalışıyorsa sadece SwipeToRotate adımında dönmeye izin ver
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+        {
+            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.SwipeToRotate)
+                return;
+        }
+
         if (!isDragging)
         {
             if (Input.GetMouseButtonDown(0) && !HitsPieceOrButton(Input.mousePosition))

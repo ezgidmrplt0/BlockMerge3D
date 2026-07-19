@@ -50,6 +50,64 @@ public class GridManager : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
+    public HashSet<Vector3Int> highlightedCells = new HashSet<Vector3Int>();
+
+    private void Update()
+    {
+        // 1. Dinamik parlatma güncellemesi (sürüklenen parça varsa)
+        if (DraggablePiece.activeDrag != null)
+        {
+            highlightedCells.Clear();
+            var drag = DraggablePiece.activeDrag;
+            if (drag.IsBeingDragged && !drag.IsPlaced)
+            {
+                var cells = drag.CurrentCells;
+                var offsets = GetPossibleOffsetsOnLayer(cells, ActiveLayerY);
+                foreach (var off in offsets)
+                {
+                    foreach (var c in cells)
+                    {
+                        highlightedCells.Add(c + off);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Sürüklenen parça yoksa ve TutorialOverlay DragPieceToBoard adımında değilse temizle
+            bool tutorialHighlighting = false;
+            if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsDragStepActive)
+            {
+                tutorialHighlighting = true;
+            }
+            
+            if (!tutorialHighlighting)
+            {
+                highlightedCells.Clear();
+            }
+        }
+
+        // 2. Parıldayan hücrelerin animasyonu (altın sarısı puls efekti)
+        if (highlightedCells.Count > 0)
+        {
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 8f);
+            Color highlightColor = Color.Lerp(new Color(1.0f, 0.85f, 0.2f, 0.85f), new Color(1.0f, 1.0f, 0.5f, 0.95f), pulse);
+            Color emissionColor = new Color(0.9f, 0.7f, 0.1f) * (0.8f + 1.2f * pulse);
+
+            foreach (var cell in highlightedCells)
+            {
+                if (targetRenderers.TryGetValue(cell, out Renderer r) && r != null && r.enabled)
+                {
+                    r.GetPropertyBlock(PropBlock);
+                    PropBlock.SetColor("_BaseColor", highlightColor);
+                    PropBlock.SetColor("_Color", highlightColor);
+                    PropBlock.SetColor("_EmissionColor", emissionColor);
+                    r.SetPropertyBlock(PropBlock);
+                }
+            }
+        }
+    }
+
     public int ActiveLayerY { get; private set; }
     public bool IsExplodingLayer { get; set; }
 
@@ -333,16 +391,29 @@ public class GridManager : MonoBehaviour
                     }
                     else
                     {
-                        Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
-                        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                        if (highlightedCells.Contains(cell))
                         {
-                            defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
-                        }
+                            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 8f);
+                            Color highlightColor = Color.Lerp(new Color(1.0f, 0.85f, 0.2f, 0.85f), new Color(1.0f, 1.0f, 0.5f, 0.95f), pulse);
+                            Color emissionColor = new Color(0.9f, 0.7f, 0.1f) * (0.8f + 1.2f * pulse);
 
-                        if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a *= 0.33f; // Faded target base
-                        PropBlock.SetColor("_BaseColor", defaultColor);
-                        PropBlock.SetColor("_Color", defaultColor);
-                        PropBlock.SetColor("_EmissionColor", Color.clear);
+                            PropBlock.SetColor("_BaseColor", highlightColor);
+                            PropBlock.SetColor("_Color", highlightColor);
+                            PropBlock.SetColor("_EmissionColor", emissionColor);
+                        }
+                        else
+                        {
+                            Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
+                            if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                            {
+                                defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
+                            }
+
+                            if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a *= 0.33f; // Faded target base
+                            PropBlock.SetColor("_BaseColor", defaultColor);
+                            PropBlock.SetColor("_Color", defaultColor);
+                            PropBlock.SetColor("_EmissionColor", Color.clear);
+                        }
                     }
                     r.SetPropertyBlock(PropBlock);
                 }
@@ -1580,13 +1651,26 @@ public class GridManager : MonoBehaviour
                     float minWorldDist = float.MaxValue;
                     for (int i = 0; i < cells.Count; i++)
                     {
-                        Vector3 cellWorldPos = CellToWorld(cells[i]);
-                        float dist = Vector3.Distance(cellWorldPos, hit.point);
+                        // Sürüklenen parçanın bloklarının gerçek dünya koordinatlarını kontrol ediyoruz.
+                        // Eskiden kullanılan CellToWorld(cells[i]) board referansına göre sıfır noktasını
+                        // baz alıyordu ve parça henüz yuvadayken bile snaplenmesine yol açıyordu.
+                        Vector3 blockWorldPos = (DraggablePiece.activeDrag != null && i < DraggablePiece.activeDrag.transform.childCount)
+                            ? DraggablePiece.activeDrag.transform.GetChild(i).position
+                            : CellToWorld(cells[i]);
+
+                        float dist = Vector3.Distance(blockWorldPos, hit.point);
                         if (dist < minWorldDist)
                         {
                             minWorldDist = dist;
                             closestIndex = i;
                         }
+                    }
+
+                    // Hassasiyet eşiği: Sürüklenen parça hit noktasına yeterince yakın değilse snap yapma.
+                    // maxDist değeri parça boyutu (grid.Step) kadardır. 2 katı (yaklaşık 2 hücre mesafe) makul bir eşiktir.
+                    if (minWorldDist > maxDist * 2.0f)
+                    {
+                        continue;
                     }
                     
                     Vector3Int snapOff = targetAnchorCell - cells[closestIndex];
@@ -1617,7 +1701,8 @@ public class GridManager : MonoBehaviour
         // dolu bir yere yakınsa parça oraya "yapışmaz", sürüklenen elde kalır.
         var seen = new HashSet<Vector3Int>();
 
-        float bestValidD = 4.5f;
+        // Hassasiyet eşiği: Boşlukta sürüklerken aşırı uzaktan yapışmayı önlemek için 1.8 katı bir mesafe kullanıyoruz
+        float bestValidD = maxDist * 1.8f;
         Vector3Int bestValidOff = Vector3Int.zero;
         bool foundValid = false;
 

@@ -31,6 +31,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     private float          localVisualRadius = 1f;
 
     public bool HasPiece => piece3D != null;
+    public DraggablePiece Draggable => draggable;
 
     private void Awake()
     {
@@ -442,6 +443,17 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
         if (!HasPiece || draggable == null) return;
         if (DraggablePiece.IsDragging)      return;
+
+        // Tutorial check
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+        {
+            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
+                return; // Blokla
+
+            // Sadece hedeflenen (ilk geçerli) kartın sürüklenmesine izin ver
+            if (slotIndex != TutorialOverlay.Instance.GetTargetCardIndex())
+                return; // Blokla
+        }
 
         isDraggingOut = true;
 

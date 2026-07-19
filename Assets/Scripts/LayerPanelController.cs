@@ -188,6 +188,16 @@ public class LayerPanelController : MonoBehaviour
         if (grid.IsExplodingLayer) return;
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
+        // Tutorial check: Sadece TapLayerButton adımındayken ve hedeflenen katman ise geçişe izin ver
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+        {
+            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.TapLayerButton)
+                return;
+
+            if (layerY != grid.GridMinY)
+                return;
+        }
+
         isTransitioning = true;
         TutorialEvents.RaiseLayerOpened();
 
@@ -216,6 +226,10 @@ public class LayerPanelController : MonoBehaviour
 
     public void ClosePanel(System.Action onComplete = null)
     {
+        // Tutorial kilitliyken panel kullanıcı tarafından (onComplete == null) kapatılamaz
+        if (onComplete == null && TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+            return;
+
         if (!cam.IsInPanelMode)
         {
             isTransitioning = false;

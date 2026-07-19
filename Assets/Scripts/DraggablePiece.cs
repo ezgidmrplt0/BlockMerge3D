@@ -173,6 +173,11 @@ public class DraggablePiece : MonoBehaviour
 
         if (isDragging)
         {
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                CancelDrag();
+                return;
+            }
             HandleDrag();
             if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = true;
             if (Input.GetMouseButtonUp(0)) EndDrag();
@@ -207,6 +212,13 @@ public class DraggablePiece : MonoBehaviour
     {
         if (isPlaced) return;
         if (grid != null && grid.IsExplodingLayer) return;
+
+        // Tutorial check
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+        {
+            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
+                return;
+        }
 
         Ray ray = mainCam.ScreenPointToRay(Input.mousePosition);
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
@@ -270,6 +282,9 @@ public class DraggablePiece : MonoBehaviour
         // Geçiş esnasında snapping yapılmaz
         bool canSnap = dragLerpProgress >= 1f;
 
+        // Ekranın alt bölgesindeyse (kart slotları alanı) snap yapılmaz ve iptal modu tetiklenir
+        bool isInCancelZone = Input.mousePosition.y < Screen.height * 0.22f;
+
         // Snap testi parçanın MEVCUT konumundan değil, farenin sürüklediği HEDEF
         // konumdan yapılır. Aksi halde geri besleme döngüsü oluşuyordu: parça snap
         // olunca snap konumuna çekiliyor, sonraki karede test yine oradan yapıldığı
@@ -282,7 +297,7 @@ public class DraggablePiece : MonoBehaviour
         bool wasSnapped = isSnapped;
         Vector3Int snapOff = Vector3Int.zero;
 
-        if (canSnap && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out snapOff))
+        if (canSnap && !isInCancelZone && grid.TryFindSnapOffset(currentCells, snapRay, grid.Step, out snapOff))
         {
             lastSnapOffset = snapOff;
             isSnapped = true;
@@ -349,19 +364,28 @@ public class DraggablePiece : MonoBehaviour
                 {
                     transform.position = Vector3.Lerp(transform.position, targetDragPos, Time.deltaTime * 18f);
 
-                    // Velocity-based Squash & Stretch during active dragging.
-                    // Punch animasyonu sürerken YAZILMAZ: ikisi aynı karede ölçeğe
-                    // yazınca çekişip parçanın dinlenme ölçeğini bozuyorlardı.
-                    Vector3 moveDelta = transform.position - lastPosition;
-                    if (moveDelta.magnitude > 0.001f && !DOTween.IsTweening(transform))
+                    if (isInCancelZone)
                     {
-                        float speed = moveDelta.magnitude / Time.deltaTime;
-                        float factor = Mathf.Clamp01(speed / 15f) * 0.12f;
-                        transform.localScale = new Vector3(1f - factor * 0.5f, 1f + factor, 1f - factor * 0.5f);
+                        // Alt bölgede iptal olma geri bildirimi için parçayı yumuşakça küçültüyoruz
+                        float targetCancelScale = Mathf.Clamp(slotScale, 0.4f, 0.6f);
+                        transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * targetCancelScale, Time.deltaTime * 12f);
                     }
-                    else if (!DOTween.IsTweening(transform))
+                    else
                     {
-                        transform.localScale = Vector3.one;
+                        // Velocity-based Squash & Stretch during active dragging.
+                        // Punch animasyonu sürerken YAZILMAZ: ikisi aynı karede ölçeğe
+                        // yazınca çekişip parçanın dinlenme ölçeğini bozuyorlardı.
+                        Vector3 moveDelta = transform.position - lastPosition;
+                        if (moveDelta.magnitude > 0.001f && !DOTween.IsTweening(transform))
+                        {
+                            float speed = moveDelta.magnitude / Time.deltaTime;
+                            float factor = Mathf.Clamp01(speed / 15f) * 0.12f;
+                            transform.localScale = new Vector3(1f - factor * 0.5f, 1f + factor, 1f - factor * 0.5f);
+                        }
+                        else if (!DOTween.IsTweening(transform))
+                        {
+                            transform.localScale = Vector3.one;
+                        }
                     }
                 }
             }
@@ -380,15 +404,30 @@ public class DraggablePiece : MonoBehaviour
         if (grid != null) grid.ClearOccludingCells();
         if (grid != null) grid.StopVisualFocus(this);
 
-        if (isSnapped)
+        bool releasedInCancelZone = Input.mousePosition.y < Screen.height * 0.22f;
+
+        if (isSnapped && !releasedInCancelZone)
         {
             transform.position = grid.OffsetToRoot(lastSnapOffset);
         }
 
         Vector3Int offset = grid.RootToOffset(transform.position);
 
+        bool isAllowedPlacement = true;
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning && TutorialOverlay.Instance.CurrentStep == TutorialStepType.DragPieceToBoard)
+        {
+            // Sadece öğretici için parlatılan (hedef) hücrelere yerleşime izin ver
+            foreach (var cell in currentCells)
+            {
+                if (grid.highlightedCells == null || !grid.highlightedCells.Contains(cell + offset))
+                {
+                    isAllowedPlacement = false;
+                    break;
+                }
+            }
+        }
 
-        if (isSnapped && grid.TryPlace(currentCells, offset))
+        if (isSnapped && !releasedInCancelZone && isAllowedPlacement && grid.TryPlace(currentCells, offset))
         {
             var children = new List<Transform>();
             foreach (Transform t in transform) children.Add(t);
@@ -488,6 +527,22 @@ public class DraggablePiece : MonoBehaviour
             // Kart sisteminde geri dönüş PieceCardUI.ReturnToPreview() üzerinden yönetilir
             onDragCancelled?.Invoke();
         }
+    }
+
+    /// <summary>
+    /// Sürükleme işlemini iptal ederek parçayı yuvasına geri gönderir.
+    /// </summary>
+    private void CancelDrag()
+    {
+        isDragging = false;
+        activeDrag = null;
+        if (CameraOrbit.Instance != null) CameraOrbit.Instance.IsLocked = false;
+
+        if (grid != null) grid.ClearSnappedPreviewCells();
+        if (grid != null) grid.ClearOccludingCells();
+        if (grid != null) grid.StopVisualFocus(this);
+
+        onDragCancelled?.Invoke();
     }
 
     private Vector3 PieceWorldCenter()
