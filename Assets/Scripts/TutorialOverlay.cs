@@ -77,6 +77,21 @@ public class TutorialOverlay : MonoBehaviour
     public TutorialStepType? CurrentStep => running && stepIndex >= 0 && stepIndex < steps.Count ? (TutorialStepType?)steps[stepIndex] : null;
     public bool IsDragStepActive => running && stepIndex >= 0 && stepIndex < steps.Count && steps[stepIndex] == TutorialStepType.DragPieceToBoard;
 
+    // Engel öğreticisinde (Tutorial_4_Obstacle) öğreticinin işaret ettiği hedef hücreler.
+    // Sürükleme sırasında GridManager, geçerli TÜM konumları parlatmak yerine yalnızca
+    // bunları parlatır (bkz. RestrictDragHighlights). HighlightTutorialTargetCells doldurur.
+    private readonly HashSet<Vector3Int> dragHighlightCells = new HashSet<Vector3Int>();
+
+    /// <summary>Sürükleme sırasında geçerli tüm konumların parlaması KAPATILIP yalnızca
+    /// öğreticinin gösterdiği hedefin (DragHighlightCells) parlaması gereken an. Sadece
+    /// engel öğreticisinin sürükleme adımında true olur.</summary>
+    public bool RestrictDragHighlights =>
+        running && stepIndex >= 0 && stepIndex < steps.Count
+        && steps[stepIndex] == TutorialStepType.DragPieceToBoard
+        && currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle";
+
+    public IReadOnlyCollection<Vector3Int> DragHighlightCells => dragHighlightCells;
+
     private void Awake()
     {
         Instance = this;
@@ -250,6 +265,7 @@ public class TutorialOverlay : MonoBehaviour
     {
         if (GridManager.Instance == null) return;
         GridManager.Instance.highlightedCells.Clear();
+        dragHighlightCells.Clear();
 
         if (active)
         {
@@ -278,7 +294,9 @@ public class TutorialOverlay : MonoBehaviour
 
                         foreach (var c in cells)
                         {
-                            GridManager.Instance.highlightedCells.Add(c + targetOffset);
+                            var target = c + targetOffset;
+                            GridManager.Instance.highlightedCells.Add(target);
+                            dragHighlightCells.Add(target); // sürükleme sırasında da sadece burası parlasın
                         }
                     }
                 }
@@ -576,22 +594,38 @@ public class TutorialOverlay : MonoBehaviour
         EnsureStepText();
         if (stepText == null) return;
 
+        var canvasRect = canvas.transform as RectTransform;
+        float W = canvasRect.rect.width, H = canvasRect.rect.height;
+
+        // Metin genişliğini SINIRLA ve gerekince alt satıra kaydır. Aksi halde uzun
+        // Türkçe cümleler tek satırda yayılıp tahtanın/katman kutusunun üstüne biniyordu
+        // ("fazla içe giriyo"). Genişlik sınırı → yatay ayak izi kontrol altında.
+        float maxWidth = Mathf.Min(760f, W * 0.7f);
+        stepText.enableWordWrapping = true;
+        stepText.rectTransform.sizeDelta = new Vector2(maxWidth, 0f);
         stepText.text = text;
         stepText.gameObject.SetActive(true);
         stepText.ForceMeshUpdate();
 
-        // Metin hedefe DEĞMESİN: kendi genişliğinin yarısı + boşluk kadar kaydırılır.
-        float half = Mathf.Max(120f, stepText.preferredWidth * 0.5f);
-        Vector2 pos = anchoredPos;
-        if (side < 0)      pos.x -= half + 60f;
-        else if (side > 0) pos.x += half + 60f;
-        else               pos.y += 130f;
+        float halfW = Mathf.Min(maxWidth, stepText.preferredWidth) * 0.5f;
+        float halfH = stepText.preferredHeight * 0.5f;
 
-        // Ekrandan taşarsa karşı tarafa geç.
-        var canvasRect = canvas.transform as RectTransform;
-        float limit = canvasRect.rect.width * 0.5f - half - 20f;
-        if (pos.x < -limit) pos.x = anchoredPos.x + half + 60f;
-        if (pos.x >  limit) pos.x = anchoredPos.x - half - 60f;
+        // Metin hedefe DEĞMESİN: sabit bir boşluk (clearance) bırakılır. 60 → 90:
+        // yazı butonların "çok dibinde" duruyordu.
+        const float gap = 90f;
+        Vector2 pos = anchoredPos;
+        if (side < 0)      pos.x -= halfW + gap;
+        else if (side > 0) pos.x += halfW + gap;
+        else               pos.y += halfH + gap;
+
+        // İKİ EKSENDE de ekran içinde, kenardan güvenli marj bırakarak tut. Önceden
+        // yalnızca yatay taşma kontrol ediliyordu; dikeyde yazı üstten/alttan taşıp
+        // butonun/katman kutusunun içine girebiliyordu.
+        const float margin = 28f;
+        float limX = W * 0.5f - halfW - margin;
+        float limY = H * 0.5f - halfH - margin;
+        pos.x = Mathf.Clamp(pos.x, -limX, limX);
+        pos.y = Mathf.Clamp(pos.y, -limY, limY);
 
         var rt = stepText.rectTransform;
         rt.anchoredPosition = pos;

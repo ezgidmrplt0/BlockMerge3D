@@ -129,13 +129,29 @@ public class GridManager : MonoBehaviour
             var drag = DraggablePiece.activeDrag;
             if (drag.IsBeingDragged && !drag.IsPlaced)
             {
-                var cells = drag.CurrentCells;
-                var offsets = GetPossibleOffsetsOnLayer(cells, ActiveLayerY);
-                foreach (var off in offsets)
+                var tut = TutorialOverlay.Instance;
+                // Engel öğreticisi: geçerli TÜM konumları parlatma; yalnızca öğreticinin
+                // işaret ettiği hedef hücreler parlasın (bkz. TutorialOverlay.DragHighlightCells).
+                // Ancak öğretici o adım için bir hedef ÜRETEMEDİYSE (solver çözüm bulamadı,
+                // parça bu katmana sığmıyor...) kısıtlamayı uygulama — aksi halde hiçbir grid
+                // yanmaz ve oyuncu tıkanır. Bu durumda normal "tüm geçerli konumlar" davranışına dön.
+                if (tut != null && tut.RestrictDragHighlights && tut.DragHighlightCells.Count > 0)
                 {
-                    foreach (var c in cells)
+                    foreach (var c in tut.DragHighlightCells)
                     {
-                        highlightedCells.Add(c + off);
+                        highlightedCells.Add(c);
+                    }
+                }
+                else
+                {
+                    var cells = drag.CurrentCells;
+                    var offsets = GetPossibleOffsetsOnLayer(cells, ActiveLayerY);
+                    foreach (var off in offsets)
+                    {
+                        foreach (var c in cells)
+                        {
+                            highlightedCells.Add(c + off);
+                        }
                     }
                 }
             }
