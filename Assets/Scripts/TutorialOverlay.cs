@@ -82,16 +82,32 @@ public class TutorialOverlay : MonoBehaviour
     // bunları parlatır (bkz. RestrictDragHighlights). HighlightTutorialTargetCells doldurur.
     private readonly HashSet<Vector3Int> dragHighlightCells = new HashSet<Vector3Int>();
 
+    private bool IsLevel1 =>
+        (currentLevel != null && (currentLevel.levelName == "LEVEL 1" || currentLevel.levelName.StartsWith("LEVEL 1")))
+        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 1);
+
+    private bool IsLevel2 =>
+        (currentLevel != null && (currentLevel.levelName == "LEVEL2" || currentLevel.levelName.StartsWith("LEVEL2") || currentLevel.levelName == "LEVEL 2"))
+        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 2);
+
     private bool IsLevel3 =>
-        (currentLevel != null && (currentLevel.levelName == "Tutorial_3_Layers" || currentLevel.levelName.StartsWith("Tutorial_3")))
+        (currentLevel != null && (currentLevel.levelName == "LEVEL 3" || currentLevel.levelName.StartsWith("LEVEL 3") || currentLevel.levelName == "Tutorial_3_Layers"))
         || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 3);
+
+    private bool IsLevel4 =>
+        (currentLevel != null && (currentLevel.levelName == "LEVEL 4 BUZ" || currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("Buz") || currentLevel.levelName == "Tutorial_4_Obstacle"))
+        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 4);
+
+    private bool IsLevel5 =>
+        (currentLevel != null && (currentLevel.levelName == "LEVEL 5 JOKER" || currentLevel.levelName.Contains("JOKER") || currentLevel.levelName.Contains("Joker") || currentLevel.levelName == "Tutorial_5_Combo"))
+        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 5);
 
     /// <summary>Sürükleme sırasında geçerli tüm konumların parlaması KAPATILIP yalnızca
     /// öğreticinin gösterdiği hedefin (DragHighlightCells) parlaması gereken an.</summary>
     public bool RestrictDragHighlights =>
         running && stepIndex >= 0 && stepIndex < steps.Count
         && steps[stepIndex] == TutorialStepType.DragPieceToBoard
-        && (IsLevel3 || (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle"));
+        && (IsLevel3 || IsLevel4 || IsLevel5);
 
     public IReadOnlyCollection<Vector3Int> DragHighlightCells => dragHighlightCells;
 
@@ -131,24 +147,58 @@ public class TutorialOverlay : MonoBehaviour
 
         if (level == null) return;
 
-        if (level.levelName == "Tutorial_4_Obstacle")
+        // Öğretici SADECE ilk 5 seviyede çalışır — Level 6 ve sonrası (Level 10 dahil) için öğretici tamamen kapalıdır.
+        int currentLevelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 0;
+        if (currentLevelNum > 5) return;
+
+        if (IsLevel5)
         {
-            // Öğretici: katmana gir → yanlış yerleştir → jokerle geri al → jokerden
-            // sonraki DOĞRU hamleyi göster, sonra KAPAN. Kalan hamleleri (ve tahta
-            // döndürmeyi) oyuncu kendisi yapar.
+            // Level 5 (Joker Öğreticisi): Katmana gir -> Yanlış yerleştir -> Jokerle geri al -> Doğru yerleştir -> Tüm parçaları koydur
             steps.Add(TutorialStepType.TapLayerButton);
             steps.Add(TutorialStepType.DragPieceToBoard); // Yanlış yerleştirme
-            steps.Add(TutorialStepType.UseJoker);
+            steps.Add(TutorialStepType.UseJoker);          // Kırmızı Joker butonuna bas
             steps.Add(TutorialStepType.DragPieceToBoard); // Jokerden sonraki doğru yerleştirme
+            steps.Add(TutorialStepType.DragPieceToBoard); // Kalan parçayı yerleştirme
+        }
+        else if (IsLevel4)
+        {
+            // Level 4 (Buz Öğreticisi): 
+            // 1. Katmana gir
+            // 2. 1. Parça (Ördek - Buzu erit)
+            // 3. 2. Parça (Döndürmeden ÖNCE yerleştir)
+            // 4. Tahtayı döndür (SWIPE TO ROTATE)
+            // 5. 3. Parça (Dönmüş tahtaya yerleştir)
+            steps.Add(TutorialStepType.TapLayerButton);
+            steps.Add(TutorialStepType.DragPieceToBoard); // 1. Parça (Buz eritme)
+            steps.Add(TutorialStepType.DragPieceToBoard); // 2. Parça (Döndürmeden ÖNCE yerleşecek parça)
+            steps.Add(TutorialStepType.SwipeToRotate);    // Tahtayı döndür!
+            steps.Add(TutorialStepType.DragPieceToBoard); // 3. Parça (Dönmüş tahtaya yerleştir)
         }
         else if (IsLevel3)
         {
+            // Level 3 (Katman Öğreticisi): Katmana gir -> Parçaları sırayla yerleştir
+            steps.Add(TutorialStepType.TapLayerButton);
+            steps.Add(TutorialStepType.DragPieceToBoard);
+            steps.Add(TutorialStepType.DragPieceToBoard);
+            steps.Add(TutorialStepType.DragPieceToBoard);
+        }
+        else if (IsLevel2)
+        {
+            // Level 2 (Katman + 2 Parça Öğreticisi): Katmana gir -> 1. Parçayı koy -> 2. Parçayı koy (Döndürme yok)
+            steps.Add(TutorialStepType.TapLayerButton);
+            steps.Add(TutorialStepType.DragPieceToBoard);
+            steps.Add(TutorialStepType.DragPieceToBoard);
+        }
+        else if (IsLevel1)
+        {
+            // Level 1 (Temel Öğretici): Katmana gir -> Parçayı yerleştir (Döndürme yok)
+            steps.Add(TutorialStepType.TapLayerButton);
             steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else
         {
-            if (level.tutorialSteps == null || level.tutorialSteps.Count == 0) return;
-            steps.AddRange(level.tutorialSteps);
+            // İlk 5 seviye dışındaki seviyelerde öğretici çalıştırılmaz
+            return;
         }
 
         running = true;
@@ -184,6 +234,11 @@ public class TutorialOverlay : MonoBehaviour
 
         if (steps[stepIndex] == TutorialStepType.DragPieceToBoard)
         {
+            // Güvenlik: Sürükleme adımı başladığında oyuncu hâlâ 3D genel bakış modundaysa (panel kapalıysa), katmanı otomatik aç ki parça kartları görünsün!
+            if (GridManager.Instance != null && CameraOrbit.Instance != null && !CameraOrbit.Instance.IsInPanelMode)
+            {
+                LayerPanelController.Instance?.OpenPanel(GridManager.Instance.GridMinY);
+            }
             HighlightTutorialTargetCells(true);
         }
         else
@@ -202,7 +257,7 @@ public class TutorialOverlay : MonoBehaviour
     {
         if (running && stepIndex >= 0 && stepIndex < steps.Count && steps[stepIndex] == TutorialStepType.DragPieceToBoard)
         {
-            if (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle")
+            if (IsLevel5)
             {
                 dragStepCount++;
             }
@@ -244,10 +299,28 @@ public class TutorialOverlay : MonoBehaviour
     {
         if (LevelManager.Instance != null && LevelManager.Instance.pieceCards != null && GridManager.Instance != null)
         {
-            // 1. Önce aktif katmana yerleşebilen ilk kartı hedefle
-            for (int i = 0; i < LevelManager.Instance.pieceCards.Count; i++)
+            var cards = LevelManager.Instance.pieceCards;
+
+            // LEVEL 4 ÖZEL: 
+            // 1. & 2. Adımda (Döndürmeden önce): KESİNLİKLE en soldaki 1. parçayı (Card 0) hedefle.
+            // 4. Adımda (Döndürme sonrası): KESİNLİKLE en sağdaki 3'lü domuz parçasını (Card 2) hedefle.
+            if (IsLevel4)
             {
-                var c = LevelManager.Instance.pieceCards[i];
+                if (stepIndex < 3)
+                {
+                    if (cards.Count > 0 && cards[0] != null && cards[0].HasPiece) return 0;
+                    if (cards.Count > 1 && cards[1] != null && cards[1].HasPiece) return 1;
+                }
+                else
+                {
+                    if (cards.Count > 2 && cards[2] != null && cards[2].HasPiece) return 2;
+                }
+            }
+
+            // 1. Önce aktif katmana yerleşebilen ilk kartı hedefle
+            for (int i = 0; i < cards.Count; i++)
+            {
+                var c = cards[i];
                 if (c != null && c.HasPiece && c.Draggable != null)
                 {
                     var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(c.Draggable.CurrentCells, GridManager.Instance.ActiveLayerY);
@@ -259,10 +332,16 @@ public class TutorialOverlay : MonoBehaviour
             }
 
             // 2. Fallback: Dolu ilk kartı hedefle
-            for (int i = 0; i < LevelManager.Instance.pieceCards.Count; i++)
+            for (int i = 0; i < cards.Count; i++)
             {
-                var c = LevelManager.Instance.pieceCards[i];
+                var c = cards[i];
                 if (c != null && c.HasPiece) return i;
+            }
+
+            // 3. Fallback: Herhangi geçerli kart indeksi
+            for (int i = 0; i < cards.Count; i++)
+            {
+                if (cards[i] != null) return i;
             }
         }
         return 0;
@@ -274,10 +353,21 @@ public class TutorialOverlay : MonoBehaviour
         GridManager.Instance.highlightedCells.Clear();
         dragHighlightCells.Clear();
 
-        if (active)
+        if (active && steps != null && stepIndex >= 0 && stepIndex < steps.Count)
         {
+            // Joker basma adımında (UseJoker) sarı parlamayı TAMAMEN KAPA, normal grid renginde kalsın!
+            if (steps[stepIndex] == TutorialStepType.UseJoker)
+            {
+                GridManager.Instance.RefreshLayerVisibility();
+                return;
+            }
+
             bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 5;
-            if (!isTutorialLevel) return;
+            if (!isTutorialLevel)
+            {
+                GridManager.Instance.RefreshLayerVisibility();
+                return;
+            }
 
             PieceCardUI card = null;
             int targetSlot = GetTargetCardIndex();
@@ -291,15 +381,41 @@ public class TutorialOverlay : MonoBehaviour
                 var draggable = card.Draggable;
                 var cells = draggable.CurrentCells;
 
-                if (IsLevel3 || (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle"))
+                if (IsLevel3 || IsLevel4 || IsLevel5)
                 {
                     var res = RunSolver();
+                    Vector3Int targetOffset = Vector3Int.zero;
+                    bool hasOffset = false;
+
                     if (res.success && res.cardOffsets.TryGetValue(targetSlot, out Vector3Int correctOffset))
                     {
-                        Vector3Int targetOffset = correctOffset;
-                        if (currentLevel != null && currentLevel.levelName == "Tutorial_4_Obstacle" && dragStepCount == 0) // Tutorial 4 first drag is wrong
+                        targetOffset = correctOffset;
+                        hasOffset = true;
+                        if (IsLevel5 && dragStepCount == 0) // Level 5 first drag is wrong move to trigger Joker
                         {
                             targetOffset = FindWrongOffset(targetSlot, cells, correctOffset);
+                        }
+                    }
+                    else
+                    {
+                        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
+                        if (offsets != null && offsets.Count > 0)
+                        {
+                            targetOffset = IsLevel4 ? GetIceMeltingOffset(cells, offsets) : offsets[0];
+                            hasOffset = true;
+                        }
+                    }
+
+                    if (hasOffset)
+                    {
+                        // Level 4'te buz hâlâ donmuşsa, parçanın KESİNLİKLE buza değen offset'e yerleşmesini sağla!
+                        if (IsLevel4 && GridManager.Instance.frozenCells != null && GridManager.Instance.frozenCells.Count > 0)
+                        {
+                            var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
+                            if (offsets != null && offsets.Count > 0)
+                            {
+                                targetOffset = GetIceMeltingOffset(cells, offsets);
+                            }
                         }
 
                         foreach (var c in cells)
@@ -307,20 +423,6 @@ public class TutorialOverlay : MonoBehaviour
                             var target = c + targetOffset;
                             GridManager.Instance.highlightedCells.Add(target);
                             dragHighlightCells.Add(target); // sürükleme sırasında da sadece burası parlasın
-                        }
-                    }
-                    else
-                    {
-                        // Fallback: Solver bulunamadıysa sadece ilk geçerli konumu parlat
-                        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
-                        if (offsets != null && offsets.Count > 0)
-                        {
-                            Vector3Int firstOff = offsets[0];
-                            foreach (var c in cells)
-                            {
-                                GridManager.Instance.highlightedCells.Add(c + firstOff);
-                                dragHighlightCells.Add(c + firstOff);
-                            }
                         }
                     }
                 }
@@ -560,7 +662,7 @@ public class TutorialOverlay : MonoBehaviour
     private TMPro.TextMeshProUGUI stepText;
     private CanvasGroup           stepTextGroup;
 
-    private static string TextFor(TutorialStepType type)
+    private string TextFor(TutorialStepType type)
     {
         switch (type)
         {
@@ -568,7 +670,9 @@ public class TutorialOverlay : MonoBehaviour
             // büyük harf, emir kipi.
             case TutorialStepType.TapLayerButton:   return "ENTER THE LAYER";
             case TutorialStepType.SwipeToRotate:    return "SWIPE TO ROTATE";
-            case TutorialStepType.DragPieceToBoard: return "DRAG A PIECE";
+            case TutorialStepType.DragPieceToBoard: 
+                if (IsLevel4) return "MELT THE ICE";
+                return "DRAG A PIECE";
             case TutorialStepType.UseJoker:         return "TAP TO UNDO";
             default:                                return "";
         }
@@ -1122,5 +1226,32 @@ public class TutorialOverlay : MonoBehaviour
             }
         }
         return correctOffset;
+    }
+
+    private Vector3Int GetIceMeltingOffset(List<Vector3Int> cells, List<Vector3Int> offsets)
+    {
+        if (offsets == null || offsets.Count == 0) return Vector3Int.zero;
+        if (GridManager.Instance == null || GridManager.Instance.frozenCells == null || GridManager.Instance.frozenCells.Count == 0)
+            return offsets[0];
+
+        var frozen = GridManager.Instance.frozenCells;
+
+        foreach (var off in offsets)
+        {
+            foreach (var c in cells)
+            {
+                Vector3Int pos = c + off;
+                foreach (var f in frozen)
+                {
+                    int dist = Mathf.Abs(pos.x - f.x) + Mathf.Abs(pos.y - f.y) + Mathf.Abs(pos.z - f.z);
+                    if (dist == 1)
+                    {
+                        return off; // Bu offset buza değiyor!
+                    }
+                }
+            }
+        }
+
+        return offsets[0];
     }
 }

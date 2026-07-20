@@ -42,7 +42,7 @@ public class AILevelDesignerWindow : EditorWindow
     // NOT: Aşağıdaki bazı alanlar/enumlar 'internal' — LevelCreationWizardWindow bu pencerenin
     // arka planda tuttuğu bir instance'ı üzerinden bunlara doğrudan erişip mevcut üretim/export
     // mantığını (kopyalamadan) yeniden kullanıyor. Davranış AYNI, sadece görünürlük değişti.
-    public enum GenerationBaseType { Template, CustomPrefab }
+    public enum GenerationBaseType { Template, CustomPrefab, CustomSize }
     [SerializeField] internal GenerationBaseType generationBaseType = GenerationBaseType.Template;
     [SerializeField] internal GameObject customBasePrefab;
     [SerializeField] internal LevelTemplate selectedTemplate; // Şablon bazlı üretim
@@ -282,9 +282,9 @@ public class AILevelDesignerWindow : EditorWindow
 
     internal void DrawTemplateAndDifficultySection()
     {
-        // ŞABLON VEYA PREFAB SEÇİCİ
+        // ŞABLON, PREFAB VEYA ÖZEL BOYUT SEÇİCİ
         BeginSectionCard("ÜRETİM KAYNAĞI", new Color(0.12f, 0.58f, 0.40f), "📐");
-        EditorGUILayout.HelpBox("AI seviyeyi bir şablon veya özel prefab baz alarak oluşturur.", MessageType.Info);
+        EditorGUILayout.HelpBox("AI seviyeyi bir şablon, özel prefab veya belirleyeceğiniz XYZ boyutlarında özel bir grid baz alarak oluşturur.", MessageType.Info);
 
         // Custom choice cards for Production Source
         EditorGUILayout.LabelField("Üretim Kaynağı Seçimi:", EditorStyles.miniBoldLabel);
@@ -292,19 +292,29 @@ public class AILevelDesignerWindow : EditorWindow
 
         bool isTemplate = (generationBaseType == GenerationBaseType.Template);
         GUIStyle srcBtnStyle = isTemplate ? stylePrimaryButton : styleDarkButton;
-        if (GUILayout.Button("📐  ŞABLON BAZLI (Template)", srcBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
+        if (GUILayout.Button("📐  ŞABLON BAZLI", srcBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
         {
             generationBaseType = GenerationBaseType.Template;
         }
 
-        GUILayout.Space(10);
+        GUILayout.Space(6);
 
         bool isPrefab = (generationBaseType == GenerationBaseType.CustomPrefab);
         GUIStyle prefabBtnStyle = isPrefab ? stylePrimaryButton : styleDarkButton;
-        if (GUILayout.Button("🧊  ÖZEL PREFAB BAZLI (Custom)", prefabBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
+        if (GUILayout.Button("🧊  ÖZEL PREFAB", prefabBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
         {
             generationBaseType = GenerationBaseType.CustomPrefab;
         }
+
+        GUILayout.Space(6);
+
+        bool isCustomSize = (generationBaseType == GenerationBaseType.CustomSize);
+        GUIStyle customSizeBtnStyle = isCustomSize ? stylePrimaryButton : styleDarkButton;
+        if (GUILayout.Button("📏  ÖZEL BOYUT (XYZ)", customSizeBtnStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30)))
+        {
+            generationBaseType = GenerationBaseType.CustomSize;
+        }
+
         EditorGUILayout.EndHorizontal();
         EditorGUILayout.Space(8);
 
@@ -328,7 +338,7 @@ public class AILevelDesignerWindow : EditorWindow
                 EditorGUILayout.HelpBox("⚠️ Şablon seçilmedi. Assets/Templates/ klasöründen bir şablon seçin.", MessageType.Warning);
             }
         }
-        else
+        else if (generationBaseType == GenerationBaseType.CustomPrefab)
         {
             GameObject prevPrefab = customBasePrefab;
             customBasePrefab = (GameObject)EditorGUILayout.ObjectField("Özel Prefab", customBasePrefab, typeof(GameObject), false);
@@ -346,6 +356,15 @@ public class AILevelDesignerWindow : EditorWindow
             {
                 EditorGUILayout.HelpBox("⚠️ Seçilen prefab CubeShapeDataHolder bileşenine sahip değil!", MessageType.Error);
             }
+        }
+        else // CustomSize
+        {
+            EditorGUILayout.HelpBox("Belirttiğiniz X, Y, Z boyutlarında tam dolu dikdörtgensel ızgara (grid) oluşturulur.", MessageType.Info);
+            gridSize = EditorGUILayout.Vector3IntField("Grid Boyutları (X, Y, Z)", gridSize);
+            gridSize.x = Mathf.Clamp(gridSize.x, 1, 20);
+            gridSize.y = Mathf.Clamp(gridSize.y, 1, 20);
+            gridSize.z = Mathf.Clamp(gridSize.z, 1, 20);
+            EditorGUILayout.LabelField($"📐 Toplam Blok Sayısı: {gridSize.x * gridSize.y * gridSize.z} hücre", EditorStyles.boldLabel);
         }
         EndSectionCard();
 
@@ -1370,6 +1389,14 @@ public class AILevelDesignerWindow : EditorWindow
                 return false;
             }
         }
+        else if (generationBaseType == GenerationBaseType.CustomSize)
+        {
+            if (W < 1 || H < 1 || D < 1)
+            {
+                EditorUtility.DisplayDialog("Hata", "Lütfen geçerli X, Y, Z grid boyutları girin (en az 1x1x1)", "Tamam");
+                return false;
+            }
+        }
 
         occupiedCells.Clear();
         prefilledCells.Clear();
@@ -1394,7 +1421,7 @@ public class AILevelDesignerWindow : EditorWindow
                 Debug.Log($"✅ Şablon '{selectedTemplate.templateName}' yüklendi: {occupiedCells.Count} blok");
             }
         }
-        else
+        else if (generationBaseType == GenerationBaseType.CustomPrefab)
         {
             var holder = customBasePrefab.GetComponent<CubeShapeDataHolder>();
             if (holder.occupiedCells == null || holder.occupiedCells.Count == 0)
@@ -1407,6 +1434,11 @@ public class AILevelDesignerWindow : EditorWindow
                 occupiedCells = new HashSet<Vector3Int>(holder.occupiedCells);
                 Debug.Log($"✅ Prefab '{customBasePrefab.name}' yüklendi: {occupiedCells.Count} blok");
             }
+        }
+        else // CustomSize
+        {
+            BuildSolidBoxShape(W, H, D);
+            Debug.Log($"✅ Özel XYZ Grid ({W}x{H}x{D}) - Tam dolu küp: {occupiedCells.Count} blok");
         }
 
         // Boş şekil koruması
@@ -1459,9 +1491,14 @@ public class AILevelDesignerWindow : EditorWindow
     // tutarsız hale gelir — bkz. DrawStep3'teki bayat-oturum kontrolü.
     private string BuildLayerGenSignature()
     {
-        string sourceId = generationBaseType == GenerationBaseType.Template
-            ? (selectedTemplate != null ? selectedTemplate.GetInstanceID().ToString() : "none")
-            : (customBasePrefab != null ? customBasePrefab.GetInstanceID().ToString() : "none");
+        string sourceId;
+        if (generationBaseType == GenerationBaseType.Template)
+            sourceId = selectedTemplate != null ? selectedTemplate.GetInstanceID().ToString() : "none";
+        else if (generationBaseType == GenerationBaseType.CustomPrefab)
+            sourceId = customBasePrefab != null ? customBasePrefab.GetInstanceID().ToString() : "none";
+        else
+            sourceId = $"{gridSize.x}x{gridSize.y}x{gridSize.z}";
+
         return $"{generationBaseType}|{sourceId}|{selectedDifficulty}|{pieceLibraryVersion}";
     }
 

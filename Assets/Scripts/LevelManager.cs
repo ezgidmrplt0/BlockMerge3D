@@ -207,6 +207,8 @@ public class LevelManager : MonoBehaviour
             PrepareNextPieceIndex();
         }
 
+        if (nextPieceIndex < 0) return;
+
         int indexToSpawn = nextPieceIndex;
 
         // Bu indeksi spawn edilmiş olarak işaretle
@@ -219,16 +221,94 @@ public class LevelManager : MonoBehaviour
         int matchingSpeciesIndex = nextPieceSpeciesIndex;
 
         // Parçayı spawn et
-        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotation(), matchingSpeciesIndex, targetCard);
+        SpawnPieceAtIndex(indexToSpawn, GetRandom90DegreeRotationForPiece(allPiecePrefabs[indexToSpawn]), matchingSpeciesIndex, targetCard);
 
         // Get the new next piece index
         PrepareNextPieceIndex();
     }
 
-    private Quaternion GetRandom90DegreeRotation()
+    public bool IsEarlyTutorialLevel()
     {
-        // Öğretici seviyeler parçanın YÖNÜNÜ tasarımın parçası olarak kullanır (bkz.
-        // LevelData.randomizeSpawnRotation) — orada rastgelelik kapalıdır.
+        if (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 5)
+            return true;
+        if (currentLevel != null && (currentLevel.levelName.StartsWith("LEVEL 1") || currentLevel.levelName.StartsWith("LEVEL2") || currentLevel.levelName.StartsWith("LEVEL 3") || currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("JOKER") || currentLevel.levelName.StartsWith("Tutorial_")))
+            return true;
+        return false;
+    }
+
+    private Quaternion GetFittingRotationForPiece(GameObject shapePrefabOrGO)
+    {
+        if (shapePrefabOrGO == null || gridManager == null) return Quaternion.identity;
+        var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
+        if (h == null || h.occupiedCells == null || h.occupiedCells.Count == 0) return Quaternion.identity;
+
+        // İlk 5 seviye için: Level 4 3'lü Domuz parçasına (Piece_3) tam sığması için 90° rotasyon ver
+        if (currentLevel != null && (currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("LEVEL 4")) || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 4))
+        {
+            if (shapePrefabOrGO.name.Contains("Piece_3") || shapePrefabOrGO.name.Contains("Piece 3") || shapePrefabOrGO.name.Contains("3"))
+            {
+                return Quaternion.Euler(0, 90, 0);
+            }
+        }
+
+        Quaternion[] rots = {
+            Quaternion.identity,
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0)
+        };
+
+        // 1. Önce aktif katmana uyan ilk rotasyonu bul
+        int activeLayer = gridManager.ActiveLayerY;
+        foreach (var r in rots)
+        {
+            var rotated = GridManager.RotateCells(h.occupiedCells, r);
+            var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, activeLayer);
+            if (offsets != null && offsets.Count > 0) return r;
+        }
+
+        // 2. Herhangi bir katmana uyan ilk rotasyonu bul
+        for (int layerY = gridManager.GridMinY; layerY <= gridManager.GridMaxY; layerY++)
+        {
+            foreach (var r in rots)
+            {
+                var rotated = GridManager.RotateCells(h.occupiedCells, r);
+                var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, layerY);
+                if (offsets != null && offsets.Count > 0) return r;
+            }
+        }
+
+        // 3. Eğer buzlar henüz erimediği için engelliyorsa, hedef alan sınırlarına tam oturan rotasyonu bul
+        foreach (var r in rots)
+        {
+            var rotated = GridManager.RotateCells(h.occupiedCells, r);
+            foreach (var t in gridManager.targetCells)
+            {
+                if (t.y != activeLayer) continue;
+                var off = t - rotated[0];
+                bool canFitInTargetShape = true;
+                foreach (var pc in rotated)
+                {
+                    var g = pc + off;
+                    if (!gridManager.targetCells.Contains(g) || g.y != activeLayer)
+                    {
+                        canFitInTargetShape = false;
+                        break;
+                    }
+                }
+                if (canFitInTargetShape) return r;
+            }
+        }
+
+        return Quaternion.identity;
+    }
+
+    private Quaternion GetRandom90DegreeRotationForPiece(GameObject shapePrefabOrGO)
+    {
+        // İlk 5 seviye için: Tahtadaki açık konuma BİREBİR uyan rotasyonu otomatik seç!
+        if (IsEarlyTutorialLevel())
+            return GetFittingRotationForPiece(shapePrefabOrGO);
+
         if (currentLevel != null && !currentLevel.randomizeSpawnRotation)
             return Quaternion.identity;
 
@@ -252,13 +332,7 @@ public class LevelManager : MonoBehaviour
         return bestIdx;
     }
 
-    // Katmanın "baskın türle uyuşma" zorunluluğu yok, bu yüzden paletten düz rastgele bir TÜR
-    // (pieceMaterials'a paralel indeks) seçiyoruz. Bu artık asıl seçim — Material değil, indeks
-    // döner, çünkü indeks hem kozmetik materyali (pieceMaterials[i]) hem de varsa görsel rozeti
-    // (pieceSpeciesPrefabs[i]) hem de buz erime/grup eşleşmesi mekaniğini (GridManager.cellMatIndex)
-    // AYNI ANDA ve tutarlı şekilde belirler (eskiden Material seçilip matIndex sonradan, yerleştirme
-    // anında, materyali karşılaştırarak YENİDEN bulunmaya çalışılıyordu — kırılgandı).
-    private int PickPieceSpeciesIndex()
+    private int PickPieceSpeciesIndex(int forPieceIndex = -1)
     {
         if (pieceMaterials == null || pieceMaterials.Length == 0) return -1;
         var validIndices = new List<int>();
@@ -267,6 +341,14 @@ public class LevelManager : MonoBehaviour
             if (pieceMaterials[i] != null) validIndices.Add(i);
         }
         if (validIndices.Count == 0) return -1;
+
+        // İlk 5 seviye için görsel türlerini rastgele değil kontrollü sırayla getir
+        if (IsEarlyTutorialLevel())
+        {
+            int seq = forPieceIndex >= 0 ? forPieceIndex : (spawnedPieceIndices != null ? spawnedPieceIndices.Count : 0);
+            return validIndices[seq % validIndices.Count];
+        }
+
         return validIndices[Random.Range(0, validIndices.Count)];
     }
 
@@ -689,6 +771,9 @@ public class LevelManager : MonoBehaviour
     {
         if (gridManager == null) return;
 
+        // Öğretici seviyelerinde (Level 1-5) erken/yanlış Game Over tetiklenmesini engelle
+        if (IsEarlyTutorialLevel()) return;
+
         // Level tamamlanmışsa kayıp değil, kazanma/katman geçişi akışı çalışmalıdır.
         if (gridManager.IsComplete() || gridManager.IsLayerComplete(placedLayerY))
         {
@@ -932,6 +1017,12 @@ public class LevelManager : MonoBehaviour
         else
         {
             Destroy(lastPieceObj);
+        }
+
+        if (gridManager != null)
+        {
+            gridManager.highlightedCells.Clear();
+            gridManager.RefreshLayerVisibility();
         }
     }
 
@@ -1497,12 +1588,6 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // DÜZELTİLDİ: eskiden availableIndices içinden TAMAMEN rastgele seçiliyordu — hiçbir
-        // katmana sığmayan kartlar da dağıtılabiliyordu. Şimdi, mevcut havuzdan HERHANGİ bir açık
-        // katmana GERÇEKTEN sığan parçalar varsa seçim onların arasından yapılıyor — hâlâ rastgele
-        // (çeşitlilik korunuyor), ama artık "boşa" bir kart asla dağıtılmıyor. Hiçbir açık katmana
-        // sığan parça kalmadıysa (tüm gerekli parçalar zaten dağıtılmış/yerleştirilmiş demektir)
-        // eski tam-rastgele davranışa düşülür.
         List<int> fitsAnyLayer = new List<int>();
         foreach (int i in availableIndices)
         {
@@ -1511,14 +1596,35 @@ public class LevelManager : MonoBehaviour
                 fitsAnyLayer.Add(i);
             }
         }
+
+        if (fitsAnyLayer.Count == 0)
+        {
+            for (int i = 0; i < allPiecePrefabs.Count; i++)
+            {
+                if (CanShapeFitAnyOpenLayer(allPiecePrefabs[i]))
+                {
+                    fitsAnyLayer.Add(i);
+                }
+            }
+        }
+
         List<int> pickFrom = fitsAnyLayer.Count > 0 ? fitsAnyLayer : availableIndices;
 
-        nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
-        // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır — hem önizlemede hem de parça
-        // gerçekten spawn edilirken (bkz. SpawnRandomPiece) AYNI tür kullanılacak. nextPieceMaterial
-        // sadece bu türün kozmetik materyali (önizleme render'ı için).
-        nextPieceSpeciesIndex = PickPieceSpeciesIndex();
-        nextPieceMaterial = nextPieceSpeciesIndex >= 0 ? pieceMaterials[nextPieceSpeciesIndex] : null;
+        if (IsEarlyTutorialLevel())
+        {
+            // İlk 5 seviye için: Kartlar boşaldıkça tahtaya GERÇEKTEN sığan ilk parçayı sırayla getir!
+            nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : (availableIndices.Count > 0 ? availableIndices[0] : 0);
+        }
+        else
+        {
+            nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
+        }
+
+        // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır
+        nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
+        nextPieceMaterial = (nextPieceSpeciesIndex >= 0 && pieceMaterials != null && nextPieceSpeciesIndex < pieceMaterials.Length) 
+            ? pieceMaterials[nextPieceSpeciesIndex] 
+            : null;
         UpdateNextPiecePreviewVisuals();
     }
 

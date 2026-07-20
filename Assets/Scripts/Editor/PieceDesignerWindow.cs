@@ -63,7 +63,6 @@ public class PieceDesignerWindow : EditorWindow
     public void OnEnable()
     {
         RefreshSavedPiecesList();
-        BuildStyles();
         
         // Default cube prefab bul
         if (cubePrefab == null)

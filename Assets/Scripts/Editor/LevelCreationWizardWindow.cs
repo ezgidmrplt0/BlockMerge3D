@@ -172,8 +172,10 @@ public class LevelCreationWizardWindow : EditorWindow
             case 1:
                 if (aiDesigner.generationBaseType == AILevelDesignerWindow.GenerationBaseType.Template)
                     return aiDesigner.selectedTemplate != null;
-                else
+                else if (aiDesigner.generationBaseType == AILevelDesignerWindow.GenerationBaseType.CustomPrefab)
                     return aiDesigner.customBasePrefab != null && aiDesigner.customBasePrefab.GetComponent<CubeShapeDataHolder>() != null;
+                else // CustomSize
+                    return aiDesigner.gridSize.x > 0 && aiDesigner.gridSize.y > 0 && aiDesigner.gridSize.z > 0;
             case 2:
                 var library = aiDesigner.LoadPieceLibrary();
                 return library != null && library.Count > 0;

@@ -188,10 +188,11 @@ public class LayerPanelController : MonoBehaviour
         if (grid.IsExplodingLayer) return;
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
-        // Tutorial check: Sadece TapLayerButton adımındayken ve hedeflenen katman ise geçişe izin ver
+        // Tutorial check: Sadece TapLayerButton veya DragPieceToBoard adımındayken ve hedeflenen katman ise geçişe izin ver
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
-            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.TapLayerButton)
+            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.TapLayerButton &&
+                TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
                 return;
 
             if (layerY != grid.GridMinY)

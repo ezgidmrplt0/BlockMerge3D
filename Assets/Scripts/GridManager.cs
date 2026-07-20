@@ -134,7 +134,8 @@ public class GridManager : MonoBehaviour
             {
                 var tut = TutorialOverlay.Instance;
                 bool isLevel3 = (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 3)
-                    || (LevelManager.Instance != null && LevelManager.Instance.currentLevel != null && LevelManager.Instance.currentLevel.levelName.StartsWith("Tutorial_3"));
+                    || (LevelManager.Instance != null && LevelManager.Instance.currentLevel != null && 
+                       (LevelManager.Instance.currentLevel.levelName.StartsWith("Tutorial_3") || LevelManager.Instance.currentLevel.levelName == "LEVEL 3"));
 
                 if (tut != null && tut.RestrictDragHighlights && tut.DragHighlightCells.Count > 0)
                 {
