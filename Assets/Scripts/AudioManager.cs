@@ -22,6 +22,12 @@ public class AudioManager : MonoBehaviour
     [Tooltip("Arayüz butonlarına tıklama sesi.")]
     [SerializeField] private AudioClip buttonClickSound;
 
+    [Tooltip("Kanca item'leri kavradığı an çalan ses.")]
+    [SerializeField] private AudioClip clawGrabSound;
+
+    [Tooltip("Tahta 90° döndürülürken çalan swoosh sesi.")]
+    [SerializeField] private AudioClip boardRotateSound;
+
     [Header("Settings")]
     [Tooltip("Yerleştirme sesi için hafif perde (pitch) dalgalanması yapılsın mı? (Daha doğal bir his verir)")]
     [SerializeField] private bool usePitchVariation = true;
@@ -99,5 +105,23 @@ public class AudioManager : MonoBehaviour
 
         // Buton tıklama sesini orijinal perdesinde çal
         PlaySFX(buttonClickSound, 1f);
+    }
+
+    /// <summary>
+    /// Kanca bir katmanı temizlemek için harekete geçtiğinde tetiklenir
+    /// (bkz. GridManager.AnimateLayerDisappear).
+    /// </summary>
+    /// <summary>Kanca item'leri kavradığı an (bkz. GridManager.RunGrabAndLift).</summary>
+    public void PlayClawGrabSound()
+    {
+        if (clawGrabSound == null) return;
+        PlaySFX(clawGrabSound, 1f);
+    }
+
+    /// <summary>Tahta 90° döndürüldüğünde (bkz. CameraOrbit.SnapRotate).</summary>
+    public void PlayBoardRotateSound()
+    {
+        if (boardRotateSound == null) return;
+        PlaySFX(boardRotateSound, 1f);
     }
 }

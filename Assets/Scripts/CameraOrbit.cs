@@ -270,6 +270,7 @@ public class CameraOrbit : MonoBehaviour
         if (DraggablePiece.IsDragging || DOTween.IsTweening(transform) || (IsLocked && !IsInPanelMode)) return;
         if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return;
         targetYaw -= Mathf.Sign(direction) * 90f;
+        AudioManager.Instance?.PlayBoardRotateSound();
         TutorialEvents.RaiseBoardRotated();
     }
 

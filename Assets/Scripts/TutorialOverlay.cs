@@ -670,8 +670,14 @@ public class TutorialOverlay : MonoBehaviour
             // büyük harf, emir kipi.
             case TutorialStepType.TapLayerButton:   return "ENTER THE LAYER";
             case TutorialStepType.SwipeToRotate:    return "SWIPE TO ROTATE";
-            case TutorialStepType.DragPieceToBoard: 
-                if (IsLevel4) return "MELT THE ICE";
+            case TutorialStepType.DragPieceToBoard:
+                // Level 4 buz öğreticisi: yalnızca tahtada HÂLÂ donmuş hücre varken
+                // "MELT THE ICE" de. Buz eridikten sonraki parçalarda (2. ve 3. sürükleme)
+                // metin normale döner — eskiden buz gitmesine rağmen "MELT THE ICE" kalıyordu.
+                if (IsLevel4 && GridManager.Instance != null
+                    && GridManager.Instance.frozenCells != null
+                    && GridManager.Instance.frozenCells.Count > 0)
+                    return "MELT THE ICE";
                 return "DRAG A PIECE";
             case TutorialStepType.UseJoker:         return "TAP TO UNDO";
             default:                                return "";

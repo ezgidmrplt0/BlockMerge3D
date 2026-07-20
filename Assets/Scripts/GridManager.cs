@@ -1605,6 +1605,10 @@ public class GridManager : MonoBehaviour
             {
                 var seq2 = DOTween.Sequence().SetLink(claw).SetId(LEVEL_ANIM_ID);
 
+                // Uç katmana değdi: item'leri kavradı — kavrama sesi + telefon titreşimi.
+                AudioManager.Instance?.PlayClawGrabSound();
+                Handheld.Vibrate();
+
                 // Uç katmana değdi: pençeler hayvanlar toplanırken kapansın.
                 AnimateClawGrip(claw, 0f, 1f, ballDuration);
 
