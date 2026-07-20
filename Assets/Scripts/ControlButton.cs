@@ -62,6 +62,13 @@ public class ControlButton : MonoBehaviour
     private static readonly Color BadgeAvailFg = new Color(0.91f, 0.21f, 0.17f); // kırmızı
     private static readonly Color BadgeUsedBg  = new Color(0.93f, 0.94f, 0.92f);
     private static readonly Color BadgeUsedFg  = new Color(0.50f, 0.52f, 0.45f); // gri
+    private static readonly Color BadgeAdFg    = new Color(0.13f, 0.68f, 0.30f); // reklam daveti (yeşil)
+
+    // ─── Joker durumu / reklamla yenileme ───────────────────────────────────
+    private bool jokerSpent;              // joker bu seviyede kullanıldı (rozet 0 ya da "+1")
+    private bool adRefillUsedThisLevel;   // seviye başına 1 reklam-yenileme sınırı
+    private GameObject    adConfirmPanel;  // açık onay diyaloğu (null = kapalı)
+    // Removed watchBtnRect, cancelBtnRect
 
     private void Awake()
     {
@@ -76,6 +83,12 @@ public class ControlButton : MonoBehaviour
 
     private void Update()
     {
+        // Reklam onay diyaloğu açıksa tüm girişleri o yönetir.
+        if (adConfirmPanel != null && adConfirmPanel.activeSelf)
+        {
+            return;
+        }
+
         // Seviye bittiyse joker kullanılamaz (bkz. GameManager.IsLevelOver).
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
         if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return;
@@ -84,16 +97,19 @@ public class ControlButton : MonoBehaviour
         {
             if (Input.GetMouseButtonDown(0) && HitsSelf(Input.mousePosition))
             {
-                // Tutorial check: Öğretici çalışıyorsa sadece UseJoker adımında tıklamaya izin ver
-                if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
-                {
-                    if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.UseJoker)
-                        return; // Blokla
-                }
+                // Öğretici çalışıyorsa sadece UseJoker adımında tıklanabilir; reklam akışı da kapalı.
+                bool tutorial = TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning;
+                if (tutorial && TutorialOverlay.Instance.CurrentStep != TutorialStepType.UseJoker)
+                    return;
 
                 if (LevelManager.Instance == null || LevelManager.Instance.CanUseJoker)
                 {
                     Press();
+                }
+                else if (!tutorial && jokerSpent && !adRefillUsedThisLevel && RewardedAds.IsReady)
+                {
+                    // Joker tükendi ama reklamla +1 alınabilir → önce onay diyaloğu.
+                    ShowAdConfirm();
                 }
             }
         }
@@ -144,9 +160,10 @@ public class ControlButton : MonoBehaviour
                 .OnComplete(() => jokerIcon.SetActive(false));
         }
 
-        // Rozet: kalan hak 1 → 0 (grileşir). Öğretici kullanımında RestoreJoker →
-        // ResetJoker çağrılıp tekrar 1'e döner, yani hak yakılmamış gibi görünür.
-        SetBadgeCount(0);
+        // Joker kullanıldı: rozet 1 → 0 (reklam yenilemesi mümkünse "+1" daveti).
+        // Öğretici kullanımında RestoreJoker → ResetJoker çağrılıp tekrar 1'e döner.
+        jokerSpent = true;
+        RefreshBadge();
 
         // Joker fonksiyonu: Son yerleştirilen parçayı yok eder
         LevelManager.Instance?.UndoLastPlace();
@@ -188,8 +205,18 @@ public class ControlButton : MonoBehaviour
             buttonCap.localScale = originalScale;
         }
 
-        // Rozet: kalan hak tekrar 1 (kırmızı + pop).
-        SetBadgeCount(1);
+        // Joker geri geldi: rozet tekrar 1.
+        jokerSpent = false;
+        RefreshBadge();
+    }
+
+    /// <summary>Yeni seviyeye geçişte çağrılır: reklam-yenileme hakkını da sıfırlar.
+    /// (ResetJoker yalnızca jokeri geri verir; seviye-başı reklam sınırını KORUR — ki
+    /// reklamla yenileme sonrası ResetJoker çağrıldığında sınır tükenmiş kalsın.)</summary>
+    public void ResetForNewLevel()
+    {
+        adRefillUsedThisLevel = false;
+        ResetJoker();
     }
 
     // ─── Joker sayaç rozeti ─────────────────────────────────────────────────
@@ -213,24 +240,40 @@ public class ControlButton : MonoBehaviour
         badgeRoot.anchoredPosition = WorldToCanvasLocal(anchorWorld) + badgeOffset;
     }
 
-    /// <summary>Rozeti verilen kalan-hak sayısına ayarlar. 0 → grileşir ve hafifçe
-    /// büzülür; 1 → kırmızı olup pop yapar.</summary>
-    private void SetBadgeCount(int remaining)
+    /// <summary>Joker durumuna göre rozeti günceller:
+    /// kullanılmadı → "1" (kırmızı); kullanıldı + reklamla yenilenebilir → "+1"
+    /// (yeşil, davet nabzı); kullanıldı + hak yok → "0" (gri).</summary>
+    private void RefreshBadge()
     {
         if (!showUseBadge) return;
         if (badgeRoot == null && !EnsureBadge()) return;
 
-        badgeText.text = remaining.ToString();
+        if (!jokerSpent)
+            SetBadgeVisual("1", BadgeAvailBg, BadgeAvailFg, invite: false);
+        else if (CanOfferAdRefill())
+            SetBadgeVisual("+1", BadgeAvailBg, BadgeAdFg, invite: true);
+        else
+            SetBadgeVisual("0", BadgeUsedBg, BadgeUsedFg, invite: false);
+    }
 
-        bool avail = remaining > 0;
-        badgeFill.color = avail ? BadgeAvailBg : BadgeUsedBg;
-        badgeRing.color = avail ? BadgeAvailFg : BadgeUsedFg;
-        badgeText.color = avail ? BadgeAvailFg : BadgeUsedFg;
+    private bool CanOfferAdRefill()
+    {
+        return jokerSpent && !adRefillUsedThisLevel && RewardedAds.IsReady;
+    }
+
+    private void SetBadgeVisual(string text, Color bg, Color fg, bool invite)
+    {
+        badgeText.text  = text;
+        badgeFill.color = bg;
+        badgeRing.color = fg;
+        badgeText.color = fg;
 
         badgeRoot.DOKill();
-        badgeRoot.localScale = Vector3.one * (avail ? 0.6f : 1f);
-        badgeRoot.DOScale(avail ? 1f : 0.82f, avail ? 0.4f : 0.25f)
-                 .SetEase(avail ? Ease.OutBack : Ease.OutQuad);
+        badgeRoot.localScale = Vector3.one * 0.7f;
+        var seq = DOTween.Sequence().SetLink(badgeRoot.gameObject);
+        seq.Append(badgeRoot.DOScale(1f, 0.35f).SetEase(Ease.OutBack));
+        if (invite) // "reklamla +1" — dikkat çeken sürekli nabız
+            seq.Append(badgeRoot.DOScale(1.12f, 0.6f).SetEase(Ease.InOutSine).SetLoops(-1, LoopType.Yoyo));
     }
 
     /// <summary>badgeSize'a göre kök/halka/dolgu/rakam ölçülerini uygular. Her karede
@@ -279,12 +322,165 @@ public class ControlButton : MonoBehaviour
 
         badgeRoot.SetAsLastSibling();
 
-        // İlk durum: hak var (1).
-        badgeText.text = "1";
-        badgeFill.color = BadgeAvailBg;
-        badgeRing.color = BadgeAvailFg;
-        badgeText.color = BadgeAvailFg;
+        RefreshBadge(); // başlangıç durumunu (1 / +1 / 0) yansıt
         return true;
+    }
+
+    // ─── Reklamla joker yenileme akışı ──────────────────────────────────────
+
+    // Removed HandleAdConfirmInput
+
+    private void StartAdRefill()
+    {
+        AudioManager.Instance?.PlayButtonClickSound();
+        RewardedAds.Show(OnAdRewarded, OnAdFailed);
+    }
+
+    private void OnAdRewarded()
+    {
+        adRefillUsedThisLevel = true;                 // seviye başına 1
+        if (LevelManager.Instance != null)
+            LevelManager.Instance.RestoreJoker();     // → tüm ControlButton.ResetJoker → rozet "1"
+        else { jokerSpent = false; RefreshBadge(); }
+    }
+
+    private void OnAdFailed()
+    {
+        Debug.LogWarning("[Joker] Ödüllü reklam gösterilemedi / ödül alınamadı.");
+        RefreshBadge(); // "+1" daveti kalır, tekrar denenebilir
+    }
+
+    // Removed RectContainsScreen
+
+    // ─── Reklam onay diyaloğu (runtime UI) ──────────────────────────────────
+
+    private void ShowAdConfirm()
+    {
+        if (adConfirmPanel != null && adConfirmPanel.activeSelf) return;
+
+        // Try to find the user's AdsOverlay in the scene
+        Transform adsOverlayTr = null;
+        if (UIManager.Instance != null)
+        {
+            adsOverlayTr = UIManager.Instance.transform.Find("AdsOverlay");
+            if (adsOverlayTr == null && UIManager.Instance.transform.parent != null) 
+                adsOverlayTr = UIManager.Instance.transform.parent.Find("AdsOverlay");
+        }
+        if (adsOverlayTr == null)
+        {
+            var canvas = GameObject.Find("UICanvas");
+            if (canvas != null) adsOverlayTr = canvas.transform.Find("AdsOverlay");
+        }
+
+        if (adsOverlayTr == null)
+        {
+            Debug.LogError("[ControlButton] AdsOverlay bulunamadı! Lütfen sahneye UICanvas altına ekleyin.");
+            return;
+        }
+
+        adConfirmPanel = adsOverlayTr.gameObject;
+        var cg = adConfirmPanel.GetComponent<CanvasGroup>();
+        if (cg == null) cg = adConfirmPanel.AddComponent<CanvasGroup>();
+
+        adConfirmPanel.SetActive(true);
+
+        // Butonları bul ve listener ekle
+        var watchBtn = adsOverlayTr.Find("WatchBtn")?.GetComponent<UnityEngine.UI.Button>();
+        if (watchBtn == null)
+        {
+            // Belki AdsCard'ın içindedir
+            var adsCardInner = adsOverlayTr.Find("AdsCard");
+            if (adsCardInner != null) watchBtn = adsCardInner.Find("WatchBtn")?.GetComponent<UnityEngine.UI.Button>();
+        }
+
+        var cancelBtn = adsOverlayTr.Find("CancelBtn")?.GetComponent<UnityEngine.UI.Button>();
+        if (cancelBtn == null)
+        {
+            var adsCardInner = adsOverlayTr.Find("AdsCard");
+            if (adsCardInner != null) cancelBtn = adsCardInner.Find("CancelBtn")?.GetComponent<UnityEngine.UI.Button>();
+        }
+
+        if (watchBtn != null)
+        {
+            watchBtn.onClick.RemoveAllListeners();
+            watchBtn.onClick.AddListener(() => { CloseAdConfirm(); StartAdRefill(); });
+        }
+        else
+        {
+            Debug.LogWarning("[ControlButton] AdsOverlay altında WatchBtn (Button) bulunamadı!");
+        }
+        
+        if (cancelBtn != null)
+        {
+            cancelBtn.onClick.RemoveAllListeners();
+            cancelBtn.onClick.AddListener(() => { CloseAdConfirm(); });
+        }
+        else
+        {
+            Debug.LogWarning("[ControlButton] AdsOverlay altında CancelBtn (Button) bulunamadı!");
+        }
+
+        // Animasyonlar
+        cg.alpha = 0f;
+        cg.DOKill();
+        cg.DOFade(1f, 0.22f).SetLink(adConfirmPanel).SetUpdate(true);
+
+        var adsCard = adsOverlayTr.Find("AdsCard");
+        if (adsCard != null)
+        {
+            adsCard.DOKill();
+            adsCard.localScale = new Vector3(1f, 0f, 1f);
+            adsCard.DOScaleY(1f, 0.32f).SetEase(Ease.OutBack).SetLink(adConfirmPanel).SetUpdate(true);
+        }
+
+        // İkon sallanma animasyonu
+        var icon = adsOverlayTr.Find("Image");
+        if (icon != null)
+        {
+            icon.DOKill();
+            icon.localRotation = Quaternion.Euler(0f, 0f, -8f);
+            icon.DOLocalRotate(new Vector3(0f, 0f, 8f), 1.2f).SetEase(Ease.InOutSine)
+                .SetLoops(-1, LoopType.Yoyo).SetLink(adConfirmPanel).SetUpdate(true);
+        }
+
+        // Title animasyonu
+        var title = adsOverlayTr.Find("Title");
+        if (title != null)
+        {
+            title.DOKill();
+            title.localScale = Vector3.zero;
+            title.DOScale(1f, 0.45f).SetEase(Ease.OutBack).SetLink(adConfirmPanel).SetUpdate(true)
+                .OnComplete(() => {
+                    title.DOScale(1.06f, 0.9f).SetEase(Ease.InOutSine)
+                        .SetLoops(-1, LoopType.Yoyo).SetLink(adConfirmPanel).SetUpdate(true);
+                });
+        }
+        
+        // WatchBtn Nabız
+        if (watchBtn != null)
+        {
+            watchBtn.transform.DOKill();
+            watchBtn.transform.localScale = Vector3.one;
+            watchBtn.transform.DOScale(1.06f, 0.75f).SetEase(Ease.InOutSine)
+                .SetLoops(-1, LoopType.Yoyo).SetLink(adConfirmPanel).SetUpdate(true);
+        }
+    }
+
+    private void CloseAdConfirm()
+    {
+        if (adConfirmPanel == null || !adConfirmPanel.activeSelf) return;
+        var cg = adConfirmPanel.GetComponent<CanvasGroup>();
+        if (cg != null)
+        {
+            cg.DOKill();
+            cg.DOFade(0f, 0.15f).SetLink(adConfirmPanel).SetUpdate(true).OnComplete(() => {
+                adConfirmPanel.SetActive(false);
+            });
+        }
+        else
+        {
+            adConfirmPanel.SetActive(false);
+        }
     }
 
     private Image MakeCircle(RectTransform parent, float size, string name)

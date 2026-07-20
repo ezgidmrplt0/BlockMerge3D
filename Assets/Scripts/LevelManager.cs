@@ -1038,7 +1038,7 @@ public class LevelManager : MonoBehaviour
         var controlButtons = FindObjectsOfType<ControlButton>();
         foreach (var btn in controlButtons)
         {
-            if (btn != null) btn.ResetJoker();
+            if (btn != null) btn.ResetForNewLevel();
         }
 
         gridManager?.ClearAllCellObjects();

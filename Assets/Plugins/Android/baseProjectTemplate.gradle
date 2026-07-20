@@ -1,0 +1,34 @@
+allprojects {
+    buildscript {
+        repositories {**ARTIFACTORYREPOSITORY**
+            google()
+            mavenCentral()
+        }
+
+        dependencies {
+            classpath 'com.android.tools.build:gradle:7.4.2'
+            **BUILD_SCRIPT_DEPS**
+        }
+    }
+
+    repositories {**ARTIFACTORYREPOSITORY**
+        google()
+        mavenCentral()
+        flatDir {
+            dirs "${project(':unityLibrary').projectDir}/libs"
+        }
+    }
+
+    // ADMOB KOTLIN COROUTINES D8 STACKOVERFLOW FIX
+    configurations.all {
+        resolutionStrategy {
+            force 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
+            force 'org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.7.3'
+            force 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+        }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
