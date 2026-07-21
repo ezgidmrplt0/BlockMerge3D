@@ -407,10 +407,15 @@ public class GridManager : MonoBehaviour
         // getirebiliyordu — özellikle tek parçanın tüm tahtayı kapladığı küçük seviyelerde).
         if (shapeHolder != null && shapeHolder.frozenCells != null)
         {
+            Debug.Log($"[GridManager] Initialize: shapeHolder.frozenCells.Count = {shapeHolder.frozenCells.Count}");
             foreach (var cell in shapeHolder.frozenCells)
             {
                 frozenCells.Add(cell);
             }
+        }
+        else
+        {
+            Debug.Log("[GridManager] Initialize: shapeHolder or shapeHolder.frozenCells is NULL!");
         }
 
         // İlk tamamlanmamış gerçek katmanı bul.
@@ -512,14 +517,14 @@ public class GridManager : MonoBehaviour
                     var iceGo = GetIceVisual(cell);
                     if (iceGo != null)
                     {
-                        // Panel modunda AKTİF katman DIŞINDAKİ tüm buz modelleri gizlenir —
-                        // yalnızca alt katmanlar (cell.y < ActiveLayerY) değil, ÜST katmanlar
-                        // (cell.y > ActiveLayerY) da. Aksi halde alt katmana inince üstteki
-                        // buzlar olduğu yerde asılı kalıyordu (üst katman ghost'u zaten
-                        // kapatılıyor ama buzun kendi 3D modeli açık kalıyordu).
                         bool hideIce = isPanelMode && cell.y != ActiveLayerY;
                         iceGo.SetActive(!hideIce);
+                        Debug.Log($"[GridManager] RefreshLayerVisibility: cell={cell}, hideIce={hideIce}, iceGo.activeSelf={iceGo.activeSelf}, scale={iceGo.transform.localScale}");
                         if (!hideIce) r.enabled = false;
+                    }
+                    else
+                    {
+                        Debug.Log($"[GridManager] RefreshLayerVisibility: cell={cell}, iceGo is NULL!");
                     }
                 }
                 else
@@ -767,6 +772,10 @@ public class GridManager : MonoBehaviour
     {
         DOTween.Kill(LEVEL_ANIM_ID);
         IsExplodingLayer = false;
+
+        StopAllCoroutines();
+        meltingIceCells.Clear();
+        if (IceBreakEffect.Instance != null) IceBreakEffect.Instance.StopAllEffects();
 
         // Kanca kalıcı bir sahne nesnesi — tween'lerini öldürüp evine yolluyoruz.
         GameObject claw = GameObject.Find("Claw");

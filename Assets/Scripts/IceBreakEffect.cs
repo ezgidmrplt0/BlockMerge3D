@@ -302,6 +302,11 @@ public class IceBreakEffect : MonoBehaviour
         Instance.PlayIceMeltEffect(targetBlock, onComplete);
     }
 
+    public void StopAllEffects()
+    {
+        DOTween.Kill("IceMelt");
+    }
+
     private void PlayIceMeltEffect(GameObject targetBlock, Action onComplete)
     {
         if (targetBlock == null)
@@ -315,40 +320,60 @@ public class IceBreakEffect : MonoBehaviour
         Renderer targetRend = targetBlock.GetComponentInChildren<Renderer>();
 
         targetBlock.transform.DOKill();
-        if (targetRend != null && targetRend.material != null) targetRend.material.DOKill();
+        if (targetRend != null && targetRend.sharedMaterial != null) targetRend.sharedMaterial.DOKill();
 
         const float meltDuration = 0.55f;
-        bool hasEmission = targetRend != null && targetRend.material != null && targetRend.material.HasProperty("_EmissionColor");
-        string colorProp = targetRend != null && targetRend.material != null
-            ? (targetRend.material.HasProperty("_BaseColor") ? "_BaseColor"
-                : targetRend.material.HasProperty("_Color") ? "_Color" : null)
+        bool hasEmission = targetRend != null && targetRend.sharedMaterial != null && targetRend.sharedMaterial.HasProperty("_EmissionColor");
+        string colorProp = targetRend != null && targetRend.sharedMaterial != null
+            ? (targetRend.sharedMaterial.HasProperty("_BaseColor") ? "_BaseColor"
+                : targetRend.sharedMaterial.HasProperty("_Color") ? "_Color" : null)
             : null;
-        Color origColor = colorProp != null ? targetRend.material.GetColor(colorProp) : Color.white;
+        Color origColor = colorProp != null ? targetRend.sharedMaterial.GetColor(colorProp) : Color.white;
 
         Sequence seq = DOTween.Sequence();
+        seq.SetId("IceMelt");
 
         // 0. Temas anı: erime başlar başlamaz temas noktasında kısa bir buhar patlaması
         seq.InsertCallback(0f, () => SpawnBurstParticles(center, 4, ContactFlashColor, radiating: true));
 
-        // 1. Ana erime: alpha yavaş başlayıp hızlanarak 0'a iner (kalın buz yavaş,
-        //    incelen buz hızlı erir hissi)
+        // 1. Ana erime ve 2. Erime hattı parıltısı: MaterialPropertyBlock ile animasyon
         if (colorProp != null)
         {
-            Color faded = origColor; faded.a = 0f;
-            seq.Append(targetRend.material.DOColor(faded, colorProp, meltDuration).SetEase(Ease.InQuad));
+            MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
+            targetRend.GetPropertyBlock(propBlock);
+
+            DOVirtual.Float(0f, 1f, meltDuration, t =>
+            {
+                if (targetRend == null) return;
+                
+                // Alpha fade
+                float alpha = Mathf.Lerp(1f, 0f, EaseOutQuad(t)); // Ease InQuad için 1'den 0'a
+                Color c = origColor;
+                c.a = origColor.a * alpha;
+                propBlock.SetColor(colorProp, c);
+
+                // Emission glow
+                if (hasEmission)
+                {
+                    if (t > 0.45f && t < 0.85f)
+                    {
+                        float emT = (t - 0.45f) / 0.4f; // 0 to 1
+                        float yoyo = Mathf.Sin(emT * Mathf.PI * 2f); // 2 loops
+                        Color emC = Color.Lerp(Color.clear, EdgeGlowColor * 1.4f, yoyo);
+                        propBlock.SetColor("_EmissionColor", emC);
+                    }
+                    else if (t >= 0.85f)
+                    {
+                        propBlock.SetColor("_EmissionColor", Color.clear);
+                    }
+                }
+
+                targetRend.SetPropertyBlock(propBlock);
+            }).SetEase(Ease.Linear).SetId("IceMelt");
         }
         else
         {
             seq.AppendInterval(meltDuration);
-        }
-
-        // 2. Erime hattı parıltısı: sürecin ortasında kısa bir parlama (dissolve
-        //    edge-glow illüzyonu), ardından sönüp kapanır
-        if (hasEmission)
-        {
-            targetRend.material.EnableKeyword("_EMISSION");
-            seq.Insert(meltDuration * 0.45f, targetRend.material.DOColor(EdgeGlowColor * 1.4f, "_EmissionColor", meltDuration * 0.2f).SetLoops(2, LoopType.Yoyo));
-            seq.Insert(meltDuration * 0.85f, targetRend.material.DOColor(Color.clear, "_EmissionColor", meltDuration * 0.15f));
         }
 
         // 3. Su damlaları: erime sırasında iki dalga halinde düşen damlalar
@@ -369,6 +394,11 @@ public class IceBreakEffect : MonoBehaviour
             targetBlock.transform.localScale = origScale;
             onComplete?.Invoke();
         });
+    }
+
+    private float EaseOutQuad(float x)
+    {
+        return 1f - (1f - x) * (1f - x);
     }
 
     /// <summary>

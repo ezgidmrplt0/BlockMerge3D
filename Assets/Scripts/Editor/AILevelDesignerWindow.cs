@@ -1939,12 +1939,45 @@ public class AILevelDesignerWindow : EditorWindow
             .Where(d => d.difficultyTags == null || d.difficultyTags.Count == 0 || d.difficultyTags.Contains(profileTag))
             .Where(d => d.volume >= minPieceSize && d.volume <= maxPieceSize)
             .ToList();
-        if (eligible.Count == 0) eligible = library;
+            
+        if (eligible.Count == 0) 
+        {
+            // Zorluk etiketine uyan uygun boyutta parça yoksa, sadece boyut filtresini uygula
+            eligible = library.Where(d => d.volume >= minPieceSize && d.volume <= maxPieceSize).ToList();
+        }
+        
+        if (eligible.Count == 0) 
+        {
+            // Hiçbiri yoksa son çare olarak hepsini al
+            eligible = library;
+        }
 
         int idealCount = DifficultySpecs.TryGetValue(selectedDifficulty, out var spec) ? spec.idealPieceCount : 5;
         int poolSize = Mathf.Clamp(idealCount + 2, 3, eligible.Count);
 
-        return eligible.OrderBy(_ => Random.value).Take(poolSize).ToList();
+        // Çeşitliliği garanti et: Sadece tek bir boyuttan (örneğin sadece 2'lik) dolmasını engelle.
+        // Havuza her boyuttan en az 1 parça koymaya çalış.
+        var selected = new List<PieceDefinition>();
+        var groupedByVol = eligible.GroupBy(d => d.volume).ToList();
+        
+        // Önce her hacim grubundan 1'er tane al (örneğin bir tane 2'lik, bir tane 3'lük, bir tane 4'lük)
+        foreach (var group in groupedByVol)
+        {
+            if (selected.Count >= poolSize) break;
+            var list = group.ToList();
+            selected.Add(list[UnityEngine.Random.Range(0, list.Count)]);
+        }
+
+        // Havuzda hala yer varsa geri kalanını rastgele doldur
+        var remaining = eligible.Except(selected).ToList();
+        while (selected.Count < poolSize && remaining.Count > 0)
+        {
+            int idx = UnityEngine.Random.Range(0, remaining.Count);
+            selected.Add(remaining[idx]);
+            remaining.RemoveAt(idx);
+        }
+
+        return selected;
     }
 
     // "Kütüphane / Solution-First" modu: SmartPieceSplitting'in mevcut çok-denemeli
@@ -1989,17 +2022,62 @@ public class AILevelDesignerWindow : EditorWindow
 
         if (built && frozenCells != null && frozenCells.Count > 0)
         {
-            // [2026-07-21] DÜZELTME: Buz eriyip eşleşen renk grubunu yok ettiğinde, hem yok olan grup hücreleri
-            // hem de eriyen buz hücresi boş target slot'una dönüşür ve yeniden doldurulması gerekir (GridManager.CheckAndResolveFrozenCells).
-            // Eritmek için kullanılan 3-hücrelik L parça tamamen yok olduğundan (-3 hücre), ancak eriyen buz hücresiyle birlikte
-            // toplam 4 boşluk açıldığından, net eksikliği kapatmak için buz başına hem eritmeyi tetikleyecek 3-hücrelik parçayı
-            // hem de eriyen boşluğu dolduracak 1-hücrelik parçayı (Filler) seviyeye ekliyoruz.
-            for (int i = 0; i < frozenCells.Count; i++)
+            int iceCount = frozenCells.Count;
+
+            // 1. Buz eritmeyi tetikleyecek parçalar:
+            // Eskiden hepsi sabit L-parçasıydı, şimdi çeşitlilik için havuzdan (pool) en az 3 blokluk parçalar seçiyoruz.
+            var validMelters = pool.Where(p => p.cells.Count >= 3).ToList();
+            for (int i = 0; i < iceCount; i++)
             {
-                // Buzu eritecek 3-hücrelik L parçası (eriyince yok olacak)
-                resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
-                // Eriyen buz hücresinin (veya yok olan fazladan üyelerin) yerini dolduracak 1-hücrelik yedek parça
-                resultPieces.Add(new List<Vector3Int> { Vector3Int.zero });
+                if (validMelters.Count > 0)
+                {
+                    var melter = validMelters[UnityEngine.Random.Range(0, validMelters.Count)];
+                    resultPieces.Add(new List<Vector3Int>(melter.cells));
+                }
+                else
+                {
+                    resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
+                }
+            }
+
+            // 2. Eksilen hacmi (Buz + eriyenler) telafi edecek Filler (Yedek) parçalar:
+            // Eskiden her buz için 1 adet tekli (1-hücrelik) parça ekleniyordu ve bu da 
+            // zor bölümlerde envanteri tekli parçalarla dolduruyordu.
+            // Şimdi bu toplam tekli hacmi, havuzdaki daha büyük parçalara dönüştürüyoruz.
+            int remainingFillerVolume = iceCount;
+            
+            // Hacmi büyük parçalara dağıt
+            while (remainingFillerVolume > 0)
+            {
+                // Havuzdan rastgele bir parça seç
+                var randomPiece = pool[UnityEngine.Random.Range(0, pool.Count)];
+                int pieceVol = randomPiece.cells.Count;
+
+                // Eğer parçanın hacmi kalan telafi hacminden küçük veya eşitse, doğrudan ekle
+                if (pieceVol <= remainingFillerVolume)
+                {
+                    resultPieces.Add(new List<Vector3Int>(randomPiece.cells));
+                    remainingFillerVolume -= pieceVol;
+                }
+                else
+                {
+                    // Kalan hacim havuzdaki parçalardan küçükse, standart küçük parçalarla tamamla
+                    if (remainingFillerVolume >= 3 && UnityEngine.Random.value > 0.5f)
+                    {
+                        resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
+                        remainingFillerVolume -= 3;
+                    }
+                    else if (remainingFillerVolume >= 2)
+                    {
+                        resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0) });
+                        remainingFillerVolume -= 2;
+                    }
+                    else
+                    {
+                        resultPieces.Add(new List<Vector3Int> { Vector3Int.zero });
+                        remainingFillerVolume -= 1;
+                    }
+                }
             }
         }
 
@@ -4562,4 +4640,3 @@ public class AIPieceListWrapper
     public List<string> names = new List<string>();
     public List<AIPieceDatasetEntry> pieces = new List<AIPieceDatasetEntry>();
 }
-

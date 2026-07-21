@@ -1174,6 +1174,8 @@ public class LevelManager : MonoBehaviour
                 {
                     foreach (var r in renderers)
                     {
+                        if (r.GetComponentInParent<IceVisualMarker>(true) != null) continue;
+                        
                         var mats = new Material[r.sharedMaterials.Length];
                         for (int i = 0; i < mats.Length; i++) mats[i] = prefilledMat;
                         r.sharedMaterials = mats;
@@ -1216,7 +1218,7 @@ public class LevelManager : MonoBehaviour
                     // renderer'larını geziyor; işaretlenmezse buzun kendi saydam
                     // materyali ghost materyaliyle ezilir ve buz, sıradan bir ghost
                     // küpü gibi görünürdü.
-                    if (r.GetComponentInParent<IceVisualMarker>() != null) continue;
+                    if (r.GetComponentInParent<IceVisualMarker>(true) != null) continue;
 
                     r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     r.receiveShadows = false;
