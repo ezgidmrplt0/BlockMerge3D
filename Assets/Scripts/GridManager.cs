@@ -2566,44 +2566,44 @@ public class GridManager : MonoBehaviour
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreleri ve etkilenen
-        // buz hücrelerini bul.
-        var touchingCells = new HashSet<Vector3Int>();
-        var candidateFrozenCells = new HashSet<Vector3Int>();
-        foreach (var cell in newlyPlacedCells)
-        {
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor))
-                {
-                    touchingCells.Add(cell);
-                    candidateFrozenCells.Add(neighbor);
-                }
-            }
-        }
-
-        if (candidateFrozenCells.Count == 0)
-        {
-            onComplete?.Invoke(false);
-            return false;
-        }
-
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> processedCells = new HashSet<Vector3Int>();
 
-        foreach (var touchCell in touchingCells)
+        foreach (var cell in newlyPlacedCells)
         {
-            if (!cellMatIndex.TryGetValue(touchCell, out int touchSpecies) || touchSpecies < 0) continue;
+            // Eğer bu hücreyi daha önceki bir grubun parçası olarak işlediysek atla
+            if (processedCells.Contains(cell)) continue;
 
-            var group = FloodFillSameSpecies(touchCell, touchSpecies, horizontalNeighbors);
+            if (!cellMatIndex.TryGetValue(cell, out int touchSpecies) || touchSpecies < 0) continue;
+
+            var group = FloodFillSameSpecies(cell, touchSpecies, horizontalNeighbors);
+            
+            // İşlenen tüm hücreleri işaretle
+            processedCells.UnionWith(group);
+
             if (group.Count < 2) continue;
 
-            cellsToDestroy.UnionWith(group);
-            foreach (var offset in horizontalNeighbors)
+            bool groupTouchesIce = false;
+            
+            // Grubun içindeki HERHANGİ BİR hücre buza temas ediyor mu diye bak
+            foreach (var groupCell in group)
             {
-                Vector3Int neighbor = touchCell + offset;
-                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
+                foreach (var offset in horizontalNeighbors)
+                {
+                    Vector3Int neighbor = groupCell + offset;
+                    if (frozenCells.Contains(neighbor))
+                    {
+                        cellsToThaw.Add(neighbor);
+                        groupTouchesIce = true;
+                    }
+                }
+            }
+
+            // Eğer grubun herhangi bir parçası buza değdiyse, tüm grubu patlat
+            if (groupTouchesIce)
+            {
+                cellsToDestroy.UnionWith(group);
             }
         }
 

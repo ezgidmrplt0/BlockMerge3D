@@ -1937,6 +1937,7 @@ public class AILevelDesignerWindow : EditorWindow
         string profileTag = selectedDifficulty.ToString();
         var eligible = library
             .Where(d => d.difficultyTags == null || d.difficultyTags.Count == 0 || d.difficultyTags.Contains(profileTag))
+            .Where(d => d.volume >= minPieceSize && d.volume <= maxPieceSize)
             .ToList();
         if (eligible.Count == 0) eligible = library;
 
