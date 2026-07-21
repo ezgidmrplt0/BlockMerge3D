@@ -20,11 +20,17 @@ allprojects {
     }
 
     // ADMOB KOTLIN COROUTINES D8 STACKOVERFLOW FIX
+    // TÜM modüllere (launcher dahil) uygulanır — hata :launcher:releaseRuntimeClasspath'te
+    // olduğu için force burada olmalı, sadece mainTemplate (unityLibrary) yeterli değil.
     configurations.all {
         resolutionStrategy {
             force 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
             force 'org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.7.3'
             force 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+            // kotlin-stdlib 2.1.0 eski D8'i StackOverflow ile patlatıyor → 1.9.24'e sabitle.
+            force 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.24'
         }
     }
 }

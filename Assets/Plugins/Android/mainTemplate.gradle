@@ -17,6 +17,12 @@ configurations.all {
         force 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
         force 'org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.7.3'
         force 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+        // play-services-ads:25.x, kotlin-stdlib 2.1.0 çekiyor; Unity 2022.3'ün eski D8
+        // dexer'ı bunu dex'lerken StackOverflowError veriyor. D8'in sorunsuz işleyebildiği
+        // 1.9.24'e sabitliyoruz (stdlib geriye dönük uyumlu, runtime'da sorun çıkarmaz).
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.24'
     }
 }
 

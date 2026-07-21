@@ -68,7 +68,11 @@ public class ControlButton : MonoBehaviour
     private bool jokerSpent;              // joker bu seviyede kullanıldı (rozet 0 ya da "+1")
     private bool adRefillUsedThisLevel;   // seviye başına 1 reklam-yenileme sınırı
     private GameObject    adConfirmPanel;  // açık onay diyaloğu (null = kapalı)
-    // Removed watchBtnRect, cancelBtnRect
+    private GameObject    adDim;           // panel arkasındaki tam-ekran karartma
+
+    /// <summary>Reklam onay paneli açık mı? Diğer 3D kontroller (tahta döndürme vb.)
+    /// bunu kontrol edip girişi bloklar — win/lose panelindeki IsLevelOver gibi.</summary>
+    public static bool AdPanelOpen { get; private set; }
 
     private void Awake()
     {
@@ -79,6 +83,15 @@ public class ControlButton : MonoBehaviour
             restLocalPosition = buttonCap.localPosition;
             originalScale = buttonCap.localScale;
         }
+    }
+
+    private void Start()
+    {
+        // AdsOverlay sahnede aktif başlıyor olabilir — başlangıçta gizle ki gameplay
+        // üstünde asılı kalmasın. Yalnızca ShowAdConfirm ile açılacak.
+        var canvas = GameObject.Find("UICanvas");
+        var ov = canvas != null ? canvas.transform.Find("AdsOverlay") : null;
+        if (ov != null && ov.gameObject.activeSelf) ov.gameObject.SetActive(false);
     }
 
     private void Update()
@@ -384,6 +397,11 @@ public class ControlButton : MonoBehaviour
 
         adConfirmPanel.SetActive(true);
 
+        // Win/lose paneli gibi: arkadaki her şeyi kapat.
+        AdPanelOpen = true;
+        EnsureAdDim(adsOverlayTr);                    // tam-ekran karartma (3D board/joystick dahil)
+        UIManager.Instance?.HideGameplayForAd();      // parça kartları, önizleme, katman butonları, retry
+
         // Butonları bul ve listener ekle
         var watchBtn = adsOverlayTr.Find("WatchBtn")?.GetComponent<UnityEngine.UI.Button>();
         if (watchBtn == null)
@@ -469,6 +487,12 @@ public class ControlButton : MonoBehaviour
     private void CloseAdConfirm()
     {
         if (adConfirmPanel == null || !adConfirmPanel.activeSelf) return;
+
+        // Gameplay'i geri getir, karartmayı ve modal kilidini kaldır.
+        AdPanelOpen = false;
+        UIManager.Instance?.RestoreGameplayForAd();
+        if (adDim != null) adDim.SetActive(false);
+
         var cg = adConfirmPanel.GetComponent<CanvasGroup>();
         if (cg != null)
         {
@@ -481,6 +505,30 @@ public class ControlButton : MonoBehaviour
         {
             adConfirmPanel.SetActive(false);
         }
+    }
+
+    /// <summary>AdsOverlay'in ARKASINA, UICanvas'a tam-ekran bir karartma yerleştirir
+    /// (3D board/joystick dahil her şeyi kapatır ve uGUI tıklamalarını yutar). AdsOverlay
+    /// en üste alınır, dim hemen altında kalır.</summary>
+    private void EnsureAdDim(Transform adsOverlay)
+    {
+        var parent = adsOverlay.parent; // UICanvas
+        if (parent == null) return;
+
+        if (adDim == null)
+        {
+            adDim = new GameObject("AdDim", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            adDim.transform.SetParent(parent, false);
+            var img = adDim.GetComponent<Image>();
+            img.color = new Color(0f, 0f, 0f, 0.66f);
+            img.raycastTarget = true;                 // arkadaki uGUI'yi de bloklar
+            var rt = (RectTransform)adDim.transform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+        }
+        adDim.SetActive(true);
+        adDim.transform.SetAsLastSibling();
+        adsOverlay.SetAsLastSibling(); // AdsOverlay dim'in de üstünde
     }
 
     private Image MakeCircle(RectTransform parent, float size, string name)

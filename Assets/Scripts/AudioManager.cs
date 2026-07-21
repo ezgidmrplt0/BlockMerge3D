@@ -19,14 +19,26 @@ public class AudioManager : MonoBehaviour
     [Tooltip("Buz erime / kırılma sesi.")]
     [SerializeField] private AudioClip iceMeltSound;
 
-    [Tooltip("Arayüz butonlarına tıklama sesi.")]
+    [Tooltip("Arayüz butonlarına tıklama sesi (genel).")]
     [SerializeField] private AudioClip buttonClickSound;
+
+    [Tooltip("Katman butonuna basma sesi (katmana girerken).")]
+    [SerializeField] private AudioClip layerButtonSound;
+
+    [Tooltip("Geri butonuna basma sesi (katmandan çıkarken).")]
+    [SerializeField] private AudioClip backButtonSound;
 
     [Tooltip("Kanca item'leri kavradığı an çalan ses.")]
     [SerializeField] private AudioClip clawGrabSound;
 
     [Tooltip("Tahta 90° döndürülürken çalan swoosh sesi.")]
     [SerializeField] private AudioClip boardRotateSound;
+
+    [Tooltip("Kazanma paneli açılınca çalan ses.")]
+    [SerializeField] private AudioClip winSound;
+
+    [Tooltip("Kaybetme paneli açılınca çalan ses.")]
+    [SerializeField] private AudioClip loseSound;
 
     [Header("Settings")]
     [Tooltip("Yerleştirme sesi için hafif perde (pitch) dalgalanması yapılsın mı? (Daha doğal bir his verir)")]
@@ -105,6 +117,33 @@ public class AudioManager : MonoBehaviour
 
         // Buton tıklama sesini orijinal perdesinde çal
         PlaySFX(buttonClickSound, 1f);
+    }
+
+    /// <summary>Katman butonuna basınca (katmana girerken).</summary>
+    public void PlayLayerButtonSound()
+    {
+        // Klip atanmamışsa genel tık sesine düş.
+        PlaySFX(layerButtonSound != null ? layerButtonSound : buttonClickSound, 1f);
+    }
+
+    /// <summary>Geri butonuna basınca (katmandan çıkarken).</summary>
+    public void PlayBackButtonSound()
+    {
+        PlaySFX(backButtonSound != null ? backButtonSound : buttonClickSound, 1f);
+    }
+
+    /// <summary>Kazanma paneli açılınca (bkz. UIManager.ShowWinPanel).</summary>
+    public void PlayWinSound()
+    {
+        if (winSound == null) return;
+        PlaySFX(winSound, 1f);
+    }
+
+    /// <summary>Kaybetme paneli açılınca (bkz. UIManager.ShowLosePanel).</summary>
+    public void PlayLoseSound()
+    {
+        if (loseSound == null) return;
+        PlaySFX(loseSound, 1f);
     }
 
     /// <summary>

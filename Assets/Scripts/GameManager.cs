@@ -42,6 +42,7 @@ public class GameManager : MonoBehaviour
     private void Update()
     {
         if (!timerRunning || levelComplete) return;
+        if (ControlButton.AdPanelOpen) return; // reklam paneli açıkken süre durur (win/lose gibi)
         remainingTime -= Time.deltaTime;
         UIManager.Instance?.UpdateTimer(remainingTime, totalTime);
         if (remainingTime <= 0f) { remainingTime = 0f; timerRunning = false; OnTimerExpired(); }

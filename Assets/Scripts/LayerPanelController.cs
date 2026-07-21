@@ -50,7 +50,7 @@ public class LayerPanelController : MonoBehaviour
         if (backButton != null)
         {
             backButton.onClick.AddListener(() => {
-                AudioManager.Instance?.PlayButtonClickSound();
+                AudioManager.Instance?.PlayBackButtonSound();
                 ClosePanel();
             });
             backButton.gameObject.SetActive(false);
@@ -143,7 +143,7 @@ public class LayerPanelController : MonoBehaviour
 
             Button btn = btnObj.GetComponent<Button>();
             btn.onClick.AddListener(() => {
-                AudioManager.Instance?.PlayButtonClickSound();
+                AudioManager.Instance?.PlayLayerButtonSound();
                 OpenPanel(layerY);
             });
             layerButtons.Add(btn);

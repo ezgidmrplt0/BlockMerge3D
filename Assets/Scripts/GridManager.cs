@@ -504,9 +504,14 @@ public class GridManager : MonoBehaviour
                     var iceGo = GetIceVisual(cell);
                     if (iceGo != null)
                     {
-                        bool faded = isPanelMode && cell.y < ActiveLayerY;
-                        iceGo.SetActive(!faded);
-                        if (!faded) r.enabled = false;
+                        // Panel modunda AKTİF katman DIŞINDAKİ tüm buz modelleri gizlenir —
+                        // yalnızca alt katmanlar (cell.y < ActiveLayerY) değil, ÜST katmanlar
+                        // (cell.y > ActiveLayerY) da. Aksi halde alt katmana inince üstteki
+                        // buzlar olduğu yerde asılı kalıyordu (üst katman ghost'u zaten
+                        // kapatılıyor ama buzun kendi 3D modeli açık kalıyordu).
+                        bool hideIce = isPanelMode && cell.y != ActiveLayerY;
+                        iceGo.SetActive(!hideIce);
+                        if (!hideIce) r.enabled = false;
                     }
                 }
                 else

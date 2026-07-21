@@ -213,12 +213,57 @@ public class UIManager : MonoBehaviour
             if (t != null) t.gameObject.SetActive(active);
         }
     }
+
+    // ─── Reklam paneli için gameplay gizle/geri getir (win/lose ile aynı davranış) ──
+    // İptal edilebilir bir modal olduğu için (WATCH/CANCEL), gizlediğimiz nesneleri
+    // hatırlayıp panel kapanınca AYNEN geri açıyoruz.
+    private readonly System.Collections.Generic.List<GameObject> adHiddenObjects
+        = new System.Collections.Generic.List<GameObject>();
+
+    /// <summary>Reklam onay paneli açılırken çağrılır: parça kartları, sıradaki-parça
+    /// önizlemesi, katman butonları ve retry butonu gizlenir (bkz. ControlButton).</summary>
+    public void HideGameplayForAd()
+    {
+        LayerPanelController.Instance?.SetButtonsVisible(false);
+
+        adHiddenObjects.Clear();
+        var canvas = GameObject.Find("UICanvas");
+        if (canvas != null)
+        {
+            foreach (var n in new[] { "BottomPiecePanel", "RetryBtn" })
+            {
+                var t = canvas.transform.Find(n);
+                if (t != null && t.gameObject.activeSelf)
+                {
+                    t.gameObject.SetActive(false);
+                    adHiddenObjects.Add(t.gameObject);
+                }
+            }
+        }
+
+        var preview = LevelManager.Instance != null ? LevelManager.Instance.NextPiecePreviewPanel : null;
+        if (preview != null && preview.activeSelf)
+        {
+            preview.SetActive(false);
+            adHiddenObjects.Add(preview);
+        }
+    }
+
+    /// <summary>Reklam paneli kapanınca çağrılır: gizlenen gameplay nesnelerini geri açar.</summary>
+    public void RestoreGameplayForAd()
+    {
+        LayerPanelController.Instance?.SetButtonsVisible(true);
+        foreach (var go in adHiddenObjects)
+            if (go != null) go.SetActive(true);
+        adHiddenObjects.Clear();
+    }
     private Vector2    trophyStartPos;
     private bool       trophyPosSaved = false;
 
     public void ShowWinPanel(int finalScore)
     {
         Debug.Log($"[UIManager] ShowWinPanel tetiklendi! Skor: {finalScore}");
+        AudioManager.Instance?.PlayWinSound();
         StopTimerPulse();
         LayerPanelController.Instance?.SetButtonsVisible(false);
         HideGameplayUI();
@@ -521,6 +566,7 @@ public class UIManager : MonoBehaviour
                              GameManager.LoseReason reason = GameManager.LoseReason.TimeUp)
     {
         Debug.Log($"[UIManager] ShowLosePanel tetiklendi! Skor: {finalScore}  sebep: {reason}");
+        AudioManager.Instance?.PlayLoseSound();
         StopTimerPulse();
         LayerPanelController.Instance?.SetButtonsVisible(false);
         HideGameplayUI();
