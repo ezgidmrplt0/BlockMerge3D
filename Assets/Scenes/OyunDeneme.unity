@@ -678,7 +678,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4606918369774321310, guid: 86b72a1c23d4c804490866b0d0da6692, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -2.2185743
+      value: -6.4000006
       objectReference: {fileID: 0}
     - target: {fileID: 4606918369774321310, guid: 86b72a1c23d4c804490866b0d0da6692, type: 3}
       propertyPath: m_LocalPosition.y
@@ -3079,7 +3079,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 856359028}
-  - component: {fileID: 856359027}
+  - component: {fileID: 856359029}
   m_Layer: 0
   m_Name: AdsManager
   m_TagString: Untagged
@@ -3087,20 +3087,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &856359027
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 856359026}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 24c124901bb9065408f9ea46cbd8e62e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  androidAdUnitId: ca-app-pub-3940256099942544/5224354917
-  iosAdUnitId: ca-app-pub-3940256099942544/1712485313
 --- !u!4 &856359028
 Transform:
   m_ObjectHideFlags: 0
@@ -3116,6 +3102,23 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &856359029
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 856359026}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f559fe1091eaacd3ae71149fc25f87e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  androidGameId: 800105317
+  iosGameId: 
+  testMode: 1
+  androidAdUnitId: Rewarded_Android
+  iosAdUnitId: Rewarded_iOS
 --- !u!1 &904942080
 GameObject:
   m_ObjectHideFlags: 0
@@ -3427,6 +3430,8 @@ MonoBehaviour:
   backButtonSound: {fileID: 8300000, guid: ecf43193aac7ea69bb51149cf98686f1, type: 3}
   clawGrabSound: {fileID: 8300000, guid: 272f635ba5b257305b0b9c5ef7ae4ddb, type: 3}
   boardRotateSound: {fileID: 0}
+  winSound: {fileID: 0}
+  loseSound: {fileID: 0}
   usePitchVariation: 1
   minPitch: 0.95
   maxPitch: 1.05
@@ -4312,11 +4317,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2.8101947
+      value: 8.106667
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -4.4800005
+      value: -4.48
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.z
