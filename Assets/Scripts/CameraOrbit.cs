@@ -267,7 +267,7 @@ public class CameraOrbit : MonoBehaviour
     /// </summary>
     public void SnapRotate(float direction)
     {
-        if (ControlButton.AdPanelOpen) return; // reklam paneli açıkken tahta dönmez
+        if (ControlButton.AdInputBlocked) return; // reklam açıkken/hemen sonrasında tahta dönmez
         if (DraggablePiece.IsDragging || DOTween.IsTweening(transform) || (IsLocked && !IsInPanelMode)) return;
         if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return;
         targetYaw -= Mathf.Sign(direction) * 90f;

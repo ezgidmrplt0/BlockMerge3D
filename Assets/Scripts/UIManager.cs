@@ -235,8 +235,10 @@ public class UIManager : MonoBehaviour
     /// önizlemesi, katman butonları ve retry butonu gizlenir (bkz. ControlButton).</summary>
     public void HideGameplayForAd()
     {
-        LayerPanelController.Instance?.SetButtonsVisible(false);
-
+        // NOT: Katman/back butonlarına DOKUNMUYORUZ. SetButtonsVisible panel/kamera
+        // durumuyla ilişkili (katmandayken back gösterilir); reklam sonrası onu geri
+        // açmak durumu bozup oyuncuyu "katman dışı" görünümüne atıyordu. Tam-ekran dim
+        // zaten butonları görsel olarak kapatıyor, durumu bozmadan.
         adHiddenObjects.Clear();
         var canvas = GameObject.Find("UICanvas");
         if (canvas != null)
@@ -263,7 +265,8 @@ public class UIManager : MonoBehaviour
     /// <summary>Reklam paneli kapanınca çağrılır: gizlenen gameplay nesnelerini geri açar.</summary>
     public void RestoreGameplayForAd()
     {
-        LayerPanelController.Instance?.SetButtonsVisible(true);
+        // SetButtonsVisible çağırmıyoruz (bkz. HideGameplayForAd notu) — katman/back
+        // butonları reklam boyunca durumlarını korudu, oyuncu bulunduğu yerde kalır.
         foreach (var go in adHiddenObjects)
             if (go != null) go.SetActive(true);
         adHiddenObjects.Clear();

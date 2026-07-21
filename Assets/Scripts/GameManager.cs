@@ -224,7 +224,20 @@ public class GameManager : MonoBehaviour
     public void NextLevel()
     {
         if (levelOrder == null || levelOrder.levels.Count == 0) return;
-        currentLevelIndex = (currentLevelIndex + 1) % levelOrder.levels.Count;
+
+        // Sıradaki DOLU (null olmayan) leveli bul; boş slotları atla. LevelOrder'ın sonunda
+        // boş slotlar var (henüz doldurulmamış), o yüzden "son level = son index" değil,
+        // "son level = son dolu index". Sıradaki dolu level yoksa (son gerçek leveldeyiz)
+        // currentLevelIndex değişmez → başa dönmek yerine AYNI leveli tekrar oynatır.
+        for (int i = currentLevelIndex + 1; i < levelOrder.levels.Count; i++)
+        {
+            if (levelOrder.levels[i] != null)
+            {
+                currentLevelIndex = i;
+                break;
+            }
+        }
+
         PlayerPrefs.SetInt(PREF_LEVEL, currentLevelIndex);
         PlayerPrefs.Save();
         LoadCurrentLevel();
@@ -232,6 +245,10 @@ public class GameManager : MonoBehaviour
 
     public void RetryLevel()
     {
+        // Reklam açıkken/hemen sonrasında gelen kaza tıkı leveli restart etmesin
+        // (WATCH tıkı RetryBtn'e sızıyordu — bkz. ControlButton.AdInputBlocked).
+        if (ControlButton.AdInputBlocked) return;
+
         // Analitik: oyuncu bu leveli yeniden denedi (retries++). Ardından LoadCurrentLevel
         // → StartLevel yeni bir attempt (LogLevelStart) olarak da kaydeder.
         FirebaseManager.Instance?.LogLevelRetry(currentLevelIndex);

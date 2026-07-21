@@ -74,6 +74,13 @@ public class ControlButton : MonoBehaviour
     /// bunu kontrol edip girişi bloklar — win/lose panelindeki IsLevelOver gibi.</summary>
     public static bool AdPanelOpen { get; private set; }
 
+    private static float adInputBlockUntil;
+    /// <summary>Reklam paneli AÇIKKEN veya kapanışından hemen SONRA (0.5s) oyun girişleri
+    /// (RetryLevel, katman aç/kapa, tahta döndür) bloklu olmalı — reklamı açan/kapatan tık
+    /// arkadaki butonlara sızıp leveli restart ediyor / katman değiştiriyordu. Tüm ilgili
+    /// yerler bunu kontrol eder.</summary>
+    public static bool AdInputBlocked => AdPanelOpen || Time.unscaledTime < adInputBlockUntil;
+
     private void Awake()
     {
         mainCam = Camera.main;
@@ -346,6 +353,15 @@ public class ControlButton : MonoBehaviour
     private void StartAdRefill()
     {
         AudioManager.Instance?.PlayButtonClickSound();
+        // Reklam TAM bitene kadar modalı (dim + AdPanelOpen) açık tut ki reklamı kapatan
+        // tık arkadaki oyun UI'ına (özellikle geri butonuna) sızmasın — bu, oyuncuyu
+        // katman dışına atıyordu. Onay butonları da tekrar tıklanmasın diye kapatılır.
+        // Temizlik OnAdRewarded / OnAdFailed'de yapılır.
+        if (adConfirmPanel != null)
+        {
+            var cg = adConfirmPanel.GetComponent<CanvasGroup>();
+            if (cg != null) cg.interactable = false;
+        }
         RewardedAds.Show(OnAdRewarded, OnAdFailed);
     }
 
@@ -355,12 +371,14 @@ public class ControlButton : MonoBehaviour
         if (LevelManager.Instance != null)
             LevelManager.Instance.RestoreJoker();     // → tüm ControlButton.ResetJoker → rozet "1"
         else { jokerSpent = false; RefreshBadge(); }
+        CloseAdConfirm();                             // reklam bitti → modalı şimdi kapat
     }
 
     private void OnAdFailed()
     {
         Debug.LogWarning("[Joker] Ödüllü reklam gösterilemedi / ödül alınamadı.");
         RefreshBadge(); // "+1" daveti kalır, tekrar denenebilir
+        CloseAdConfirm();
     }
 
     // Removed RectContainsScreen
@@ -421,7 +439,7 @@ public class ControlButton : MonoBehaviour
         if (watchBtn != null)
         {
             watchBtn.onClick.RemoveAllListeners();
-            watchBtn.onClick.AddListener(() => { CloseAdConfirm(); StartAdRefill(); });
+            watchBtn.onClick.AddListener(() => { StartAdRefill(); });
         }
         else
         {
@@ -439,6 +457,11 @@ public class ControlButton : MonoBehaviour
         }
 
         // Animasyonlar
+        // ÖNEMLİ: interactable/blocksRaycasts'i her açılışta TRUE'ya sıfırla. StartAdRefill
+        // reklam sırasında interactable=false yapıyor; AdsOverlay kalıcı obje olduğu için
+        // bir sonraki açılışta false kalıp WATCH/CANCEL'ı tıklanamaz bırakıyordu.
+        cg.interactable = true;
+        cg.blocksRaycasts = true;
         cg.alpha = 0f;
         cg.DOKill();
         cg.DOFade(1f, 0.22f).SetLink(adConfirmPanel).SetUpdate(true);
@@ -492,6 +515,10 @@ public class ControlButton : MonoBehaviour
         AdPanelOpen = false;
         UIManager.Instance?.RestoreGameplayForAd();
         if (adDim != null) adDim.SetActive(false);
+
+        // Reklamı kapatan tık, dim gidince arkadaki butona (geri/retry/katman) sızıp leveli
+        // restart ediyor / katman değiştiriyordu. Kapanıştan sonra kısa süre girişleri blokla.
+        adInputBlockUntil = Time.unscaledTime + 0.5f;
 
         var cg = adConfirmPanel.GetComponent<CanvasGroup>();
         if (cg != null)

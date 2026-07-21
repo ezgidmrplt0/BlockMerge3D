@@ -183,6 +183,9 @@ public class LayerPanelController : MonoBehaviour
 
     public void OpenPanel(int layerY)
     {
+        // Reklam paneli açıkken (ve kapanışından hemen sonra) katman girişi yok sayılır —
+        // reklamı açan/kapatan tık arkadaki butonlara sızıyordu.
+        if (ControlButton.AdInputBlocked) return;
         if (isTransitioning || cam == null || grid == null) return;
         if (cam.IsInPanelMode && grid.ActiveLayerY == layerY) return;
         if (grid.IsExplodingLayer) return;
@@ -227,6 +230,10 @@ public class LayerPanelController : MonoBehaviour
 
     public void ClosePanel(System.Action onComplete = null)
     {
+        // Reklam paneli AÇIKKEN (reklamı açan tık sızması) ve kapanışından hemen SONRA
+        // (kapatan tık sızması) kullanıcı kaynaklı kapatmayı yok say.
+        if (onComplete == null && ControlButton.AdInputBlocked) return;
+
         // Tutorial kilitliyken panel kullanıcı tarafından (onComplete == null) kapatılamaz
         if (onComplete == null && TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
             return;
