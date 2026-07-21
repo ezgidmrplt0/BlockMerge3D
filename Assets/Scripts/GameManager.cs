@@ -87,6 +87,9 @@ public class GameManager : MonoBehaviour
         timerRunning       = true;
 
         UIManager.Instance?.OnLevelStart(currentTargetScore, remainingTime);
+
+        // Analitik: level başladı (bkz. FirebaseManager / FirestoreAnalytics).
+        FirebaseManager.Instance?.LogLevelStart(currentLevelIndex);
     }
 
     // ─── Win / Lose ───────────────────────────────────────────────────────────
@@ -105,6 +108,9 @@ public class GameManager : MonoBehaviour
         if (!won) return;
         levelComplete = true;
         timerRunning  = false;
+
+        // Analitik: level kazanıldı. Geçen süre = toplam - kalan.
+        FirebaseManager.Instance?.LogLevelComplete(currentLevelIndex, totalTime - remainingTime, remainingTime);
 
         // Parça yerleşim/merge animasyonu devam ediyorsa bitene kadar bekle
         if (blockingAnimations > 0)
@@ -168,6 +174,10 @@ public class GameManager : MonoBehaviour
         if (levelComplete || winLocked) return;
         levelComplete = true;
         timerRunning = false;
+
+        // Analitik: level kaybedildi (süre doldu / hamle kalmadı).
+        FirebaseManager.Instance?.LogLevelFail(currentLevelIndex, totalTime - remainingTime);
+
         UIManager.Instance?.ShowLosePanel(Score, reason);
     }
 
@@ -189,6 +199,9 @@ public class GameManager : MonoBehaviour
 
     public void RetryLevel()
     {
+        // Analitik: oyuncu bu leveli yeniden denedi (retries++). Ardından LoadCurrentLevel
+        // → StartLevel yeni bir attempt (LogLevelStart) olarak da kaydeder.
+        FirebaseManager.Instance?.LogLevelRetry(currentLevelIndex);
         LoadCurrentLevel();
     }
 

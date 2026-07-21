@@ -81,3 +81,22 @@ crashlytics-build.properties
 *.keystore
 *.jks
 keystore.properties
+
+# ─── Firebase Unity SDK ─────────────────────────────────────────────
+# SDK bir bağımlılıktır: yüzlerce MB native binary (bazı dosyalar 100MB+,
+# GitHub reddediyor) ve yeniden import edilebilir. Repoya KOYMUYORUZ.
+# Başka makinede: Firebase Unity SDK 12.10.0'ı import et + Force Resolve.
+# (FirebaseManager.cs / FirestoreAnalytics.cs Assets/Scripts'te, commit'lenir.)
+/[Aa]ssets/Firebase/
+/[Aa]ssets/Firebase.meta
+/[Aa]ssets/GeneratedLocalRepo/
+/[Aa]ssets/GeneratedLocalRepo.meta
+/[Aa]ssets/ExternalDependencyManager/
+/[Aa]ssets/ExternalDependencyManager.meta
+/[Aa]ssets/[Ee]ditor Default Resources/Firebase/
+/[Aa]ssets/Plugins/Android/FirebaseApp.androidlib/
+/[Aa]ssets/Plugins/Android/FirebaseApp.androidlib.meta
+/[Aa]ssets/Plugins/Android/FirebaseCrashlytics.androidlib/
+/[Aa]ssets/Plugins/Android/FirebaseCrashlytics.androidlib.meta
+/[Aa]ssets/Plugins/iOS/Firebase/
+/[Aa]ssets/Plugins/tvOS/Firebase/

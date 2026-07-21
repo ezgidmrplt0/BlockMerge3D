@@ -678,7 +678,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4606918369774321310, guid: 86b72a1c23d4c804490866b0d0da6692, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -6.4000006
+      value: -2.2185743
       objectReference: {fileID: 0}
     - target: {fileID: 4606918369774321310, guid: 86b72a1c23d4c804490866b0d0da6692, type: 3}
       propertyPath: m_LocalPosition.y
@@ -2886,6 +2886,63 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 819596064}
   m_CullTransparentMesh: 1
+--- !u!1 &832949830
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 832949833}
+  - component: {fileID: 832949832}
+  - component: {fileID: 832949831}
+  m_Layer: 0
+  m_Name: Firebase
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &832949831
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 832949830}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2313f1c9906f3d4c18d6e9439ada9fef, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &832949832
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 832949830}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90d99e5a8f08394ccae5842b05be7f57, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!4 &832949833
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 832949830}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 641.9182, y: 1100.5227, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &837117437
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4317,11 +4374,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 8.106667
+      value: 2.8101947
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -4.48
+      value: -4.4800005
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.z
@@ -6960,3 +7017,4 @@ SceneRoots:
   - {fileID: 1797213474}
   - {fileID: 1134584132}
   - {fileID: 856359028}
+  - {fileID: 832949833}

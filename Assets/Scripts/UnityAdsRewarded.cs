@@ -28,6 +28,10 @@ public class UnityAdsRewarded : MonoBehaviour
     , IRewardedAd, IUnityAdsInitializationListener, IUnityAdsLoadListener, IUnityAdsShowListener
 #endif
 {
+    // iOS alanları yalnızca #if UNITY_IOS altında okunuyor; Android build'inde
+    // "atandı ama kullanılmadı" (CS0414) uyarısı verirler — Inspector'da görünsünler
+    // diye tutuyoruz, uyarıyı susturuyoruz.
+#pragma warning disable 0414
     [Header("Unity Dashboard > Monetization > Game IDs")]
     [SerializeField] private string androidGameId = "";
     [SerializeField] private string iosGameId = "";
@@ -37,6 +41,7 @@ public class UnityAdsRewarded : MonoBehaviour
     [Header("Ödüllü (Rewarded) Ad Unit / Placement ID")]
     [SerializeField] private string androidAdUnitId = "Rewarded_Android";
     [SerializeField] private string iosAdUnitId = "Rewarded_iOS";
+#pragma warning restore 0414
 
 #if UNITY_ADS_ENABLED
     private string adUnitId;
