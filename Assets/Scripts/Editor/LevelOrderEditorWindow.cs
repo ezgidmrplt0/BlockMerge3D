@@ -49,18 +49,18 @@ public class LevelOrderEditorWindow : EditorWindow
                 new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = new Color(0.4f, 0.85f, 1f) } });
         };
 
-        reorderableList.elementHeight = EditorGUIUtility.singleLineHeight + 6;
+        reorderableList.elementHeight = EditorGUIUtility.singleLineHeight * 2 + 10;
 
         reorderableList.drawElementCallback = (rect, index, isActive, isFocused) =>
         {
             rect.y += 3;
-            rect.height = EditorGUIUtility.singleLineHeight;
+            float singleH = EditorGUIUtility.singleLineHeight;
 
             int savedIdx  = PlayerPrefs.GetInt(PREF_LEVEL, 0);
             bool isCurrent = index == savedIdx;
 
             if (isCurrent)
-                EditorGUI.DrawRect(new Rect(rect.x - 2, rect.y - 3, rect.width + 4, rect.height + 4),
+                EditorGUI.DrawRect(new Rect(rect.x - 2, rect.y - 3, rect.width + 4, reorderableList.elementHeight - 4),
                     new Color(0.25f, 0.6f, 0.25f, 0.25f));
 
             float btnW = isCurrent ? 24f : 52f;
@@ -71,11 +71,11 @@ public class LevelOrderEditorWindow : EditorWindow
             if (isCurrent)
             {
                 btnStyle.normal.textColor = Color.green;
-                GUI.Button(new Rect(rect.x, rect.y, btnW, rect.height), "▶", btnStyle);
+                GUI.Button(new Rect(rect.x, rect.y, btnW, singleH), "▶", btnStyle);
             }
             else
             {
-                if (GUI.Button(new Rect(rect.x, rect.y, btnW, rect.height), "Seç", btnStyle))
+                if (GUI.Button(new Rect(rect.x, rect.y, btnW, singleH), "Seç", btnStyle))
                 {
                     PlayerPrefs.SetInt(PREF_LEVEL, index);
                     PlayerPrefs.Save();
@@ -83,17 +83,36 @@ public class LevelOrderEditorWindow : EditorWindow
                 }
             }
 
-            GUI.Label(new Rect(rect.x + btnW + 4, rect.y, numW, rect.height),
+            GUI.Label(new Rect(rect.x + btnW + 4, rect.y, numW, singleH),
                 $"{index + 1}.", EditorStyles.miniLabel);
 
             EditorGUI.BeginChangeCheck();
             var picked = (LevelData)EditorGUI.ObjectField(
-                new Rect(rect.x + btnW + 4 + numW, rect.y, rect.width - btnW - 4 - numW, rect.height),
+                new Rect(rect.x + btnW + 4 + numW, rect.y, rect.width - btnW - 4 - numW, singleH),
                 levelOrder.levels[index], typeof(LevelData), false);
             if (EditorGUI.EndChangeCheck())
             {
                 levelOrder.levels[index] = picked;
                 MarkDirty();
+            }
+
+            if (picked != null)
+            {
+                float secondLineY = rect.y + singleH + 4;
+                float labelW = 55f;
+                float valW = 50f;
+
+                float currentX = rect.x + btnW + 4 + numW;
+
+                // Süre Sınırı (Time Limit)
+                GUI.Label(new Rect(currentX, secondLineY, labelW, singleH), "Süre (sn):", EditorStyles.miniLabel);
+                EditorGUI.BeginChangeCheck();
+                float newTime = EditorGUI.FloatField(new Rect(currentX + labelW, secondLineY, valW, singleH), picked.timeLimit);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    picked.timeLimit = newTime;
+                    EditorUtility.SetDirty(picked);
+                }
             }
         };
 

@@ -52,6 +52,7 @@ public class GameManager : MonoBehaviour
     private void Update()
     {
         if (!timerRunning || levelComplete || IsSettingsOpen) return;
+        if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return; // Kanca animasyonu sırasında süre durur
         if (ControlButton.AdPanelOpen) return; // reklam paneli açıkken süre durur (win/lose gibi)
         remainingTime -= Time.deltaTime;
         UIManager.Instance?.UpdateTimer(remainingTime, totalTime);

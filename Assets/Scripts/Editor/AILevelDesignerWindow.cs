@@ -1988,20 +1988,18 @@ public class AILevelDesignerWindow : EditorWindow
 
         if (built && frozenCells != null && frozenCells.Count > 0)
         {
-            // [2026-07-14, ekip kararıyla, eski mantığa dönüş; sonradan tür sistemine taşındı]
-            // Buza değen hücreden başlayan BAĞLANTILI aynı TÜRDEKİ grup (≥2 üyeli) artık TAMAMEN
-            // buzla birlikte yok oluyor (bkz. GridManager.CheckAndResolveFrozenCells/
-            // FloodFillSameSpecies) — grup büyüklüğü
-            // artık sabit-2 değil, keyfi olabilir (teorik üst sınırı YOK). Bu yüzden buz başına
-            // sabit bir "güvenli" yedek hacmi hesaplamak artık MÜMKÜN DEĞİL — burada sadece
-            // MAKUL bir güvenlik payı (buz başına 3 hücre, üç ayrı tek-hücrelik parça yerine TEK
-            // 3-hücrelik "L" parçası — hiçbiri tekli küp olmasın diye) ekleniyor. Bu KESİN bir
-            // garanti değildir: nadir durumlarda (çok büyük aynı-renk grubu patlarsa) yedek
-            // yetmeyip seviye fiilen tamamlanamaz hale gelebilir — renk zaten rastgele atandığı
-            // için bu risk kasıtlı olarak kabul edildi (bkz. v2.md Bölüm 2.2). Hiç patlama
-            // yaşanmazsa bu parçalar seviyeyi tamamlamadan önce hiç çekilmez, zararsız kalır.
+            // [2026-07-21] DÜZELTME: Buz eriyip eşleşen renk grubunu yok ettiğinde, hem yok olan grup hücreleri
+            // hem de eriyen buz hücresi boş target slot'una dönüşür ve yeniden doldurulması gerekir (GridManager.CheckAndResolveFrozenCells).
+            // Eritmek için kullanılan 3-hücrelik L parça tamamen yok olduğundan (-3 hücre), ancak eriyen buz hücresiyle birlikte
+            // toplam 4 boşluk açıldığından, net eksikliği kapatmak için buz başına hem eritmeyi tetikleyecek 3-hücrelik parçayı
+            // hem de eriyen boşluğu dolduracak 1-hücrelik parçayı (Filler) seviyeye ekliyoruz.
             for (int i = 0; i < frozenCells.Count; i++)
+            {
+                // Buzu eritecek 3-hücrelik L parçası (eriyince yok olacak)
                 resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
+                // Eriyen buz hücresinin (veya yok olan fazladan üyelerin) yerini dolduracak 1-hücrelik yedek parça
+                resultPieces.Add(new List<Vector3Int> { Vector3Int.zero });
+            }
         }
 
         return built ? resultPieces : new List<List<Vector3Int>>();

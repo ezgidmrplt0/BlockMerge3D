@@ -56,6 +56,14 @@ public class GridManager : MonoBehaviour
         go.name = $"Ice_{cell.x}_{cell.y}_{cell.z}";
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
+
+        // DÜZELTME: ApplyTargetGhost (LevelManager.cs) fonksiyonunun buzun kendi materyalini
+        // yarı saydam yeşil ghost materyaliyle ezmesini önlemek için IceVisualMarker'ı dinamik olarak ekliyoruz.
+        if (go.GetComponent<IceVisualMarker>() == null)
+        {
+            go.AddComponent<IceVisualMarker>();
+        }
+
         iceVisuals[cell] = go;
     }
 
@@ -766,6 +774,24 @@ public class GridManager : MonoBehaviour
         if (claw != null)
         {
             claw.transform.DOKill();
+
+            // DÜZELTME: Kancaya tutturulmuş ve henüz imha edilmemiş eski blokları temizle
+            var toDestroy = new System.Collections.Generic.List<GameObject>();
+            foreach (Transform child in claw.transform)
+            {
+                if (child != null && (child.GetComponent<CubeShapeDataHolder>() != null || 
+                                      child.name.StartsWith("TempPiece") || 
+                                      child.name.Contains("Cube") || 
+                                      child.name.Contains("Prefilled")))
+                {
+                    toDestroy.Add(child.gameObject);
+                }
+            }
+            foreach (var go in toDestroy)
+            {
+                if (go != null) Destroy(go);
+            }
+
             if (clawHomeCaptured)
             {
                 claw.transform.position = clawHomePos;
