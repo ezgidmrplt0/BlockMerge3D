@@ -14,10 +14,16 @@ public class GameManager : MonoBehaviour
     public int Score { get; private set; }
     public int CurrentLevelNumber => currentLevelIndex + 1;
 
-    /// <summary>Seviye bitti (kazanıldı ya da kaybedildi) — kazanma paneli açılmayı
-    /// bekliyorsa da true. Oyun içi girdiler (parça sürükleme, tahta döndürme, joker)
-    /// bu andan itibaren KAPANMALI: panel açıkken arkada oynanmaya devam edilebiliyordu.</summary>
-    public bool IsLevelOver => levelComplete || winLocked;
+    /// <summary>Seviye bitti (kazanıldı ya da kaybedildi) veya ayarlar açık — oyun içi girdiler
+    /// (parça sürükleme, tahta döndürme, joker) bu andan itibaren engellenmelidir.</summary>
+    public bool IsLevelOver => levelComplete || winLocked || IsSettingsOpen;
+
+    public bool IsSettingsOpen { get; set; }
+    public bool IsVibrationEnabled { get; private set; } = true;
+    public bool IsAudioEnabled { get; private set; } = true;
+
+    private const string PREF_VIBRATION = "VibrationEnabled";
+    private const string PREF_AUDIO = "AudioEnabled";
 
     private bool  levelComplete;
     private bool  winLocked;           // Son katman temizlenmeye başladı — artık kaybedilemez
@@ -35,17 +41,43 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
+        IsVibrationEnabled = PlayerPrefs.GetInt(PREF_VIBRATION, 1) == 1;
+        IsAudioEnabled = PlayerPrefs.GetInt(PREF_AUDIO, 1) == 1;
+        ApplyAudioSetting();
+
         currentLevelIndex = PlayerPrefs.GetInt(PREF_LEVEL, 0);
         LoadCurrentLevel();
     }
 
     private void Update()
     {
-        if (!timerRunning || levelComplete) return;
+        if (!timerRunning || levelComplete || IsSettingsOpen) return;
         if (ControlButton.AdPanelOpen) return; // reklam paneli açıkken süre durur (win/lose gibi)
         remainingTime -= Time.deltaTime;
         UIManager.Instance?.UpdateTimer(remainingTime, totalTime);
         if (remainingTime <= 0f) { remainingTime = 0f; timerRunning = false; OnTimerExpired(); }
+    }
+
+    public void ToggleVibration()
+    {
+        IsVibrationEnabled = !IsVibrationEnabled;
+        PlayerPrefs.SetInt(PREF_VIBRATION, IsVibrationEnabled ? 1 : 0);
+        PlayerPrefs.Save();
+        AudioManager.Instance?.PlayButtonClickSound();
+    }
+
+    public void ToggleAudio()
+    {
+        IsAudioEnabled = !IsAudioEnabled;
+        PlayerPrefs.SetInt(PREF_AUDIO, IsAudioEnabled ? 1 : 0);
+        PlayerPrefs.Save();
+        ApplyAudioSetting();
+        AudioManager.Instance?.PlayButtonClickSound();
+    }
+
+    private void ApplyAudioSetting()
+    {
+        AudioListener.volume = IsAudioEnabled ? 1f : 0f;
     }
 
     // ─── Level Loading ────────────────────────────────────────────────────────

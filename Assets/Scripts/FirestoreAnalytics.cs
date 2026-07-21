@@ -1,8 +1,10 @@
 using UnityEngine;
-using Firebase.Firestore;
-using Firebase.Extensions;
 using System;
 using System.Collections.Generic;
+
+#if USE_FIREBASE
+using Firebase.Firestore;
+using Firebase.Extensions;
 
 /// <summary>
 /// Firestore tabanlı derin kullanıcı analitik sistemi.
@@ -464,3 +466,22 @@ public class FirestoreAnalytics : MonoBehaviour
                  .Collection(COLLECTION_LEVELS).Document(levelIndex.ToString());
     }
 }
+#else
+public class FirestoreAnalytics : MonoBehaviour
+{
+    public static FirestoreAnalytics Instance;
+    private void Awake()
+    {
+        if (Instance != null) { Destroy(gameObject); return; }
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
+    public void Initialize() {}
+    public void LogLevelStart(int levelIndex) {}
+    public void LogLevelComplete(int levelIndex, float durationSeconds) {}
+    public void LogLevelFail(int levelIndex, float durationSeconds) {}
+    public void LogLevelRetry(int levelIndex) {}
+    public void LogLevelReset(int levelIndex) {}
+    public void LogLevelQuit(int levelIndex, float durationSeconds) {}
+}
+#endif

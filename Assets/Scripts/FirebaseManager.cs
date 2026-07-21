@@ -1,8 +1,10 @@
 using UnityEngine;
+#if USE_FIREBASE
 using Firebase;
 using Firebase.Analytics;
 using Firebase.Crashlytics;
 using Firebase.Extensions;
+#endif
 
 public class FirebaseManager : MonoBehaviour
 {
@@ -30,6 +32,7 @@ public class FirebaseManager : MonoBehaviour
 
     void InitializeFirebase()
     {
+#if USE_FIREBASE
         FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task =>
         {
             if (task.Result == DependencyStatus.Available)
@@ -49,6 +52,9 @@ public class FirebaseManager : MonoBehaviour
                 Debug.LogError("[Firebase] Bağımlılık hatası: " + task.Result);
             }
         });
+#else
+        Debug.LogWarning("[Firebase] SDK is not installed or USE_FIREBASE define is missing. Analytics disabled in Editor.");
+#endif
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -57,67 +63,74 @@ public class FirebaseManager : MonoBehaviour
 
     public void LogLevelStart(int levelIndex)
     {
-        if (!isReady) return;
-
         activeLevel           = levelIndex;
         levelStartRealtime    = Time.realtimeSinceStartup;
         levelActive           = true;
         sessionLevelsPlayed++;
 
+#if USE_FIREBASE
+        if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_start",
             new Parameter("level_index",        levelIndex),
             new Parameter("session_level_count", sessionLevelsPlayed));
+#endif
 
         FirestoreAnalytics.Instance?.LogLevelStart(levelIndex);
     }
 
     public void LogLevelComplete(int levelIndex, float durationSeconds, float timeRemaining = 0f)
     {
-        if (!isReady) return;
         levelActive = false;
 
+#if USE_FIREBASE
+        if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_complete",
             new Parameter("level_index",      levelIndex),
             new Parameter("duration_seconds", durationSeconds),
             new Parameter("time_remaining",   timeRemaining));
+#endif
 
         FirestoreAnalytics.Instance?.LogLevelComplete(levelIndex, durationSeconds);
     }
 
     public void LogLevelFail(int levelIndex, float durationSeconds)
     {
-        if (!isReady) return;
         levelActive = false;
 
+#if USE_FIREBASE
+        if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_fail",
             new Parameter("level_index",      levelIndex),
             new Parameter("duration_seconds", durationSeconds));
+#endif
 
         FirestoreAnalytics.Instance?.LogLevelFail(levelIndex, durationSeconds);
     }
 
     public void LogLevelRetry(int levelIndex)
     {
-        if (!isReady) return;
-
         levelStartRealtime = Time.realtimeSinceStartup;
         levelActive        = true;
 
+#if USE_FIREBASE
+        if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_retry",
             new Parameter("level_index", levelIndex));
+#endif
 
         FirestoreAnalytics.Instance?.LogLevelRetry(levelIndex);
     }
 
     public void LogLevelReset(int levelIndex)
     {
-        if (!isReady) return;
-
         levelStartRealtime = Time.realtimeSinceStartup;
         levelActive        = true;
 
+#if USE_FIREBASE
+        if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_reset",
             new Parameter("level_index", levelIndex));
+#endif
 
         FirestoreAnalytics.Instance?.LogLevelReset(levelIndex);
     }
@@ -127,11 +140,14 @@ public class FirebaseManager : MonoBehaviour
     /// </summary>
     private void LogLevelQuit(int levelIndex, float durationSeconds)
     {
-        if (!isReady || levelIndex < 0) return;
+        if (levelIndex < 0) return;
 
+#if USE_FIREBASE
+        if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_quit",
             new Parameter("level_index",      levelIndex),
             new Parameter("duration_seconds", durationSeconds));
+#endif
 
         FirestoreAnalytics.Instance?.LogLevelQuit(levelIndex, durationSeconds);
     }
@@ -142,27 +158,35 @@ public class FirebaseManager : MonoBehaviour
 
     public void SetCurrentLevel(int levelIndex)
     {
+#if USE_FIREBASE
         if (!isReady) return;
         FirebaseAnalytics.SetUserProperty("current_level", levelIndex.ToString());
         FirebaseAnalytics.SetUserProperty("last_level_quit", levelIndex.ToString());
+#endif
     }
 
     public void SetTotalLevelsCompleted(int count)
     {
+#if USE_FIREBASE
         if (!isReady) return;
         FirebaseAnalytics.SetUserProperty("total_levels_completed", count.ToString());
+#endif
     }
 
     public void SetFarthestLevel(int levelIndex)
     {
+#if USE_FIREBASE
         if (!isReady) return;
         FirebaseAnalytics.SetUserProperty("farthest_level_reached", levelIndex.ToString());
+#endif
     }
 
     public void SetTotalPlayTimeMinutes(int minutes)
     {
+#if USE_FIREBASE
         if (!isReady) return;
         FirebaseAnalytics.SetUserProperty("total_play_time_minutes", minutes.ToString());
+#endif
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -171,8 +195,6 @@ public class FirebaseManager : MonoBehaviour
 
     void OnApplicationPause(bool pauseStatus)
     {
-        if (!isReady) return;
-
         if (pauseStatus)
         {
             // Uygulama arka plana alındı
@@ -185,9 +207,14 @@ public class FirebaseManager : MonoBehaviour
 
             // Oturum süresi kaydı
             float sessionDuration = Time.realtimeSinceStartup - sessionStartRealtime;
-            FirebaseAnalytics.LogEvent("session_end",
-                new Parameter("duration_seconds",  sessionDuration),
-                new Parameter("levels_played",     sessionLevelsPlayed));
+#if USE_FIREBASE
+            if (isReady)
+            {
+                FirebaseAnalytics.LogEvent("session_end",
+                    new Parameter("duration_seconds",  sessionDuration),
+                    new Parameter("levels_played",     sessionLevelsPlayed));
+            }
+#endif
         }
         else
         {
@@ -202,8 +229,6 @@ public class FirebaseManager : MonoBehaviour
 
     void OnApplicationQuit()
     {
-        if (!isReady) return;
-
         if (levelActive && activeLevel >= 0)
         {
             float timeOnLevel = Time.realtimeSinceStartup - levelStartRealtime;
@@ -211,8 +236,13 @@ public class FirebaseManager : MonoBehaviour
         }
 
         float sessionDuration = Time.realtimeSinceStartup - sessionStartRealtime;
-        FirebaseAnalytics.LogEvent("session_end",
-            new Parameter("duration_seconds", sessionDuration),
-            new Parameter("levels_played",    sessionLevelsPlayed));
+#if USE_FIREBASE
+        if (isReady)
+        {
+            FirebaseAnalytics.LogEvent("session_end",
+                new Parameter("duration_seconds", sessionDuration),
+                new Parameter("levels_played",    sessionLevelsPlayed));
+        }
+#endif
     }
 }

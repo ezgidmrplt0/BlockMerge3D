@@ -282,7 +282,10 @@ public class IceBreakEffect : MonoBehaviour
         SpawnBurstParticles(center, 4, ContactFlashColor, radiating: true);
 
 #if UNITY_ANDROID || UNITY_IOS
-        Handheld.Vibrate();
+        if (GameManager.Instance == null || GameManager.Instance.IsVibrationEnabled)
+        {
+            Handheld.Vibrate();
+        }
 #endif
     }
 

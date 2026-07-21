@@ -1612,7 +1612,10 @@ public class GridManager : MonoBehaviour
 
                 // Uç katmana değdi: item'leri kavradı — kavrama sesi + telefon titreşimi.
                 AudioManager.Instance?.PlayClawGrabSound();
-                Handheld.Vibrate();
+                if (GameManager.Instance == null || GameManager.Instance.IsVibrationEnabled)
+                {
+                    Handheld.Vibrate();
+                }
 
                 // Uç katmana değdi: pençeler hayvanlar toplanırken kapansın.
                 AnimateClawGrip(claw, 0f, 1f, ballDuration);
