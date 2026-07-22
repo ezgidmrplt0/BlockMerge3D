@@ -47,9 +47,9 @@ public class LevelManager : MonoBehaviour
     private int nextPieceIndex = -1;
     // "Sıradaki parça" önizlemesinde gösterilen tür, o parça gerçekten spawn edilirken AYNI türü
     // kullansın diye önizleme oluşturulduğu anda BİR KEZ seçilip burada saklanır. nextPieceSpeciesIndex
-    // artık asıl (otoriter) değer — buz erime/grup eşleşmesi mekaniği buna göre çalışır (bkz.
-    // PickPieceSpeciesIndex, GridManager.FloodFillSameSpecies). nextPieceMaterial sadece bu türün
-    // kozmetik materyalidir, önizleme render'ı için tutulur.
+    // artık asıl (otoriter) değer (bkz. PickPieceSpeciesIndex). Buz erime mekaniği artık türden
+    // BAĞIMSIZ (bkz. GridManager.CheckAndResolveFrozenCells) — nextPieceSpeciesIndex ve
+    // nextPieceMaterial sadece kozmetiktir, önizleme render'ı için tutulur.
     private int nextPieceSpeciesIndex = -1;
     private Material nextPieceMaterial;
 
@@ -701,7 +701,7 @@ public class LevelManager : MonoBehaviour
         int placedLayerY = newlyPlacedCells.Count > 0 ? newlyPlacedCells[0].y : gridManager.ActiveLayerY;
 
         // Check if there are frozen cells to thaw
-        gridManager.CheckAndResolveFrozenCells(newlyPlacedCells, onComplete: (iceResolved) =>
+        gridManager.CheckAndResolveFrozenCells(onComplete: (iceResolved) =>
         {
             var lpc = FindObjectOfType<LayerPanelController>();
 
@@ -796,17 +796,10 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // Eldeki HİÇBİR parça sığmıyor. Ama bu, seviyenin bittiği anlamına GELMEZ: eldeki üç
-        // kart havuzdan rastgele dağıtıldı ve dağıtıldıkları anda sığıyorlardı — tahta doldukça
-        // sığmaz oldular (bkz. PrepareNextPieceIndex, filtre yalnızca dağıtım anında bakıyor).
-        // Havuzda hâlâ sığan bir parça varsa bu bir KAYIP değil, kötü bir dağıtımdır; oyuncuyu
-        // cezalandırmak yerine ölü eli yeniliyoruz.
-        if (TryRefreshDeadHand())
-        {
-            Debug.Log("♻️ Eldeki parçaların hiçbiri sığmıyordu, ama havuzda sığan parça var — " +
-                      "el yenilendi (game over yerine).");
-            return;
-        }
+        // Eldeki HİÇBİR parça sığmıyor. Eskiden burada havuzda hâlâ sığan bir parça varsa eli
+        // ücretsiz yeniliyorduk (TryRefreshDeadHand) — bu, özellikle zor/orta seviyelerde oyunu
+        // gereğinden kolaylaştırdığı için kaldırıldı: artık eldeki parçalar gerçekten sığmıyorsa
+        // seviye kaybedilir.
 
         // GEÇİCİ TEŞHİS LOGU: gerçek "level fail" tetiklenmeden hemen önce TÜM katmanların tam
         // durumunu döker — özellikle hangi katmanların buzla ne kadar kaplı olduğunu görmek için
@@ -814,70 +807,10 @@ public class LevelManager : MonoBehaviour
         // Teşhis sonrası kaldırılabilir.
         LogGameOverDiagnostics();
 
-        // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin hiçbirinde HİÇBİR
-        // katmandaki boş hücrelere yerleşemiyorsa gelir (bkz. CanShapeFitAnyOpenLayer).
+        // Buraya yalnızca eldeki parçaların hiçbiri, izin verilen dönüşlerin hiçbirinde şu an
+        // gerekli olan katmandaki boş hücrelere yerleşemiyorsa gelir (bkz. CanShapeFitRequiredLayer).
         // Süre değil, HAMLE kalmadığı için kaybedildi — panelde "LEVEL FAILED" yazsın.
         GameManager.Instance?.GameOver(GameManager.LoseReason.NoMoves);
-    }
-
-    /// <summary>
-    /// Eldeki parçaların hiçbiri sığmadığında çağrılır. Seviyenin parça HAVUZUNDA
-    /// (allPiecePrefabs) hâlâ yerleştirilebilir bir parça varsa, ölü kartları atıp eli
-    /// yeniden dağıtır ve true döner — böylece kazanılabilir bir tahtada kötü dağıtım
-    /// yüzünden kaybedilmez. Havuzda da sığan parça yoksa false döner ve çağıran taraf
-    /// gerçek game over'ı tetikler.
-    ///
-    /// Bu gerekliydi çünkü seviyeler SolutionFirstBuilder ile TAM döşenecek şekilde
-    /// üretiliyor, ama çalışma zamanı bu kümeyi rastgele dağıtıyor: örn. DENEME2'nin
-    /// havuzunda üç adet 1 hücrelik parça varken oyuncuya 2/4/2 hücrelik üç ölü kart
-    /// dağıtılıp tahtada iki adet tek hücrelik delik kalınca oyun "kaybettin" diyordu.
-    /// </summary>
-    private bool TryRefreshDeadHand()
-    {
-        if (allPiecePrefabs == null || allPiecePrefabs.Count == 0) return false;
-
-        bool poolHasPlaceable = false;
-        foreach (var prefab in allPiecePrefabs)
-        {
-            if (prefab != null && CanShapeFitAnyOpenLayer(prefab)) { poolHasPlaceable = true; break; }
-        }
-        if (!poolHasPlaceable) return false;
-
-        // Ölü kartları boşalt.
-        for (int i = activePieces.Count - 1; i >= 0; i--)
-        {
-            var go = activePieces[i];
-            if (go != null)
-            {
-                // ClearPiece, yerleştirilmemiş parçayı kendisi yok eder (bkz. PieceCardUI) —
-                // bu yüzden ayrıca Destroy çağırmıyoruz. Kartı olmayan parça varsa (spawn
-                // sırasında boş kart bulunamamış olabilir) onu elle temizliyoruz.
-                if (pieceToCard.TryGetValue(go, out var card))
-                {
-                    card.ClearPiece();
-                    pieceToCard.Remove(go);
-                }
-                else
-                {
-                    Destroy(go);
-                }
-            }
-            activePieces.RemoveAt(i);
-            if (i < activePieceDataIndices.Count) activePieceDataIndices.RemoveAt(i);
-            if (i < activeIsSmart.Count)          activeIsSmart.RemoveAt(i);
-        }
-
-        // Torbayı sıfırla: kurtarıcı parçalar (ör. 1x1 dolgular) bu seviyede zaten bir kez
-        // dağıtılmış olabilir ve spawnedPieceIndices onları availableIndices'ten dışlıyor
-        // olurdu — o zaman yeniden dağıtım da ölü kartlar üretirdi.
-        spawnedPieceIndices.Clear();
-        nextPieceIndex = -1;
-        PrepareNextPieceIndex();
-
-        for (int i = 0; i < maxVisiblePieces; i++)
-            SpawnRandomPiece();
-
-        return true;
     }
 
     // Artık fail HERHANGİ bir katmana sığmamaya bağlı olduğu için, tek bir katman değil TÜM
@@ -1245,21 +1178,20 @@ public class LevelManager : MonoBehaviour
     }
 
 
-    // Gerçek yerleştirme HÂLÂ sadece o an odaklanılan katmana (ActiveLayerY) izin veriyor —
-    // oyuncu başka bir katmanda çalışmak için panelden o katmana GEÇMELİ (bkz. GridManager.CanPlace
-    // notu). Ama "yerleştirilebilir mi" (deadlock/fail) sorusu farklı: oyuncu istediği zaman
-    // panelden başka bir açık katmana geçebildiği için, elindeki bir parça o an odaklanılan
-    // katmana sığmasa bile BAŞKA bir katmana sığıyorsa gerçekten "sıkışmış" sayılmamalı.
+    // Katmanlar artık sırayla dolduruluyor: oyuncu panelden şu an gerekli olan katman
+    // (grid.ActiveLayerY) dışına GEÇEMEZ (bkz. LayerPanelController.OpenPanel). Bu yüzden
+    // "yerleştirilebilir mi" (deadlock/fail) sorusu artık tek bir katmana indirgeniyor —
+    // eskiden burada "başka bir açık katmana sığıyor mu" diye TÜM katmanlar taranırdı.
     private bool IsShapePlaceable(GameObject shapePrefabOrGO)
     {
-        return CanShapeFitAnyOpenLayer(shapePrefabOrGO);
+        return CanShapeFitRequiredLayer(shapePrefabOrGO);
     }
 
     // PrepareNextPieceIndex (uygun parçaları önceliklendirmek için) ve IsShapePlaceable (gerçek
-    // deadlock kontrolü için) tarafından paylaşılan tek doğru kaynak. Panelden geçilebilecek HER
-    // katmanı tek tek dener (GetPossibleOffsetsOnLayer) — GetPossibleOffsets/CanPlace KULLANMAZ,
-    // çünkü onlar gerçek yerleştirme kuralına (sadece ActiveLayerY) bağlı.
-    private bool CanShapeFitAnyOpenLayer(GameObject shapePrefabOrGO)
+    // deadlock kontrolü için) tarafından paylaşılan tek doğru kaynak. Sadece şu an gerekli olan
+    // katmanı (gridManager.ActiveLayerY) dener (GetPossibleOffsetsOnLayer) — GetPossibleOffsets/
+    // CanPlace KULLANMAZ, çünkü onlar gerçek yerleştirme kuralına (sadece ActiveLayerY) bağlı.
+    private bool CanShapeFitRequiredLayer(GameObject shapePrefabOrGO)
     {
         if (shapePrefabOrGO == null || gridManager == null) return false;
         var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
@@ -1274,14 +1206,12 @@ public class LevelManager : MonoBehaviour
             Quaternion.Euler(270, 0, 0)
         };
 
-        for (int layerY = gridManager.GridMinY; layerY <= gridManager.GridMaxY; layerY++)
+        int layerY = gridManager.ActiveLayerY;
+        foreach (var r in rots)
         {
-            foreach (var r in rots)
-            {
-                var rotated = GridManager.RotateCells(h.occupiedCells, r);
-                var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, layerY);
-                if (offsets.Count > 0) return true;
-            }
+            var rotated = GridManager.RotateCells(h.occupiedCells, r);
+            var offsets = gridManager.GetPossibleOffsetsOnLayer(rotated, layerY);
+            if (offsets.Count > 0) return true;
         }
 
         return false;
@@ -1590,36 +1520,69 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        List<int> fitsAnyLayer = new List<int>();
-        foreach (int i in availableIndices)
-        {
-            if (CanShapeFitAnyOpenLayer(allPiecePrefabs[i]))
-            {
-                fitsAnyLayer.Add(i);
-            }
-        }
-
-        if (fitsAnyLayer.Count == 0)
-        {
-            for (int i = 0; i < allPiecePrefabs.Count; i++)
-            {
-                if (CanShapeFitAnyOpenLayer(allPiecePrefabs[i]))
-                {
-                    fitsAnyLayer.Add(i);
-                }
-            }
-        }
-
-        List<int> pickFrom = fitsAnyLayer.Count > 0 ? fitsAnyLayer : availableIndices;
-
         if (IsEarlyTutorialLevel())
         {
-            // İlk 5 seviye için: Kartlar boşaldıkça tahtaya GERÇEKTEN sığan ilk parçayı sırayla getir!
-            nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : (availableIndices.Count > 0 ? availableIndices[0] : 0);
+            // İlk 5 seviye için onboarding'in sağlıklı çalışması adına bu "kolaylaştırma"
+            // korunuyor: kartlar boşaldıkça tahtaya GERÇEKTEN sığan ilk parça sırayla getirilir.
+            // Öncelik #1: bu parça tasarım zamanında TAM OLARAK şu an gerekli olan katman için
+            // çözülmüş mü (bkz. CubeShapeDataHolder.originLayerY). Öncelik #2 (etiketli havuz
+            // boşsa): salt geometrik "gerekli katmana sığar mı" testi. Normal seviyelerde (bkz.
+            // aşağıdaki else) bu KESİN önceliklendirme YOK — özellikle zor/orta seviyelerde oyunu
+            // gereğinden kolaylaştırmasın diye kaldırıldı; onun yerine sadece hafif ağırlıklı bir
+            // şans var.
+            List<int> taggedForRequiredLayer = new List<int>();
+            foreach (int i in availableIndices)
+            {
+                var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+                if (h != null && h.originLayerY == gridManager.ActiveLayerY)
+                {
+                    taggedForRequiredLayer.Add(i);
+                }
+            }
+
+            List<int> fitsRequiredLayer = new List<int>();
+            foreach (int i in availableIndices)
+            {
+                if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                {
+                    fitsRequiredLayer.Add(i);
+                }
+            }
+            if (fitsRequiredLayer.Count == 0)
+            {
+                for (int i = 0; i < allPiecePrefabs.Count; i++)
+                {
+                    if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                    {
+                        fitsRequiredLayer.Add(i);
+                    }
+                }
+            }
+
+            List<int> pickFrom = taggedForRequiredLayer.Count > 0 ? taggedForRequiredLayer
+                : (fitsRequiredLayer.Count > 0 ? fitsRequiredLayer : availableIndices);
+
+            nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : availableIndices[0];
         }
         else
         {
-            nextPieceIndex = pickFrom[Random.Range(0, pickFrom.Count)];
+            // Dağıtım büyük ölçüde rastgele kalır (zorluk özellikle orta/zor seviyelerde düşmesin
+            // diye), ama şu an gerekli katmana sığan bir parça varsa şansı hafifçe artırılır —
+            // bu bir GARANTİ/ÖNCELİK değil (o eski, çok kolaylaştıran davranıştı), sadece ağırlıklı
+            // bir şans: sığan parçalar havuzda FIT_WEIGHT_MULTIPLIER kadar tekrarlanıp Random.Range
+            // buradan seçim yapıyor, sığmayan parçalar hâlâ gelebiliyor.
+            const int FIT_WEIGHT_MULTIPLIER = 3;
+            List<int> weightedPool = new List<int>();
+            foreach (int i in availableIndices)
+            {
+                weightedPool.Add(i);
+                if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                {
+                    for (int extra = 1; extra < FIT_WEIGHT_MULTIPLIER; extra++)
+                        weightedPool.Add(i);
+                }
+            }
+            nextPieceIndex = weightedPool[Random.Range(0, weightedPool.Count)];
         }
 
         // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır

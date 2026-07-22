@@ -267,8 +267,9 @@ public class LevelSolver
         return false;
     }
 
-    // GridManager.TryFindFirstIncompleteLayer (GridManager.cs) ile aynı mantık: en alttaki
-    // dolu-olmayan katmanı döndürür.
+    // Üretim/doğrulama her zaman alttan üste ilerler (oynanış sırası GridManager'da ayrı —
+    // bkz. GridManager.TryFindNextRequiredLayer, artık üstten alta): en alttaki dolu-olmayan
+    // katmanı döndürür.
     private int GetLowestIncompleteLayer()
     {
         int minY = targetCells.Min(c => c.y);
@@ -386,12 +387,11 @@ public class LevelSolver
         }
     }
 
-    // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural
-    // [2026-07-14, eski mantığa dönüş]: buza değen hücreden başlayarak BAĞLANTILI aynı renkteki
-    // TÜM grup (flood-fill) hesaplanır — grup ≥2 üyeliyse grubun TAMAMI buzla birlikte yok olur
-    // (bkz. PlacementStep.destroyedCells). Grup büyüklüğü artık sabit-2 değil, keyfi olabilir.
-    // Renk burada pieceIndex tabanlı bir vekil olduğu için bu KESİN bir garanti değil,
-    // best-effort — bkz. currentMatIndex alanının üstündeki not.
+    // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
+    // buz eritme AYNI TÜR şartı aramaz, ve yok olan grup kasıtlı olarak SADECE 2 hücre
+    // (flood-fill DEĞİL). TÜM buzlu hücreler taranır (sadece bu adımda yerleşen parçaya değil)
+    // — aksi halde buza ÖNCEDEN değen bir hücrenin yanına şimdi ikinci bir hücre yerleşmesiyle
+    // tamamlanan erime kaçırılır.
     private void ResolveFrozenCellsInSolver(PlacementStep step)
     {
         if (frozenCells.Count == 0) return;
@@ -404,36 +404,31 @@ public class LevelSolver
             new Vector3Int(0, 0, -1)
         };
 
-        var touchingCells = new HashSet<Vector3Int>();
-        var candidateFrozenCells = new HashSet<Vector3Int>();
-        foreach (var cell in step.cells)
-        {
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor))
-                {
-                    touchingCells.Add(cell);
-                    candidateFrozenCells.Add(neighbor);
-                }
-            }
-        }
-
         var cellsToThaw = new HashSet<Vector3Int>();
         var cellsToDestroy = new HashSet<Vector3Int>();
 
-        foreach (var touchCell in touchingCells)
+        foreach (var frozenCell in frozenCells)
         {
-            if (!currentMatIndex.TryGetValue(touchCell, out int touchMatIdx)) continue;
-
-            var group = FloodFillSameColorInSolver(touchCell, touchMatIdx, horizontalNeighbors);
-            if (group.Count < 2) continue;
-
-            cellsToDestroy.UnionWith(group);
             foreach (var offset in horizontalNeighbors)
             {
-                Vector3Int neighbor = touchCell + offset;
-                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
+                Vector3Int touchCell = frozenCell + offset;
+                if (!currentOccupied.Contains(touchCell)) continue;
+
+                Vector3Int? partner = null;
+                foreach (var offset2 in horizontalNeighbors)
+                {
+                    Vector3Int neighbor = touchCell + offset2;
+                    if (currentOccupied.Contains(neighbor))
+                    {
+                        partner = neighbor;
+                        break;
+                    }
+                }
+                if (partner == null) continue;
+
+                cellsToThaw.Add(frozenCell);
+                cellsToDestroy.Add(touchCell);
+                cellsToDestroy.Add(partner.Value);
             }
         }
 
@@ -452,33 +447,6 @@ public class LevelSolver
             currentOccupied.Remove(cell);
             currentMatIndex.Remove(cell);
         }
-    }
-
-    // GridManager.FloodFillSameSpecies ile birebir eşleşmesi gereken mantık: start hücresinden
-    // başlayarak, currentOccupied içinde aynı proxy/prefilled matIndex'e sahip ve yatay
-    // komşuluk üzerinden birbirine bağlı tüm hücreleri (start dahil) döndürür.
-    private HashSet<Vector3Int> FloodFillSameColorInSolver(Vector3Int start, int matIdx, Vector3Int[] horizontalNeighbors)
-    {
-        var visited = new HashSet<Vector3Int> { start };
-        var stack = new Stack<Vector3Int>();
-        stack.Push(start);
-
-        while (stack.Count > 0)
-        {
-            var cur = stack.Pop();
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int neighbor = cur + offset;
-                if (visited.Contains(neighbor)) continue;
-                if (!currentMatIndex.TryGetValue(neighbor, out int neighborMatIdx)) continue;
-                if (neighborMatIdx != matIdx) continue;
-
-                visited.Add(neighbor);
-                stack.Push(neighbor);
-            }
-        }
-
-        return visited;
     }
 
     private bool AllLayersValid()

@@ -133,8 +133,9 @@ public static class SolutionFirstBuilder
         return false;
     }
 
-    // GridManager.TryFindFirstIncompleteLayer / LevelSolver.GetLowestIncompleteLayer ile aynı
-    // mantık: en alttaki dolu-olmayan katmanı döndürür.
+    // Üretim her zaman alttan üste ilerler (oynanış sırası GridManager'da ayrı — bkz.
+    // GridManager.TryFindNextRequiredLayer, artık üstten alta) / LevelSolver.GetLowestIncompleteLayer
+    // ile aynı mantık: en alttaki dolu-olmayan katmanı döndürür.
     private static int GetLowestIncompleteLayer()
     {
         int minY = targetCells.Min(c => c.y);

@@ -2467,6 +2467,7 @@ public class AILevelDesignerWindow : EditorWindow
             ph.cellSize      = cellSize;
             ph.spacing       = spacing;
             ph.occupiedCells = new List<Vector3Int>(normCells);
+            ph.originLayerY  = minY; // Sıralı katman mekaniği bu parçanın hangi katman için çözüldüğünü bilmeli.
 
             foreach (var cell in normCells)
             {

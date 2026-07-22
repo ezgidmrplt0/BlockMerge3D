@@ -20,6 +20,13 @@ public class CubeShapeDataHolder : MonoBehaviour
     [Header("Frozen Cells (Ice)")]
     public List<Vector3Int> frozenCells = new List<Vector3Int>();
 
+    [Header("Layer Origin (complementary piece'ler için)")]
+    [Tooltip("Bu parçanın hangi katman (dünya Y'si) için çözüldüğü — AILevelDesignerWindow." +
+             "ExportProceduralLevelCore tarafından bake zamanında yazılır. -1 = etiketlenmemiş " +
+             "(migration bekleyen eski seviye parçası ya da ana şekil holder'ı — ana şekilde " +
+             "kullanılmaz, sadece complementaryPieces için anlamlıdır).")]
+    public int originLayerY = -1;
+
     /// <summary>Hücre merkezleri arası mesafe. Veri eksikse 1 (eski davranış).</summary>
     public float Step
     {

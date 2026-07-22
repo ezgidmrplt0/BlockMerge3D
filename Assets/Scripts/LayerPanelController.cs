@@ -13,6 +13,9 @@ public class LayerPanelController : MonoBehaviour
     [Header("Button Style")]
     public Color buttonNormalColor   = new Color(0.9f, 0.9f, 1f, 0.85f);
     public Color buttonActiveColor   = new Color(0.4f, 0.8f, 1f, 1f);
+    // Katmanlar artık sırayla (alttan üste) doldurulmak zorunda — sırası gelmemiş katmanların
+    // butonu bu renkle "kilitli" gösterilir ve tıklanamaz (bkz. BuildLayerButtons/OpenPanel).
+    public Color buttonLockedColor   = new Color(0.5f, 0.5f, 0.55f, 0.5f);
     public Sprite buttonSprite;
 
     [Header("Button Typography & Layout")]
@@ -33,13 +36,14 @@ public class LayerPanelController : MonoBehaviour
     private void Awake() { Instance = this; }
 
     /// <summary>Öğretici göstergesinin (bkz. TutorialOverlay) parmağı hangi butonun
-    /// üzerine koyacağını bilmesi için: EN ALT katmanın (y=GridMinY) butonu. Butonlar
-    /// çalışma zamanında BuildLayerButtons içinde üretildiği için sahneden
-    /// referanslanamıyor. Liste alttan üste sıralı (index 0 = en alt katman = ekranın
-    /// en altındaki buton, bkz. anchoredPosition hesabı).</summary>
+    /// üzerine koyacağını bilmesi için: doldurulması gereken İLK katmanın (artık üstten alta,
+    /// y=GridMaxY) butonu. Butonlar çalışma zamanında BuildLayerButtons içinde üretildiği için
+    /// sahneden referanslanamıyor. Liste alttan üste sıralı (index 0 = en alt katman = ekranın
+    /// en altındaki buton, bkz. anchoredPosition hesabı) — bu yüzden İLK açılacak (en üstteki)
+    /// buton listenin SON elemanıdır.</summary>
     public RectTransform FirstLayerButton =>
-        layerButtons.Count > 0 && layerButtons[0] != null
-            ? layerButtons[0].transform as RectTransform
+        layerButtons.Count > 0 && layerButtons[layerButtons.Count - 1] != null
+            ? layerButtons[layerButtons.Count - 1].transform as RectTransform
             : null;
 
     private void Start()
@@ -135,7 +139,9 @@ public class LayerPanelController : MonoBehaviour
             txtRt.sizeDelta = Vector2.zero;
 
             UnityEngine.UI.Text tmp = textObj.GetComponent<UnityEngine.UI.Text>();
-            tmp.text = (i + 1).ToString(); // Show sequential user-friendly indices (e.g. 1, 2, 3...)
+            // activeLayers alttan üste sıralı (index 0 = en alt/ekranın en altı), ama doldurma
+            // sırası artık ÜSTTEN ALTA — bu yüzden en üstteki katman "1" etiketini alır.
+            tmp.text = (layerCount - i).ToString();
             tmp.alignment = TextAnchor.MiddleCenter;
             tmp.color = buttonTextColor;
             tmp.font = buttonFont != null ? buttonFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -146,6 +152,9 @@ public class LayerPanelController : MonoBehaviour
                 AudioManager.Instance?.PlayLayerButtonSound();
                 OpenPanel(layerY);
             });
+            // Sıralı katman kuralı: şu an doldurulması gereken katman (grid.ActiveLayerY)
+            // dışındaki tüm katmanlar kilitli — tıklanamaz.
+            btn.interactable = (layerY == grid.ActiveLayerY);
             layerButtons.Add(btn);
         }
 
@@ -165,17 +174,14 @@ public class LayerPanelController : MonoBehaviour
             string name = layerButtons[i].name;
             if (name.StartsWith("Btn_Layer_") && int.TryParse(name.Substring(10), out int layerY))
             {
+                bool isRequiredLayer = layerY == grid.ActiveLayerY;
+
+                layerButtons[i].interactable = isRequiredLayer;
+
                 Image img = layerButtons[i].GetComponent<Image>();
                 if (img != null)
                 {
-                    if (layerY == grid.ActiveLayerY)
-                    {
-                        img.color = buttonActiveColor;
-                    }
-                    else
-                    {
-                        img.color = buttonNormalColor;
-                    }
+                    img.color = isRequiredLayer ? buttonActiveColor : buttonLockedColor;
                 }
             }
         }
@@ -191,6 +197,11 @@ public class LayerPanelController : MonoBehaviour
         if (grid.IsExplodingLayer) return;
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
+        // Sıralı katman kuralı: sadece şu an doldurulması gereken katman (grid.ActiveLayerY)
+        // açılabilir. Butonlar zaten bunun dışındakiler için disabled (bkz. BuildLayerButtons/
+        // RefreshButtonColors), bu ikinci bir güvenlik katmanı.
+        if (layerY != grid.ActiveLayerY) return;
+
         // Tutorial check: Sadece TapLayerButton veya DragPieceToBoard adımındayken ve hedeflenen katman ise geçişe izin ver
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
@@ -198,7 +209,9 @@ public class LayerPanelController : MonoBehaviour
                 TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
                 return;
 
-            if (layerY != grid.GridMinY)
+            // Katmanlar artık üstten alta dolduruluyor — öğreticinin hedeflediği ilk katman
+            // GridMinY değil GridMaxY.
+            if (layerY != grid.GridMaxY)
                 return;
         }
 

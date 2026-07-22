@@ -418,13 +418,13 @@ public class GridManager : MonoBehaviour
             Debug.Log("[GridManager] Initialize: shapeHolder or shapeHolder.frozenCells is NULL!");
         }
 
-        // İlk tamamlanmamış gerçek katmanı bul.
+        // Doldurulması gereken ilk katmanı bul (üstten alta — bkz. TryFindNextRequiredLayer).
         // targetCells yerine allShapeCells kullanılır; böylece gizli/prefilled/frozen
         // hücreleri bulunan katmanlar da doğru şekilde hesaba katılır.
-        if (!TryFindFirstIncompleteLayer(out int firstIncompleteLayer))
-            ActiveLayerY = gridMinY;
+        if (!TryFindNextRequiredLayer(out int nextRequiredLayer))
+            ActiveLayerY = gridMaxY;
         else
-            ActiveLayerY = firstIncompleteLayer;
+            ActiveLayerY = nextRequiredLayer;
         lineClearEnabled = false; // Layer-by-layer mode
         RefreshLayerVisibility();
     }
@@ -717,9 +717,12 @@ public class GridManager : MonoBehaviour
         return cellsInLayer > 0 && occupiedInLayer >= cellsInLayer;
     }
 
-    private bool TryFindFirstIncompleteLayer(out int layerY)
+    // Sıralı katman mekaniği artık ÜSTTEN ALTA çalışıyor — oyuncunun doldurması gereken bir
+    // sonraki katman her zaman en YÜKSEK tamamlanmamış katman (gridMaxY'den gridMinY'ye doğru
+    // taranır). Bkz. Docs/SiraliKatmanMekanigi_Tasarim.md.
+    private bool TryFindNextRequiredLayer(out int layerY)
     {
-        for (int y = gridMinY; y <= gridMaxY; y++)
+        for (int y = gridMaxY; y >= gridMinY; y--)
         {
             bool hasCells = false;
             bool layerFull = true;
@@ -745,7 +748,7 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        layerY = gridMinY;
+        layerY = gridMaxY;
         return false;
     }
 
@@ -1162,10 +1165,10 @@ public class GridManager : MonoBehaviour
             // üstündeki her şeyin 1 aşağı kaydığı çökmeye göre indeks 1 azaltılır.
             if (ActiveLayerY == clearedY)
             {
-                if (TryFindFirstIncompleteLayer(out int nextLayer))
+                if (TryFindNextRequiredLayer(out int nextLayer))
                     ActiveLayerY = nextLayer;
                 else
-                    ActiveLayerY = gridMinY;
+                    ActiveLayerY = gridMaxY;
             }
             else if (ActiveLayerY > clearedY)
             {
@@ -2059,9 +2062,9 @@ public class GridManager : MonoBehaviour
     // "ışınlıyordu". Gerçek istek bu değildi — oyuncu HANGİ katmandaysa SADECE o katmanda işlem
     // yapabilmeli, başka bir katmanda çalışmak için panelden o katmana GEÇMELİ (bu zaten serbestti,
     // bkz. LayerPanelController.OpenPanel). Bu yüzden gerçek yerleştirme kuralı yine SADECE
-    // ActiveLayerY'ye izin veriyor. "Elimdeki hiçbir parça hiçbir katmana sığmıyor mu" sorusu
-    // (fail kontrolü/kart önceliklendirme) ayrı bir sorgu — bkz. GetPossibleOffsetsOnLayer/
-    // CanPlaceOnLayer ve LevelManager.CanShapeFitAnyOpenLayer.
+    // ActiveLayerY'ye izin veriyor. "Elimdeki hiçbir parça şu an gerekli katmana sığmıyor mu"
+    // sorusu (fail kontrolü/kart önceliklendirme) ayrı bir sorgu — bkz. GetPossibleOffsetsOnLayer
+    // ve LevelManager.CanShapeFitRequiredLayer.
     public bool CanPlace(List<Vector3Int> cells, Vector3Int offset)
     {
         if (IsExplodingLayer) return false;
@@ -2204,9 +2207,9 @@ public class GridManager : MonoBehaviour
 
     // CanPlace/GetPossibleOffsets'ten farklı olarak GERÇEK yerleştirme kuralını (ActiveLayerY
     // kısıtı) uygulamaz — "bu parça, layerY'ye GEÇİLSEYDİ oraya sığar mıydı" sorusuna cevap verir.
-    // Sadece LevelManager.CanShapeFitAnyOpenLayer tarafından (fail kontrolü/kart önceliklendirme
-    // için, panelden başka bir katmana geçilebileceğini hesaba katmak amacıyla) kullanılır —
-    // gerçek yerleştirme HÂLÂ sadece ActiveLayerY'ye izin veriyor (bkz. CanPlace).
+    // Sadece LevelManager.CanShapeFitRequiredLayer tarafından (fail kontrolü/kart önceliklendirme
+    // için, layerY = ActiveLayerY verilerek) kullanılır — gerçek yerleştirme HÂLÂ sadece
+    // ActiveLayerY'ye izin veriyor (bkz. CanPlace).
     public List<Vector3Int> GetPossibleOffsetsOnLayer(List<Vector3Int> cells, int layerY)
     {
         var valid = new List<Vector3Int>();
@@ -2552,9 +2555,13 @@ public class GridManager : MonoBehaviour
 
     // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
 
-    public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
+    // newlyPlacedCells parametresi ALINMAZ: artık sadece yeni yerleşen parçaya değil, TÜM
+    // buzlu hücrelere bakılıyor (bkz. aşağıdaki not) — bu yüzden hangi hücrelerin yeni
+    // yerleştiğinin bilinmesine gerek yok, sadece BİR yerleştirme olduğunu (yeniden kontrol
+    // zamanı geldiğini) bilmek yeterli.
+    public bool CheckAndResolveFrozenCells(System.Action<bool> onComplete)
     {
-        if (newlyPlacedCells == null || newlyPlacedCells.Count == 0 || frozenCells.Count == 0)
+        if (frozenCells.Count == 0)
         {
             onComplete?.Invoke(false);
             return false;
@@ -2565,44 +2572,39 @@ public class GridManager : MonoBehaviour
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreleri ve etkilenen
-        // buz hücrelerini bul.
-        var touchingCells = new HashSet<Vector3Int>();
-        var candidateFrozenCells = new HashSet<Vector3Int>();
-        foreach (var cell in newlyPlacedCells)
-        {
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor))
-                {
-                    touchingCells.Add(cell);
-                    candidateFrozenCells.Add(neighbor);
-                }
-            }
-        }
-
-        if (candidateFrozenCells.Count == 0)
-        {
-            onComplete?.Invoke(false);
-            return false;
-        }
-
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
 
-        foreach (var touchCell in touchingCells)
+        // TÜM buzlu hücreler taranır — sadece yeni yerleşen parçaya değil. Aksi halde, buza
+        // ÖNCEDEN değen bir parçanın yanına şimdi ikinci bir parça yerleşip "iki obje dip dibe"
+        // şartını YENİ parça değil ESKİ parça üzerinden tamamlaması durumu kaçırılıyordu (yeni
+        // parça buza doğrudan dokunmadığı için hiç kontrol edilmiyordu).
+        foreach (var frozenCell in frozenCells)
         {
-            if (!cellMatIndex.TryGetValue(touchCell, out int touchSpecies) || touchSpecies < 0) continue;
-
-            var group = FloodFillSameSpecies(touchCell, touchSpecies, horizontalNeighbors);
-            if (group.Count < 2) continue;
-
-            cellsToDestroy.UnionWith(group);
             foreach (var offset in horizontalNeighbors)
             {
-                Vector3Int neighbor = touchCell + offset;
-                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
+                Vector3Int touchCell = frozenCell + offset;
+                if (!occupiedCells.Contains(touchCell)) continue;
+
+                // Buz eritme artık AYNI TÜR şartı aramıyor: buza değen hücrenin, türüne
+                // bakılmaksızın yatayda en az bir dolu komşusu ("iki obje dip dibe") varsa erime
+                // tetiklenir. Yok olan grup kasıtlı olarak SADECE bu 2 hücre — bağlı olduğu daha
+                // büyük bir kütle (ör. tüm katman) varsa bile onun tamamı değil.
+                Vector3Int? partner = null;
+                foreach (var offset2 in horizontalNeighbors)
+                {
+                    Vector3Int neighbor = touchCell + offset2;
+                    if (occupiedCells.Contains(neighbor))
+                    {
+                        partner = neighbor;
+                        break;
+                    }
+                }
+                if (partner == null) continue;
+
+                cellsToThaw.Add(frozenCell);
+                cellsToDestroy.Add(touchCell);
+                cellsToDestroy.Add(partner.Value);
             }
         }
 
@@ -2614,32 +2616,6 @@ public class GridManager : MonoBehaviour
 
         StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToDestroy, () => onComplete?.Invoke(true)));
         return true;
-    }
-
-    // start hücresinden başlayarak, occupiedCells içinde 'speciesIndex' ile aynı türde olan ve
-    // yatay komşuluk üzerinden birbirine bağlı tüm hücreleri (start dahil) döndürür.
-    private HashSet<Vector3Int> FloodFillSameSpecies(Vector3Int start, int speciesIndex, Vector3Int[] horizontalNeighbors)
-    {
-        var visited = new HashSet<Vector3Int> { start };
-        var stack = new Stack<Vector3Int>();
-        stack.Push(start);
-
-        while (stack.Count > 0)
-        {
-            var cur = stack.Pop();
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int neighbor = cur + offset;
-                if (visited.Contains(neighbor)) continue;
-                if (!occupiedCells.Contains(neighbor)) continue;
-                if (!cellMatIndex.TryGetValue(neighbor, out int idx) || idx != speciesIndex) continue;
-
-                visited.Add(neighbor);
-                stack.Push(neighbor);
-            }
-        }
-
-        return visited;
     }
 
     private static readonly Vector3Int[] SixDirNeighbors = {

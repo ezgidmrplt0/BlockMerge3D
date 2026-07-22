@@ -5,7 +5,8 @@ using UnityEngine.UI;
 
 public enum TutorialStepType
 {
-    /// <summary>Katman butonuna bas — parmak sağdaki en alt katman butonunun üzerinde nabız atar.</summary>
+    /// <summary>Katman butonuna bas — parmak sağdaki, doldurulması gereken İLK (artık üstten
+    /// alta olduğu için en ÜST) katman butonunun üzerinde nabız atar.</summary>
     TapLayerButton,
 
     /// <summary>Ekranı yatay kaydırıp tahtayı döndür — parmak ekran ortasında sağa-sola gider.</summary>
@@ -237,7 +238,7 @@ public class TutorialOverlay : MonoBehaviour
             // Güvenlik: Sürükleme adımı başladığında oyuncu hâlâ 3D genel bakış modundaysa (panel kapalıysa), katmanı otomatik aç ki parça kartları görünsün!
             if (GridManager.Instance != null && CameraOrbit.Instance != null && !CameraOrbit.Instance.IsInPanelMode)
             {
-                LayerPanelController.Instance?.OpenPanel(GridManager.Instance.GridMinY);
+                LayerPanelController.Instance?.OpenPanel(GridManager.Instance.GridMaxY); // Katmanlar artık üstten alta dolduruluyor
             }
             HighlightTutorialTargetCells(true);
         }
