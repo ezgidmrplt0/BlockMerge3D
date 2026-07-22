@@ -20,12 +20,17 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     [Header("Preview Kamera (Kullanılmıyor, pasif)")]
     public Camera previewCam;
 
+    [Header("Döndürme (Next Piece kutusu gibi)")]
+    public bool  autoRotate = false;
+    public float autoRotateSpeed = 30f;
+
     // ── Runtime durum ─────────────────────────────────────────────────────────
     private GameObject     piece3D;
     private DraggablePiece draggable;
     private int            slotIndex;
     private bool           initialized;
     private bool           isDraggingOut;
+    private float          autoRotateAngle;
 
     private Vector3        localVisualCenter = Vector3.zero;
     private float          localVisualRadius = 1f;
@@ -210,6 +215,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
         if (HasPiece && !isDraggingOut && piece3D != null)
         {
+            if (autoRotate) autoRotateAngle += Time.deltaTime * autoRotateSpeed;
             UpdatePiecePositionAndRotation();
         }
     }
@@ -260,7 +266,9 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         float elev = 90f; // Katman görünümü gibi tam tepeden
         float azim = 0f;  // Dümdüz, yatay rotasyon yok
         Quaternion baseIso = Quaternion.Euler(elev, azim, 0f);
-        return previewCam.transform.rotation * Quaternion.Inverse(baseIso);
+        Quaternion rot = previewCam.transform.rotation * Quaternion.Inverse(baseIso);
+        if (autoRotate) rot = rot * Quaternion.Euler(0f, autoRotateAngle, 0f);
+        return rot;
     }
 
     /// <summary>SpeciesVisual çocuklarının previewCam'e dönük (dik, kamerayı gören) durmasını sağlar.</summary>

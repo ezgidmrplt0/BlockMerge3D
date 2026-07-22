@@ -20,7 +20,7 @@ public class LevelManager : MonoBehaviour
 
     [Header("Visual Settings")]
     public int   maxVisiblePieces = 2;
-    [Range(0f, 1f)] public float smartSpawnProbability = 0.35f;
+    [Range(0f, 1f)] public float smartSpawnProbability = 0.20f;
     
     private List<bool> activeIsSmart = new List<bool>();
 
@@ -59,6 +59,9 @@ public class LevelManager : MonoBehaviour
     /// ve Transform.Find silinmeyi bekleyen eskisini döndürüp yenisini görünür
     /// bırakıyordu (Retry sonrası önizlemenin genel bakışta kalması bundandı).</summary>
     public GameObject NextPiecePreviewPanel { get; private set; }
+    public GameObject HoldSlotPanel { get; private set; }
+    private PieceCardUI holdCard;
+    private GameObject holdPiece;
 
     private GameObject nextPiecePreviewParent;
     private Camera nextPiecePreviewCam;
@@ -164,6 +167,7 @@ public class LevelManager : MonoBehaviour
             pieceCards[i]?.Init(i);
 
         InitNextPiecePreviewSystem();
+        InitHoldSlotSystem();
 
         for (int i = 0; i < maxVisiblePieces; i++)
             SpawnRandomPiece();
@@ -352,13 +356,24 @@ public class LevelManager : MonoBehaviour
         return validIndices[Random.Range(0, validIndices.Count)];
     }
 
-    private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge)
+    private int GetPieceCellCount(int index)
+    {
+        if (index < 0 || index >= allPiecePrefabs.Count || allPiecePrefabs[index] == null) return 1;
+        var h = allPiecePrefabs[index].GetComponent<CubeShapeDataHolder>();
+        return (h != null && h.occupiedCells != null && h.occupiedCells.Count > 0) ? h.occupiedCells.Count : 1;
+    }
+
+    private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge, List<int> candidateIndices = null)
     {
         rotation = Quaternion.identity;
         recommendedColor = null;
         foundMerge = false;
 
         if (allPiecePrefabs.Count == 0) return -1;
+
+        List<int> indicesToScan = (candidateIndices != null && candidateIndices.Count > 0)
+            ? candidateIndices
+            : Enumerable.Range(0, allPiecePrefabs.Count).ToList();
 
         Quaternion[] possibleRotations = new Quaternion[]
         {
@@ -371,9 +386,10 @@ public class LevelManager : MonoBehaviour
         List<int> placeableIndices = new List<int>();
         var mergeOpportunities = new List<(int index, Quaternion rot, Color col)>();
 
-        // Tum prefablari ve rotasyonlari tara
-        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        // Aday prefablari ve rotasyonlari tara
+        foreach (int i in indicesToScan)
         {
+            if (i < 0 || i >= allPiecePrefabs.Count || allPiecePrefabs[i] == null) continue;
             var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
             if (h == null) continue;
 
@@ -398,17 +414,20 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // 1. Merge firsati varsa onu kullan
+        // 1. Merge firsati varsa onu kullan (Tetris mantigi: Çoklu küplü büyük parçalar her zaman tekli parçalara göre öncelikli)
         if (mergeOpportunities.Count > 0)
         {
-            var choice = mergeOpportunities[Random.Range(0, mergeOpportunities.Count)];
+            var multiCellMerges = mergeOpportunities.Where(m => GetPieceCellCount(m.index) > 1).ToList();
+            var targetList = multiCellMerges.Count > 0 ? multiCellMerges : mergeOpportunities;
+
+            var choice = targetList[Random.Range(0, targetList.Count)];
             rotation = choice.rot;
             recommendedColor = choice.col;
             foundMerge = true;
             return choice.index;
         }
 
-        // 2. Merge bulunamadiysa, "En cok komsu renk eslesmesi" saglayani bul (Progress score)
+        // 2. Merge bulunamadiysa, "En cok komsu renk eslesmesi" saglayan çoklu parçalari bul
         int bestMatchScore = -1;
         var bestOptions = new List<(int index, Quaternion rot, Color col)>();
 
@@ -421,8 +440,9 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        for (int i = 0; i < allPiecePrefabs.Count; i++)
+        foreach (int i in indicesToScan)
         {
+            if (i < 0 || i >= allPiecePrefabs.Count || allPiecePrefabs[i] == null) continue;
             var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
             if (h == null) continue;
             foreach (var rot in possibleRotations)
@@ -453,15 +473,24 @@ public class LevelManager : MonoBehaviour
 
         if (bestOptions.Count > 0 && bestMatchScore > 0)
         {
-            var choice = bestOptions[Random.Range(0, bestOptions.Count)];
+            var multiCellOptions = bestOptions.Where(b => GetPieceCellCount(b.index) > 1).ToList();
+            var targetList = multiCellOptions.Count > 0 ? multiCellOptions : bestOptions;
+
+            var choice = targetList[Random.Range(0, targetList.Count)];
             rotation = choice.rot;
             recommendedColor = choice.col;
             foundMerge = true;
             return choice.index;
         }
 
+        // 3. Fallback: Yerlestirilebilir parçalar arasindan çoklu parçalari önceliklendir
         if (placeableIndices.Count > 0)
         {
+            var multiCellPlaceables = placeableIndices.Where(idx => GetPieceCellCount(idx) > 1).ToList();
+            if (multiCellPlaceables.Count > 0)
+            {
+                return multiCellPlaceables[Random.Range(0, multiCellPlaceables.Count)];
+            }
             return placeableIndices[Random.Range(0, placeableIndices.Count)];
         }
 
@@ -667,13 +696,27 @@ public class LevelManager : MonoBehaviour
 
     public void OnPiecePlaced(DraggablePiece piece)
     {
+        // ÖNEMLİ: HOLD'dan çıkıp tahtaya yerleştirilen bir parça artık activePieces
+        // listesinde DEĞİLDİR (TryStoreOrSwapHold onu holda koyarken bilerek çıkarıyor).
+        // Eskiden burada "idx < 0 ise hiçbir şey yapma" diye erken çıkılıyordu — bu da
+        // hold'dan gelen parçalar için sesi, hold/kart temizliğini, katman patlama ve
+        // kazanma kontrolünü TAMAMEN atlıyordu; holdPiece hiç sıfırlanmadığı için bir
+        // sonraki hold işlemi de "swap" sanıp zaten tahtaya yerleşmiş (artık var olmayan)
+        // eski parçayı boşalan karta geri koymaya çalışıyor, bu sessizce başarısız olup
+        // o kartı kalıcı olarak boş bırakıyordu. Artık idx'ten bağımsız olarak devam
+        // ediyoruz; idx yalnızca activePieces'ten çıkarma adımını korumak için kullanılıyor.
         int idx = activePieces.IndexOf(piece.gameObject);
-        if (idx < 0) return;
 
         AudioManager.Instance?.PlayPlacementSound();
         TutorialEvents.RaisePiecePlaced();
 
-        // İlgili kartı boşalt
+        // İlgili kartı veya Hold slotunu boşalt
+        if (piece.gameObject == holdPiece)
+        {
+            holdPiece = null;
+            if (holdCard != null) holdCard.ClearPiece();
+        }
+
         if (pieceToCard.TryGetValue(piece.gameObject, out var card))
         {
             card.ClearPiece();
@@ -682,10 +725,13 @@ public class LevelManager : MonoBehaviour
 
         piece.transform.SetParent(null);
 
-        placedPieces.Add(activePieces[idx]);
-        activePieces.RemoveAt(idx);
-        activePieceDataIndices.RemoveAt(idx);
-        activeIsSmart.RemoveAt(idx);
+        placedPieces.Add(piece.gameObject);
+        if (idx >= 0)
+        {
+            activePieces.RemoveAt(idx);
+            activePieceDataIndices.RemoveAt(idx);
+            activeIsSmart.RemoveAt(idx);
+        }
 
         // Calculate placed coordinates for the newly placed piece
         List<Vector3Int> newlyPlacedCells = new List<Vector3Int>();
@@ -1003,6 +1049,14 @@ public class LevelManager : MonoBehaviour
         nextPieceSpeciesIndex = -1;
         nextPieceMaterial = null;
         ClearNextPiecePreview();
+
+        // HOLD SLOT RESET
+        if (holdPiece != null)
+        {
+            Destroy(holdPiece);
+            holdPiece = null;
+        }
+        if (holdCard != null) holdCard.ClearPiece();
     }
 
     private void FitCameraToScene()
@@ -1284,6 +1338,9 @@ public class LevelManager : MonoBehaviour
         {
             Destroy(nextPiecePreviewParent);
         }
+
+        var holdCam = GameObject.Find("HoldPreviewCam");
+        if (holdCam != null) Destroy(holdCam);
     }
 
     private void ClearNextPiecePreview()
@@ -1293,6 +1350,299 @@ public class LevelManager : MonoBehaviour
             Destroy(nextPiecePreview3D);
             nextPiecePreview3D = null;
         }
+    }
+
+    public bool IsPointerOverHoldSlot(Vector2 screenPoint)
+    {
+        if (HoldSlotPanel == null || !HoldSlotPanel.activeInHierarchy) return false;
+        var rt = HoldSlotPanel.GetComponent<RectTransform>();
+        if (rt == null) return false;
+
+        var canvas = HoldSlotPanel.GetComponentInParent<Canvas>();
+        Camera eventCam = null;
+        if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+        {
+            eventCam = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
+        }
+
+        if (RectTransformUtility.RectangleContainsScreenPoint(rt, screenPoint, eventCam))
+            return true;
+
+        if (RectTransformUtility.RectangleContainsScreenPoint(rt, screenPoint, null))
+            return true;
+
+        Camera camForPos = eventCam != null ? eventCam : Camera.main;
+        if (camForPos != null)
+        {
+            Vector2 cardScreenCenter = camForPos.WorldToScreenPoint(rt.position);
+            float dist = Vector2.Distance(screenPoint, cardScreenCenter);
+            float maxDropRadius = Mathf.Max(rt.rect.width, rt.rect.height) * 1.5f;
+            if (dist <= maxDropRadius) return true;
+        }
+
+        return false;
+    }
+
+    public bool TryStoreOrSwapHold(DraggablePiece draggingPiece)
+    {
+        if (draggingPiece == null || holdCard == null) return false;
+        GameObject pieceGO = draggingPiece.gameObject;
+
+        PieceCardUI sourceCard = null;
+        if (pieceToCard.TryGetValue(pieceGO, out var foundCard))
+        {
+            sourceCard = foundCard;
+        }
+
+        if (sourceCard == null && pieceCards != null)
+        {
+            foreach (var card in pieceCards)
+            {
+                if (card != null && card.Draggable == draggingPiece)
+                {
+                    sourceCard = card;
+                    break;
+                }
+            }
+        }
+
+        if (sourceCard == null && holdCard != null && holdCard.Draggable == draggingPiece)
+        {
+            sourceCard = holdCard;
+        }
+
+        if (sourceCard == null) return false;
+
+        // EĞER SÜRÜKLENEN PARÇA ZATEN HOLD SLOTUNDAN ALINDISA VE YİNE HOLD'A BIRAKILDISA:
+        if (sourceCard == holdCard)
+        {
+            holdCard.ReturnToPreview();
+            return true;
+        }
+
+        // EĞER HOLD SLOTU BOŞSA:
+        if (holdPiece == null)
+        {
+            sourceCard.ExtractPiece();
+            pieceToCard.Remove(pieceGO);
+            int idx = activePieces.IndexOf(pieceGO);
+            if (idx >= 0)
+            {
+                activePieces.RemoveAt(idx);
+                activePieceDataIndices.RemoveAt(idx);
+                activeIsSmart.RemoveAt(idx);
+            }
+
+            holdPiece = pieceGO;
+            holdCard.AssignPiece(pieceGO);
+            pieceToCard[pieceGO] = holdCard;
+
+            SpawnRandomPiece();
+            return true;
+        }
+        else
+        {
+            // EĞER HOLD SLOTU DOLUYSA -> SWAP (TAKAS)
+            GameObject oldHoldPiece = holdPiece;
+
+            holdCard.ExtractPiece();
+            pieceToCard.Remove(oldHoldPiece);
+
+            sourceCard.ExtractPiece();
+            pieceToCard.Remove(pieceGO);
+
+            sourceCard.AssignPiece(oldHoldPiece);
+            pieceToCard[oldHoldPiece] = sourceCard;
+
+            int idx = activePieces.IndexOf(pieceGO);
+            if (idx >= 0)
+            {
+                activePieces[idx] = oldHoldPiece;
+            }
+
+            holdPiece = pieceGO;
+            holdCard.AssignPiece(pieceGO);
+            pieceToCard[pieceGO] = holdCard;
+
+            return true;
+        }
+    }
+
+    private void InitHoldSlotSystem()
+    {
+        var canvas = GameObject.Find("UICanvas");
+        if (canvas == null) return;
+
+        var oldPanel = canvas.transform.Find("HoldSlotPanel");
+        if (oldPanel != null) Destroy(oldPanel.gameObject);
+
+        Sprite cardSprite = null;
+        Sprite insetSprite = null;
+        if (pieceCards != null && pieceCards.Count > 0 && pieceCards[0] != null)
+        {
+            var cardImgComp = pieceCards[0].GetComponent<Image>();
+            if (cardImgComp != null) cardSprite = cardImgComp.sprite;
+
+            var overlay = pieceCards[0].emptyOverlay;
+            if (overlay != null)
+            {
+                var overlayImg = overlay.GetComponent<Image>();
+                if (overlayImg != null) insetSprite = overlayImg.sprite;
+            }
+        }
+        if (cardSprite == null) cardSprite = GetSpriteFromAtlas("GUI_52");
+        if (insetSprite == null) insetSprite = GetSpriteFromAtlas("GUI_53");
+
+        // 1. Create HOLD Card Panel — NextPiecePreviewPanel'in TAM AYNASI: aynı hizada (Y),
+        // karşı (sol-alt) köşede. NextPiecePreviewPanel bu fonksiyondan ÖNCE (InitNextPiecePreviewSystem
+        // içinde) kurulduğu için burada onun anchoredPosition.y değerini doğrudan okuyup kullanıyoruz —
+        // ileride next-piece konumlama formülü değişse bile ikisi kendiliğinden hizalı kalır.
+        var existingInScene = canvas.transform.Find("HoldSlotPanel");
+        GameObject panelGO;
+        if (existingInScene != null)
+        {
+            panelGO = existingInScene.gameObject;
+        }
+        else
+        {
+            panelGO = new GameObject("HoldSlotPanel", typeof(RectTransform));
+            panelGO.transform.SetParent(canvas.transform, false);
+        }
+
+        HoldSlotPanel = panelGO;
+        panelGO.SetActive(false);
+        var panelRT = panelGO.GetComponent<RectTransform>();
+
+        if (existingInScene == null)
+        {
+            panelRT.anchorMin = new Vector2(0f, 0f);
+            panelRT.anchorMax = new Vector2(0f, 0f);
+            panelRT.pivot = new Vector2(0f, 0f);
+            panelRT.sizeDelta = new Vector2(140f, 140f);
+
+            float holdX = 40f;
+            float holdY = 100f;
+            if (NextPiecePreviewPanel != null)
+            {
+                var nextRT = NextPiecePreviewPanel.GetComponent<RectTransform>();
+                if (nextRT != null) holdY = nextRT.anchoredPosition.y;
+            }
+
+            panelRT.anchoredPosition = new Vector2(holdX, holdY);
+        }
+
+        var panelImg = panelGO.GetComponent<Image>();
+        if (panelImg == null) panelImg = panelGO.AddComponent<Image>();
+        panelImg.sprite = cardSprite;
+        panelImg.type = Image.Type.Sliced;
+        panelImg.color = Color.white;
+        panelImg.raycastTarget = true;
+
+        var shadow = panelGO.GetComponent<Shadow>();
+        if (shadow == null) shadow = panelGO.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0, 0, 0, 0.4f);
+        shadow.effectDistance = new Vector2(3f, -3f);
+
+        // Kart gövdesi artık NextPiecePreviewPanel ile birebir aynı (outline yok). panelGO
+        // yeniden çağrılarda (existingInScene != null) TEKRAR KULLANILDIĞI için, altındaki eski
+        // alt objeleri temizlemeden yeniden oluşturursak çift HoldAreaBg/HoldRawImage birikir —
+        // aşağıda hepsini silip sıfırdan kuruyoruz.
+        var oldOutline = panelGO.GetComponent<Outline>();
+        if (oldOutline != null) Destroy(oldOutline);
+        var oldBadge = panelGO.transform.Find("HoldBadge");
+        if (oldBadge != null) Destroy(oldBadge.gameObject);
+        var oldBg = panelGO.transform.Find("HoldAreaBg");
+        if (oldBg != null) Destroy(oldBg.gameObject);
+        var oldRaw = panelGO.transform.Find("HoldRawImage");
+        if (oldRaw != null) Destroy(oldRaw.gameObject);
+
+        // 2. Inset Area
+        GameObject bgGO = new GameObject("HoldAreaBg", typeof(RectTransform));
+        bgGO.transform.SetParent(panelGO.transform, false);
+        var bgRT = bgGO.GetComponent<RectTransform>();
+        bgRT.anchorMin = new Vector2(0.05f, 0.05f);
+        bgRT.anchorMax = new Vector2(0.95f, 0.95f);
+        bgRT.sizeDelta = Vector2.zero;
+
+        var bgImg = bgGO.AddComponent<Image>();
+        bgImg.sprite = insetSprite;
+        bgImg.type = Image.Type.Sliced;
+        bgImg.color = new Color(1f, 1f, 1f, 0.15f);
+        bgImg.raycastTarget = true;
+
+        // 3. RawImage for preview — bgGO İLE KARDEŞ olmalı, ÇOCUĞU DEĞİL. bgGO artık her zaman
+        // görünür kalan sabit bir çerçeve/halka; rawGO onun çocuğu olsaydı, bgGO ileride tekrar
+        // gizlenecek olursa parçayı gösteren RawImage de birlikte kaybolurdu.
+        GameObject rawGO = new GameObject("HoldRawImage", typeof(RectTransform));
+        rawGO.transform.SetParent(panelGO.transform, false);
+        var rawRT = rawGO.GetComponent<RectTransform>();
+        rawRT.anchorMin = new Vector2(0.05f, 0.05f);
+        rawRT.anchorMax = new Vector2(0.95f, 0.95f);
+        rawRT.sizeDelta = Vector2.zero;
+
+        var rawImg = rawGO.AddComponent<RawImage>();
+        rawImg.color = Color.white;
+        rawImg.raycastTarget = true;
+
+        // 4. "HOLD" yazısı — slotun tam ortasında durur. bgGO'nun İÇİNE konumlandırılıyor
+        // (aynı hizalama için) ama emptyOverlay olarak KENDİSİ (bkz. aşağıda holdCard.emptyOverlay)
+        // atanıyor — böylece parça yerleştirilince sadece bu yazı kaybolur, bgGO'nun oluşturduğu
+        // halka/çerçeve her zaman görünür kalır.
+        GameObject badgeLabelGO = new GameObject("HoldLabel", typeof(RectTransform));
+        badgeLabelGO.transform.SetParent(bgGO.transform, false);
+        var badgeLabelRT = badgeLabelGO.GetComponent<RectTransform>();
+        badgeLabelRT.anchorMin = Vector2.zero;
+        badgeLabelRT.anchorMax = Vector2.one;
+        badgeLabelRT.offsetMin = Vector2.zero;
+        badgeLabelRT.offsetMax = Vector2.zero;
+
+        var badgeTmp = badgeLabelGO.AddComponent<TextMeshProUGUI>();
+        badgeTmp.text = "HOLD";
+        badgeTmp.fontStyle = FontStyles.Bold;
+        badgeTmp.alignment = TextAlignmentOptions.Center;
+        badgeTmp.color = new Color(1f, 0.85f, 0.2f);
+        badgeTmp.enableAutoSizing = true;
+        badgeTmp.fontSizeMin = 10f;
+        badgeTmp.fontSizeMax = 28f;
+        badgeTmp.raycastTarget = false;
+        AssignDefaultFontAsset(badgeTmp);
+
+        // Attach HoldSlotUI component & PieceCardUI
+        var holdUI = panelGO.GetComponent<HoldSlotUI>();
+        if (holdUI == null) holdUI = panelGO.AddComponent<HoldSlotUI>();
+
+        holdCard = panelGO.GetComponent<PieceCardUI>();
+        if (holdCard == null) holdCard = panelGO.AddComponent<PieceCardUI>();
+
+        // Diğer kartlarla aynı RenderTexture tabanlı önizleme kamerasını kur —
+        // böylece saklanan parça, dünyada serbest duran bir obje yerine gerçek bir
+        // "resim" (RawImage) olarak slotun içinde görünür.
+        var oldHoldCam = GameObject.Find("HoldPreviewCam");
+        if (oldHoldCam != null) Destroy(oldHoldCam);
+
+        GameObject holdCamGO = new GameObject("HoldPreviewCam");
+        holdCamGO.transform.position = new Vector3(-30000f, 3.5f, -5.5f);
+        var holdPreviewCam = holdCamGO.AddComponent<Camera>();
+        holdPreviewCam.clearFlags = CameraClearFlags.SolidColor;
+        holdPreviewCam.backgroundColor = Color.clear;
+        holdPreviewCam.orthographic = true;
+        holdPreviewCam.orthographicSize = 2f;
+        holdPreviewCam.nearClipPlane = 0.1f;
+        holdPreviewCam.farClipPlane = 30f;
+        holdPreviewCam.depth = -2;
+
+        holdCard.previewCam = holdPreviewCam;
+        holdCard.previewImage = rawImg;
+        // emptyOverlay = bgGO OLMAMALI: bgGO parçanın etrafındaki halka/çerçeveyi (arka plan
+        // bezeli) oluşturuyor ve parça yerleştirildikten SONRA da görünür kalması gerekiyor.
+        // Sadece "HOLD" yazısının (badgeLabelGO) kaybolmasını istiyoruz — o yüzden emptyOverlay
+        // olarak doğrudan yazı objesini veriyoruz, bgGO'yu değil.
+        holdCard.emptyOverlay = badgeLabelGO;
+        holdCard.autoRotate = true; // Next Piece kutusundaki gibi kendi ekseninde dönsün
+        holdCard.autoRotateSpeed = 30f;
+        holdUI.holdCard = holdCard;
+
+        holdCard.Init(-999);
     }
 
     private void InitNextPiecePreviewSystem()
@@ -1505,7 +1855,7 @@ public class LevelManager : MonoBehaviour
         List<int> availableIndices = new List<int>();
         for (int i = 0; i < allPiecePrefabs.Count; i++)
         {
-            if (!spawnedPieceIndices.Contains(i))
+            if (!spawnedPieceIndices.Contains(i) && !activePieceDataIndices.Contains(i))
             {
                 availableIndices.Add(i);
             }
@@ -1516,77 +1866,129 @@ public class LevelManager : MonoBehaviour
             spawnedPieceIndices.Clear();
             for (int i = 0; i < allPiecePrefabs.Count; i++)
             {
-                availableIndices.Add(i);
+                if (!activePieceDataIndices.Contains(i))
+                {
+                    availableIndices.Add(i);
+                }
+            }
+            if (availableIndices.Count == 0)
+            {
+                for (int i = 0; i < allPiecePrefabs.Count; i++)
+                {
+                    availableIndices.Add(i);
+                }
             }
         }
 
-        if (IsEarlyTutorialLevel())
+        bool isSmartTriggered = false;
+        if (!IsEarlyTutorialLevel() && Random.value < smartSpawnProbability)
         {
-            // İlk 5 seviye için onboarding'in sağlıklı çalışması adına bu "kolaylaştırma"
-            // korunuyor: kartlar boşaldıkça tahtaya GERÇEKTEN sığan ilk parça sırayla getirilir.
-            // Öncelik #1: bu parça tasarım zamanında TAM OLARAK şu an gerekli olan katman için
-            // çözülmüş mü (bkz. CubeShapeDataHolder.originLayerY). Öncelik #2 (etiketli havuz
-            // boşsa): salt geometrik "gerekli katmana sığar mı" testi. Normal seviyelerde (bkz.
-            // aşağıdaki else) bu KESİN önceliklendirme YOK — özellikle zor/orta seviyelerde oyunu
-            // gereğinden kolaylaştırmasın diye kaldırıldı; onun yerine sadece hafif ağırlıklı bir
-            // şans var.
-            List<int> taggedForRequiredLayer = new List<int>();
-            foreach (int i in availableIndices)
+            int bestIdx = FindBestPieceIndex(out Quaternion bestRot, out Color? recColor, out bool foundMerge, availableIndices);
+            if (bestIdx >= 0 && bestIdx < allPiecePrefabs.Count)
             {
-                var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
-                if (h != null && h.originLayerY == gridManager.ActiveLayerY)
-                {
-                    taggedForRequiredLayer.Add(i);
-                }
-            }
+                nextPieceIndex = bestIdx;
+                isSmartTriggered = true;
 
-            List<int> fitsRequiredLayer = new List<int>();
-            foreach (int i in availableIndices)
-            {
-                if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                if (recColor.HasValue)
                 {
-                    fitsRequiredLayer.Add(i);
+                    Material matchedMat = FindClosestMaterial(recColor.Value);
+                    int matIdx = FindMaterialIndex(matchedMat);
+                    if (matIdx >= 0)
+                    {
+                        nextPieceSpeciesIndex = matIdx;
+                    }
+                    else
+                    {
+                        nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
+                    }
+                }
+                else
+                {
+                    nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
                 }
             }
-            if (fitsRequiredLayer.Count == 0)
+        }
+
+        if (!isSmartTriggered)
+        {
+            if (IsEarlyTutorialLevel())
             {
-                for (int i = 0; i < allPiecePrefabs.Count; i++)
+                // İlk 5 seviye için onboarding'in sağlıklı çalışması adına bu "kolaylaştırma"
+                // korunuyor: kartlar boşaldıkça tahtaya GERÇEKTEN sığan ilk parça sırayla getirilir.
+                // Öncelik #1: bu parça tasarım zamanında TAM OLARAK şu an gerekli olan katman için
+                // çözülmüş mü (bkz. CubeShapeDataHolder.originLayerY). Öncelik #2 (etiketli havuz
+                // boşsa): salt geometrik "gerekli katmana sığar mı" testi. Normal seviyelerde (bkz.
+                // aşağıdaki else) bu KESİN önceliklendirme YOK — özellikle zor/orta seviyelerde oyunu
+                // gereğinden kolaylaştırmasın diye kaldırıldı; onun yerine sadece hafif ağırlıklı bir
+                // şans var.
+                List<int> taggedForRequiredLayer = new List<int>();
+                foreach (int i in availableIndices)
+                {
+                    var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+                    if (h != null && h.originLayerY == gridManager.ActiveLayerY)
+                    {
+                        taggedForRequiredLayer.Add(i);
+                    }
+                }
+
+                List<int> fitsRequiredLayer = new List<int>();
+                foreach (int i in availableIndices)
                 {
                     if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
                     {
                         fitsRequiredLayer.Add(i);
                     }
                 }
-            }
-
-            List<int> pickFrom = taggedForRequiredLayer.Count > 0 ? taggedForRequiredLayer
-                : (fitsRequiredLayer.Count > 0 ? fitsRequiredLayer : availableIndices);
-
-            nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : availableIndices[0];
-        }
-        else
-        {
-            // Dağıtım büyük ölçüde rastgele kalır (zorluk özellikle orta/zor seviyelerde düşmesin
-            // diye), ama şu an gerekli katmana sığan bir parça varsa şansı hafifçe artırılır —
-            // bu bir GARANTİ/ÖNCELİK değil (o eski, çok kolaylaştıran davranıştı), sadece ağırlıklı
-            // bir şans: sığan parçalar havuzda FIT_WEIGHT_MULTIPLIER kadar tekrarlanıp Random.Range
-            // buradan seçim yapıyor, sığmayan parçalar hâlâ gelebiliyor.
-            const int FIT_WEIGHT_MULTIPLIER = 3;
-            List<int> weightedPool = new List<int>();
-            foreach (int i in availableIndices)
-            {
-                weightedPool.Add(i);
-                if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                if (fitsRequiredLayer.Count == 0)
                 {
-                    for (int extra = 1; extra < FIT_WEIGHT_MULTIPLIER; extra++)
-                        weightedPool.Add(i);
+                    for (int i = 0; i < allPiecePrefabs.Count; i++)
+                    {
+                        if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                        {
+                            fitsRequiredLayer.Add(i);
+                        }
+                    }
                 }
+
+                List<int> pickFrom = taggedForRequiredLayer.Count > 0 ? taggedForRequiredLayer
+                    : (fitsRequiredLayer.Count > 0 ? fitsRequiredLayer : availableIndices);
+
+                nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : availableIndices[0];
             }
-            nextPieceIndex = weightedPool[Random.Range(0, weightedPool.Count)];
+            else
+            {
+                // Tetris mantigi: Çoklu küplü parçalara (2, 3, 4+ küp) agirliği yüksek tutulur.
+                // Tekli (1 küplü) parçalar havuzu domine edemez, katsayisi düşük tutulur.
+                List<int> weightedPool = new List<int>();
+                bool hasMultiCellFits = availableIndices.Any(i => GetPieceCellCount(i) > 1 && CanShapeFitRequiredLayer(allPiecePrefabs[i]));
+
+                foreach (int i in availableIndices)
+                {
+                    int cellCount = GetPieceCellCount(i);
+                    bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
+
+                    if (fits)
+                    {
+                        int weight = cellCount > 1 ? (cellCount * 5) : (hasMultiCellFits ? 1 : 3);
+                        for (int w = 0; w < weight; w++)
+                            weightedPool.Add(i);
+                    }
+                    else if (cellCount > 1)
+                    {
+                        weightedPool.Add(i);
+                    }
+                }
+
+                if (weightedPool.Count > 0)
+                    nextPieceIndex = weightedPool[Random.Range(0, weightedPool.Count)];
+                else
+                    nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
+            }
+
+            // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır
+            nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
         }
 
-        // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır
-        nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
         nextPieceMaterial = (nextPieceSpeciesIndex >= 0 && pieceMaterials != null && nextPieceSpeciesIndex < pieceMaterials.Length) 
             ? pieceMaterials[nextPieceSpeciesIndex] 
             : null;

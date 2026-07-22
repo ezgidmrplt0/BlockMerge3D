@@ -307,6 +307,11 @@ public class LayerPanelController : MonoBehaviour
             ? LevelManager.Instance.NextPiecePreviewPanel
             : null;
         if (previewPanel != null) previewPanel.SetActive(visible);
+
+        var holdPanel = LevelManager.Instance != null
+            ? LevelManager.Instance.HoldSlotPanel
+            : null;
+        if (holdPanel != null) holdPanel.SetActive(visible);
     }
 
     public void SetButtonsVisible(bool visible)

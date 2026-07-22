@@ -404,6 +404,15 @@ public class DraggablePiece : MonoBehaviour
         if (grid != null) grid.ClearOccludingCells();
         if (grid != null) grid.StopVisualFocus(this);
 
+        // Sürükleme HOLD kutusu üzerinde bırakıldıysa sakla veya takas et
+        if (LevelManager.Instance != null && LevelManager.Instance.IsPointerOverHoldSlot(Input.mousePosition))
+        {
+            if (LevelManager.Instance.TryStoreOrSwapHold(this))
+            {
+                return;
+            }
+        }
+
         bool releasedInCancelZone = Input.mousePosition.y < Screen.height * 0.22f;
 
         if (isSnapped && !releasedInCancelZone)
