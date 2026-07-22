@@ -912,7 +912,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4606918369774321310, guid: 86b72a1c23d4c804490866b0d0da6692, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -2.2180095
+      value: -2.2185743
       objectReference: {fileID: 0}
     - target: {fileID: 4606918369774321310, guid: 86b72a1c23d4c804490866b0d0da6692, type: 3}
       propertyPath: m_LocalPosition.y
@@ -4720,7 +4720,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2.8094785
+      value: 2.8101947
       objectReference: {fileID: 0}
     - target: {fileID: 1204301264461452045, guid: 8ee452ec7ac9b2d42bf5498c435b6270, type: 3}
       propertyPath: m_LocalPosition.y
@@ -5774,6 +5774,66 @@ CanvasGroup:
   m_Interactable: 1
   m_BlocksRaycasts: 1
   m_IgnoreParentGroups: 0
+--- !u!1 &1520931283
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1520931285}
+  - component: {fileID: 1520931284}
+  m_Layer: 0
+  m_Name: LayerLockManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1520931284
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1520931283}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8b03b86324ff75a1a9077554560b59d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  lockPrefab: {fileID: 7327211650965783701, guid: c384021621a8c955f83f729710b6a4fe, type: 3}
+  chainPrefab: {fileID: 7642046638515134612, guid: bd24fa1ca073f23598cedfb0c4eb856a, type: 3}
+  chainBoundsCenter: {x: -4.374, y: 0, z: -2}
+  lockBoundsCenter: {x: 2.5, y: 0.258, z: 2.013}
+  chainSourceLength: 10.62
+  lockSourceHeight: 1.345
+  heightAboveTop: 0.2
+  chainThickness: 0.4
+  lockScaleFactor: 0.9
+  lockRaise: 0.25
+  openAnimSpeed: 2
+  dropDelayAfterOpen: 0.05
+  dropDistance: 12
+  dropDuration: 1.1
+  dropTumble: {x: 40, y: 120, z: 30}
+  cleanupExtra: 0.3
+--- !u!4 &1520931285
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1520931283}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1554945349
 GameObject:
   m_ObjectHideFlags: 0
@@ -7945,3 +8005,4 @@ SceneRoots:
   - {fileID: 1797213474}
   - {fileID: 1134584132}
   - {fileID: 856359028}
+  - {fileID: 1520931285}

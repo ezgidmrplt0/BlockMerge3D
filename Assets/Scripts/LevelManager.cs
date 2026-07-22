@@ -127,6 +127,12 @@ public class LevelManager : MonoBehaviour
                 // Dunya pozisyonu ile baslatmaya geri döndük
                 gridManager.Initialize(activeMainPiece, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
                 ApplyTargetGhost(activeMainPiece);
+
+                // Sıralı katman görseli: aktif (gereken) katman hariç her katmana zincir+kilit.
+                // ApplyTargetGhost'tan SONRA — aksi halde o metodun prefilled/species döngüsü
+                // (shape.transform çocuklarını gezer) kilit rig'lerini hücre sanıp içine hayvan
+                // iliştiriyordu.
+                LayerLockManager.Instance?.BuildForNewLevel();
             }
         }
 

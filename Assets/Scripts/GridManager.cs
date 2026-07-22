@@ -1166,7 +1166,15 @@ public class GridManager : MonoBehaviour
             if (ActiveLayerY == clearedY)
             {
                 if (TryFindNextRequiredLayer(out int nextLayer))
+                {
                     ActiveLayerY = nextLayer;
+                    // Bir üst katman claw ile alındı → kilidi KAVRAMA anında değil, kanca
+                    // layer'ı KALDIRIP GÖTÜRDÜKTEN SONRA (collapseDelay: kanca varsa 3.65s,
+                    // yoksa 0.45s) aç + düşür. SetId ile Retry/NextLevel'da iptal edilir.
+                    int nl = nextLayer;
+                    DOVirtual.DelayedCall(collapseDelay,
+                        () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
+                }
                 else
                     ActiveLayerY = gridMaxY;
             }
