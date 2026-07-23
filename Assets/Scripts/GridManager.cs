@@ -25,6 +25,14 @@ public class GridManager : MonoBehaviour
     // ile aynı renderer'ın rengini EZİYOR ve buz gri/tuhaf bir renge bürünüyordu.
     private readonly HashSet<Vector3Int> meltingIceCells = new HashSet<Vector3Int>();
 
+    // Kilitli (sıralı katmanda henüz sırası gelmemiş) katmanlar — LayerLockManager tarafından
+    // set edilir; RefreshLayerVisibility bu katmanların hücre renklerini koyulaştırır (view'dan
+    // bağımsız PropBlock ile → tahta döndürülünce "pop" olmaz, saydam overlay değil).
+    private readonly HashSet<int> darkenedLayers = new HashSet<int>();
+    [Range(0f, 1f)]
+    [Tooltip("Kilitli katman parlaklık çarpanı (0.4 = %40 = koyu)")]
+    public float lockedLayerDim = 0.4f;
+
     // ─── Buz görseli ──────────────────────────────────────────────────────────
     // Buz artık hedef küpünün boyanmış hali değil, kendi 3D modeli
     // (Assets/Resources/IceCube.prefab — Ice.fbx'ten üretildi, saydam materyal,
@@ -258,6 +266,7 @@ public class GridManager : MonoBehaviour
         allShapeCells.Clear();
         cellMatIndex.Clear();
         frozenCells.Clear();
+        darkenedLayers.Clear();
         ClearAllCellObjects();
 
         targetRenderers.Clear();
@@ -692,6 +701,93 @@ public class GridManager : MonoBehaviour
                 }
             }
         }
+
+        // Kilitli katmanları koyulaştır (tüm normal renk yazımından SONRA, üzerine yazar).
+        if (darkenedLayers.Count > 0) ApplyLockedLayerDim();
+    }
+
+    // ─── Kilitli katman koyulaştırma (LayerLockManager) ─────────────────────────
+
+    /// <summary>Bir katmanı "kilitli/koyu" olarak işaretler veya kaldırır. Kaldırılırken o
+    /// katmanın hücre tint'lerini temizler ve görünürlüğü tazeler (katman aydınlanır).</summary>
+    public void SetLayerDarkened(int y, bool dark)
+    {
+        bool changed = dark ? darkenedLayers.Add(y) : darkenedLayers.Remove(y);
+        if (!changed) return;
+        if (!dark) ClearLayerTint(y);
+        RefreshLayerVisibility();
+    }
+
+    private void ApplyLockedLayerDim()
+    {
+        float dim = Mathf.Clamp01(lockedLayerDim);
+        foreach (var cell in allShapeCells)
+        {
+            if (!darkenedLayers.Contains(cell.y)) continue;
+
+            if (targetRenderers.TryGetValue(cell, out var tr)) DimRenderer(tr, dim, true);
+            if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
+            {
+                DimRenderer(pr, dim, true);
+                foreach (var cr in pr.GetComponentsInChildren<Renderer>())
+                    if (cr != pr) DimRenderer(cr, dim, false); // hayvan (SpeciesVisual) → materyal rengi baz
+            }
+            if (cellObjects.TryGetValue(cell, out var co) && co != null)
+            {
+                var main = co.GetComponentInChildren<Renderer>();
+                foreach (var cr in co.GetComponentsInChildren<Renderer>())
+                    DimRenderer(cr, dim, cr == main); // ana küp cellColors/PropBlock baz, çocuklar materyal
+            }
+            if (iceVisuals.TryGetValue(cell, out var ice) && ice != null)
+                foreach (var cr in ice.GetComponentsInChildren<Renderer>())
+                    DimRenderer(cr, dim, false);
+        }
+    }
+
+    /// <summary>Bir renderer'ı koyulaştırır. baseFromPropBlock=true ise baz renk
+    /// RefreshLayerVisibility'nin bu çağrıda yazdığı PropBlock renginden alınır (her çağrıda
+    /// sıfırdan yazıldığı için katlanarak koyulaşmaz); false ise materyal renginden (sabit) —
+    /// bu, RefreshLayerVisibility'nin dokunmadığı çocuk renderer'lar (hayvan, buz) için gerekir.</summary>
+    private void DimRenderer(Renderer r, float dim, bool baseFromPropBlock)
+    {
+        if (r == null || !r.enabled) return;
+        Color baseC;
+        if (baseFromPropBlock)
+        {
+            PropBlock.Clear();
+            r.GetPropertyBlock(PropBlock);
+            Color pb = PropBlock.GetColor("_BaseColor");
+            baseC = (pb.r + pb.g + pb.b + pb.a) > 0.0001f
+                ? pb
+                : (r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white);
+        }
+        else
+        {
+            baseC = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
+            PropBlock.Clear();
+            r.GetPropertyBlock(PropBlock);
+        }
+        Color dc = new Color(baseC.r * dim, baseC.g * dim, baseC.b * dim, baseC.a);
+        PropBlock.SetColor("_BaseColor", dc);
+        PropBlock.SetColor("_Color", dc);
+        r.SetPropertyBlock(PropBlock);
+    }
+
+    /// <summary>Bir katmanın koyulaştırma tint'ini temizler (materyal rengine döner). Sözlükteki
+    /// renderer'lar zaten RefreshLayerVisibility tarafından yeniden yazılır; asıl gereken,
+    /// onun dokunmadığı çocuk (hayvan) ve buz renderer'larının PropBlock'unu sıfırlamak.</summary>
+    private void ClearLayerTint(int y)
+    {
+        foreach (var cell in allShapeCells)
+        {
+            if (cell.y != y) continue;
+            if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
+                foreach (var cr in pr.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
+            if (cellObjects.TryGetValue(cell, out var co) && co != null)
+                foreach (var cr in co.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
+            if (iceVisuals.TryGetValue(cell, out var ice) && ice != null)
+                foreach (var cr in ice.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
+        }
     }
 
     // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden bir katmanın tamamlanması için tüm hücrelerin
@@ -1100,11 +1196,16 @@ public class GridManager : MonoBehaviour
 
         // --- GÖRSEL ÇÖKME (VISUAL COLLAPSE) ---
         float collapseDelay = 0.45f;
+        float unlockDelay = 0.1f; // kanca yoksa neredeyse hemen aç+düşür
         GameObject claw = GameObject.Find("Claw");
         if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
         if (claw != null)
         {
             collapseDelay = 3.65f;
+            // Kanca zaman çizelgesi: yatay(0.5)+iniş(1.2)+toplanma(0.6)=2.3s'te YUKARI KALDIRMA
+            // başlar. Kilit açılması kaldırma boyunca oynasın ki kanca "bir yere yöneldiği" anda
+            // (≈3.5s) kilit açılmış ve düşmeye başlamış olsun.
+            unlockDelay = 2.3f;
         }
 
         if (claw == null)
@@ -1172,7 +1273,7 @@ public class GridManager : MonoBehaviour
                     // layer'ı KALDIRIP GÖTÜRDÜKTEN SONRA (collapseDelay: kanca varsa 3.65s,
                     // yoksa 0.45s) aç + düşür. SetId ile Retry/NextLevel'da iptal edilir.
                     int nl = nextLayer;
-                    DOVirtual.DelayedCall(collapseDelay,
+                    DOVirtual.DelayedCall(unlockDelay,
                         () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
                 }
                 else
