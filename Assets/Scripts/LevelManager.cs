@@ -1480,7 +1480,10 @@ public class LevelManager : MonoBehaviour
         if (canvas == null) return;
 
         var oldPanel = canvas.transform.Find("HoldSlotPanel");
-        if (oldPanel != null) Destroy(oldPanel.gameObject);
+        // DestroyImmediate: normal Destroy ertelenir; aşağıda panel tekrar Find edilince
+        // (eskiden) o ölmeyi bekleyen panel bulunup yeniden kullanılıyor, sonra ertelenen
+        // Destroy onu öldürüyordu → hold slotu her retry/fail'de bir görünüp bir kayboluyordu.
+        if (oldPanel != null) DestroyImmediate(oldPanel.gameObject);
 
         Sprite cardSprite = null;
         Sprite insetSprite = null;
@@ -1503,39 +1506,31 @@ public class LevelManager : MonoBehaviour
         // karşı (sol-alt) köşede. NextPiecePreviewPanel bu fonksiyondan ÖNCE (InitNextPiecePreviewSystem
         // içinde) kurulduğu için burada onun anchoredPosition.y değerini doğrudan okuyup kullanıyoruz —
         // ileride next-piece konumlama formülü değişse bile ikisi kendiliğinden hizalı kalır.
-        var existingInScene = canvas.transform.Find("HoldSlotPanel");
-        GameObject panelGO;
-        if (existingInScene != null)
-        {
-            panelGO = existingInScene.gameObject;
-        }
-        else
-        {
-            panelGO = new GameObject("HoldSlotPanel", typeof(RectTransform));
-            panelGO.transform.SetParent(canvas.transform, false);
-        }
+        // Eski panel yukarıda DestroyImmediate ile kesin silindi; her seferinde YENİSİ kurulur.
+        // (Eskiden burada tekrar Find edip "varsa yeniden kullan" deniyordu — bu, ölmeyi bekleyen
+        // eski paneli diriltip toggle bug'ına yol açıyordu.)
+        GameObject panelGO = new GameObject("HoldSlotPanel", typeof(RectTransform));
+        panelGO.transform.SetParent(canvas.transform, false);
 
         HoldSlotPanel = panelGO;
         panelGO.SetActive(false);
         var panelRT = panelGO.GetComponent<RectTransform>();
 
-        if (existingInScene == null)
+        // Panel her seferinde yeni kurulduğundan konumlandırma her zaman uygulanır.
+        panelRT.anchorMin = new Vector2(0f, 0f);
+        panelRT.anchorMax = new Vector2(0f, 0f);
+        panelRT.pivot = new Vector2(0f, 0f);
+        panelRT.sizeDelta = new Vector2(140f, 140f);
+
+        float holdX = 40f;
+        float holdY = 100f;
+        if (NextPiecePreviewPanel != null)
         {
-            panelRT.anchorMin = new Vector2(0f, 0f);
-            panelRT.anchorMax = new Vector2(0f, 0f);
-            panelRT.pivot = new Vector2(0f, 0f);
-            panelRT.sizeDelta = new Vector2(140f, 140f);
-
-            float holdX = 40f;
-            float holdY = 100f;
-            if (NextPiecePreviewPanel != null)
-            {
-                var nextRT = NextPiecePreviewPanel.GetComponent<RectTransform>();
-                if (nextRT != null) holdY = nextRT.anchoredPosition.y;
-            }
-
-            panelRT.anchoredPosition = new Vector2(holdX, holdY);
+            var nextRT = NextPiecePreviewPanel.GetComponent<RectTransform>();
+            if (nextRT != null) holdY = nextRT.anchoredPosition.y;
         }
+
+        panelRT.anchoredPosition = new Vector2(holdX, holdY);
 
         var panelImg = panelGO.GetComponent<Image>();
         if (panelImg == null) panelImg = panelGO.AddComponent<Image>();
