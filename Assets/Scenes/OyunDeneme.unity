@@ -4855,7 +4855,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 363, y: 959.5}
+  m_AnchoredPosition: {x: 363, y: 843}
   m_SizeDelta: {x: 160, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1172787002
@@ -5821,10 +5821,9 @@ MonoBehaviour:
   darkenLockedLayers: 1
   openAnimSpeed: 1
   dropDelayAfterOpen: 0.05
-  dropDistance: 12
-  dropDuration: 1.1
-  dropTumble: {x: 40, y: 120, z: 30}
-  cleanupExtra: 0.3
+  waveDelayPerUnit: 0.035
+  fallDistance: 14
+  fallDuration: 1.2
 --- !u!4 &1520931285
 Transform:
   m_ObjectHideFlags: 0

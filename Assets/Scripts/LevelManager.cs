@@ -753,7 +753,7 @@ public class LevelManager : MonoBehaviour
         int placedLayerY = newlyPlacedCells.Count > 0 ? newlyPlacedCells[0].y : gridManager.ActiveLayerY;
 
         // Check if there are frozen cells to thaw
-        gridManager.CheckAndResolveFrozenCells(onComplete: (iceResolved) =>
+        gridManager.CheckAndResolveFrozenCells(newlyPlacedCells, onComplete: (iceResolved) =>
         {
             var lpc = FindObjectOfType<LayerPanelController>();
 

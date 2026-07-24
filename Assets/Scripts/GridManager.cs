@@ -2664,13 +2664,13 @@ public class GridManager : MonoBehaviour
 
     // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
 
-    // newlyPlacedCells parametresi ALINMAZ: artık sadece yeni yerleşen parçaya değil, TÜM
-    // buzlu hücrelere bakılıyor (bkz. aşağıdaki not) — bu yüzden hangi hücrelerin yeni
-    // yerleştiğinin bilinmesine gerek yok, sadece BİR yerleştirme olduğunu (yeniden kontrol
-    // zamanı geldiğini) bilmek yeterli.
-    public bool CheckAndResolveFrozenCells(System.Action<bool> onComplete)
+    // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreden başlayarak BAĞLANTILI aynı
+    // TÜRDEKİ (cellMatIndex) TÜM grup (flood-fill) hesaplanır; grup ≥2 ise grubun TAMAMI buzla
+    // birlikte yok olur (o hücreler yeniden doldurulmalı). Tutorial/level tasarımının dayandığı
+    // asıl kural budur (bkz. İndirilenler/GridManager.cs — buz mekaniği oraya göre geri alındı).
+    public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
     {
-        if (frozenCells.Count == 0)
+        if (newlyPlacedCells == null || newlyPlacedCells.Count == 0 || frozenCells.Count == 0)
         {
             onComplete?.Invoke(false);
             return false;
@@ -2681,39 +2681,44 @@ public class GridManager : MonoBehaviour
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
-        HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
-
-        // TÜM buzlu hücreler taranır — sadece yeni yerleşen parçaya değil. Aksi halde, buza
-        // ÖNCEDEN değen bir parçanın yanına şimdi ikinci bir parça yerleşip "iki obje dip dibe"
-        // şartını YENİ parça değil ESKİ parça üzerinden tamamlaması durumu kaçırılıyordu (yeni
-        // parça buza doğrudan dokunmadığı için hiç kontrol edilmiyordu).
-        foreach (var frozenCell in frozenCells)
+        // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreleri ve etkilenen
+        // buz hücrelerini bul.
+        var touchingCells = new HashSet<Vector3Int>();
+        var candidateFrozenCells = new HashSet<Vector3Int>();
+        foreach (var cell in newlyPlacedCells)
         {
             foreach (var offset in horizontalNeighbors)
             {
-                Vector3Int touchCell = frozenCell + offset;
-                if (!occupiedCells.Contains(touchCell)) continue;
-
-                // Buz eritme artık AYNI TÜR şartı aramıyor: buza değen hücrenin, türüne
-                // bakılmaksızın yatayda en az bir dolu komşusu ("iki obje dip dibe") varsa erime
-                // tetiklenir. Yok olan grup kasıtlı olarak SADECE bu 2 hücre — bağlı olduğu daha
-                // büyük bir kütle (ör. tüm katman) varsa bile onun tamamı değil.
-                Vector3Int? partner = null;
-                foreach (var offset2 in horizontalNeighbors)
+                Vector3Int neighbor = cell + offset;
+                if (frozenCells.Contains(neighbor))
                 {
-                    Vector3Int neighbor = touchCell + offset2;
-                    if (occupiedCells.Contains(neighbor))
-                    {
-                        partner = neighbor;
-                        break;
-                    }
+                    touchingCells.Add(cell);
+                    candidateFrozenCells.Add(neighbor);
                 }
-                if (partner == null) continue;
+            }
+        }
 
-                cellsToThaw.Add(frozenCell);
-                cellsToDestroy.Add(touchCell);
-                cellsToDestroy.Add(partner.Value);
+        if (candidateFrozenCells.Count == 0)
+        {
+            onComplete?.Invoke(false);
+            return false;
+        }
+
+        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
+
+        foreach (var touchCell in touchingCells)
+        {
+            if (!cellMatIndex.TryGetValue(touchCell, out int touchSpecies) || touchSpecies < 0) continue;
+
+            var group = FloodFillSameSpecies(touchCell, touchSpecies, horizontalNeighbors);
+            if (group.Count < 2) continue;
+
+            cellsToDestroy.UnionWith(group);
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = touchCell + offset;
+                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
             }
         }
 
@@ -2725,6 +2730,32 @@ public class GridManager : MonoBehaviour
 
         StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToDestroy, () => onComplete?.Invoke(true)));
         return true;
+    }
+
+    // start hücresinden başlayarak, occupiedCells içinde 'speciesIndex' ile aynı türde olan ve
+    // yatay komşuluk üzerinden birbirine bağlı tüm hücreleri (start dahil) döndürür.
+    private HashSet<Vector3Int> FloodFillSameSpecies(Vector3Int start, int speciesIndex, Vector3Int[] horizontalNeighbors)
+    {
+        var visited = new HashSet<Vector3Int> { start };
+        var stack = new Stack<Vector3Int>();
+        stack.Push(start);
+
+        while (stack.Count > 0)
+        {
+            var cur = stack.Pop();
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = cur + offset;
+                if (visited.Contains(neighbor)) continue;
+                if (!occupiedCells.Contains(neighbor)) continue;
+                if (!cellMatIndex.TryGetValue(neighbor, out int idx) || idx != speciesIndex) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
+            }
+        }
+
+        return visited;
     }
 
     private static readonly Vector3Int[] SixDirNeighbors = {
