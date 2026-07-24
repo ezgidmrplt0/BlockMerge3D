@@ -30,6 +30,10 @@ public class LevelSolver
     private HashSet<Vector3Int> targetCells;
     private HashSet<Vector3Int> prefilledCells;
     private HashSet<Vector3Int> frozenCells;
+    // Buz hücresi başına kalan vuruş sayısı — GridManager.iceRemainingHits ile aynı mantık,
+    // bkz. ResolveFrozenCellsInSolver. Best-effort simülasyon (yukarıdaki proxyColor notuyla
+    // aynı çekince): gerçek oyunda hangi hücrenin ne zaman vurulacağı burada tahmin ediliyor.
+    private Dictionary<Vector3Int, int> frozenRemainingHits;
     private List<PieceData> pieces;
 
     // ── Çözüm Durumu ──────────────────────────────────────────────
@@ -188,6 +192,9 @@ public class LevelSolver
         targetCells = new HashSet<Vector3Int>(holder.occupiedCells);
         prefilledCells = new HashSet<Vector3Int>(holder.prefilledCells ?? new List<Vector3Int>());
         frozenCells = new HashSet<Vector3Int>(holder.frozenCells ?? new List<Vector3Int>());
+        frozenRemainingHits = new Dictionary<Vector3Int, int>();
+        foreach (var cell in frozenCells)
+            frozenRemainingHits[cell] = holder.GetFrozenHitCount(cell);
     }
 
     private bool BacktrackingSolve(int pieceIdx)
@@ -363,10 +370,19 @@ public class LevelSolver
         var lastStep = currentSolution[currentSolution.Count - 1];
         currentSolution.RemoveAt(currentSolution.Count - 1);
 
-        // 1. Restore thawed cells back to frozen
+        // 1. Restore thawed cells back to frozen. Sayaç her zaman TAM 1'den 0'a inerek erimiş
+        // olur (ResolveFrozenCellsInSolver her nitelikli temasta yalnızca 1 azaltır), bu yüzden
+        // geri yüklenirken totalHits ne olursa olsun 1'e döner.
         foreach (var cell in lastStep.thawedCells)
         {
             frozenCells.Add(cell);
+            frozenRemainingHits[cell] = 1;
+        }
+
+        // 1b. Tamamen erimeyip sadece sayacı azalan (chip) hücrelerin sayacını geri +1 et.
+        foreach (var cell in lastStep.chippedCells)
+        {
+            frozenRemainingHits[cell] = (frozenRemainingHits.TryGetValue(cell, out int r) ? r : 0) + 1;
         }
 
         // 2. Restore cells that were destroyed as a side effect of this step's thaw (bkz.
@@ -404,7 +420,7 @@ public class LevelSolver
             new Vector3Int(0, 0, -1)
         };
 
-        var cellsToThaw = new HashSet<Vector3Int>();
+        var qualifiedFrozen = new HashSet<Vector3Int>(); // bu adımda en az bir kez nitelikli temas eden buzlar
         var cellsToDestroy = new HashSet<Vector3Int>();
 
         foreach (var frozenCell in frozenCells)
@@ -426,16 +442,31 @@ public class LevelSolver
                 }
                 if (partner == null) continue;
 
-                cellsToThaw.Add(frozenCell);
+                qualifiedFrozen.Add(frozenCell);
                 cellsToDestroy.Add(touchCell);
                 cellsToDestroy.Add(partner.Value);
             }
         }
 
-        foreach (var cell in cellsToThaw)
+        // Buz kaç vuruşa dayanıyorsa (bkz. frozenRemainingHits / CubeShapeDataHolder.GetFrozenHitCount),
+        // bu adımdaki her nitelikli temas sayacı 1 azaltır; 0'a inince gerçekten erir (frozenCells'ten
+        // çıkar). Aksi halde donuk kalır ama undo edilebilmesi için step.chippedCells'e kaydedilir
+        // (bkz. UndoPlacement — GridManager.CheckAndResolveFrozenCells ile aynı mantık).
+        foreach (var cell in qualifiedFrozen)
         {
-            frozenCells.Remove(cell);
-            step.thawedCells.Add(cell);
+            int remaining = frozenRemainingHits.TryGetValue(cell, out int r) ? r : 1;
+            remaining = Mathf.Max(0, remaining - 1);
+            frozenRemainingHits[cell] = remaining;
+
+            if (remaining <= 0)
+            {
+                frozenCells.Remove(cell);
+                step.thawedCells.Add(cell);
+            }
+            else
+            {
+                step.chippedCells.Add(cell);
+            }
         }
 
         foreach (var cell in cellsToDestroy)
@@ -607,6 +638,10 @@ public class PlacementStep
     public List<Vector3Int> cells;
 
     public List<Vector3Int> thawedCells = new List<Vector3Int>();
+
+    // Bu adımda vuruş sayacı azaltılan ama 0'a inmeyen (tamamen erimeyen) buz hücreleri —
+    // undo sırasında sayaçları geri +1 edilmesi gerekir (bkz. ResolveFrozenCellsInSolver).
+    public List<Vector3Int> chippedCells = new List<Vector3Int>();
 
     // [2026-07-14] Buz erimesini tetikleyen komşu hücreler de anında yok olur (bkz.
     // ResolveFrozenCellsInSolver) — undo sırasında geri getirilebilmeleri için eski

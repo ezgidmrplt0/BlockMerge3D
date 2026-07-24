@@ -12,6 +12,13 @@ public class LevelManager : MonoBehaviour
     [Header("Level Configuration")]
     public LevelData currentLevel;
 
+    [Header("Ice Mechanics Settings")]
+    [Tooltip("Buz bloklarının vuruş sayılarını seviye zorluğuna göre (1-2: Kolay, 3-5: Orta, 6-10: Zor, 11+: Uzman) otomatik atar.")]
+    public bool autoAssignIceHitsByDifficulty = true;
+    [Tooltip("İşaretlenirse seviye zorluğu yerine aşağıdaki özel min-max aralığını kullanır.")]
+    public bool overrideHitCountPerLevel = false;
+    public Vector2Int customHitCountRange = new Vector2Int(1, 3);
+
     [Header("Scene Locations")]
     public Transform mainCubeLocation;
 

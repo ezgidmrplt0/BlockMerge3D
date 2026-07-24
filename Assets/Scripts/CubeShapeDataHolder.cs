@@ -20,6 +20,11 @@ public class CubeShapeDataHolder : MonoBehaviour
     [Header("Frozen Cells (Ice)")]
     public List<Vector3Int> frozenCells = new List<Vector3Int>();
 
+    [Tooltip("frozenCells ile aynı indekste — o buz hücresinin erimesi için gereken vuruş " +
+             "(üzerine yeterince büyük bir eşleşen grup yerleştirme) sayısı. Liste kısa/eksikse " +
+             "veya değer <1 ise varsayılan 1 kullanılır (eski, tek vuruşta erime davranışı).")]
+    public List<int> frozenHitCounts = new List<int>();
+
     [Header("Layer Origin (complementary piece'ler için)")]
     [Tooltip("Bu parçanın hangi katman (dünya Y'si) için çözüldüğü — AILevelDesignerWindow." +
              "ExportProceduralLevelCore tarafından bake zamanında yazılır. -1 = etiketlenmemiş " +
@@ -58,6 +63,18 @@ public class CubeShapeDataHolder : MonoBehaviour
     public bool IsCellFrozen(Vector3Int gridPos)
     {
         return frozenCells != null && frozenCells.Contains(gridPos);
+    }
+
+    /// <summary>Bir buz hücresinin erimesi için gereken vuruş sayısı. Hücre buz değilse
+    /// ya da vuruş verisi eksikse 1 döner (bkz. frozenHitCounts tooltip'i).</summary>
+    public int GetFrozenHitCount(Vector3Int gridPos)
+    {
+        if (frozenCells == null) return 1;
+        int idx = frozenCells.IndexOf(gridPos);
+        if (idx < 0) return 1;
+        if (frozenHitCounts != null && idx < frozenHitCounts.Count && frozenHitCounts[idx] >= 1)
+            return frozenHitCounts[idx];
+        return 1;
     }
 
     public bool IsCellPrefilled(Vector3Int gridPos)

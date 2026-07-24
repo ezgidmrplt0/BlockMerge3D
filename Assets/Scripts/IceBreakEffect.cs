@@ -402,6 +402,64 @@ public class IceBreakEffect : MonoBehaviour
     }
 
     /// <summary>
+    /// Buz birden fazla vuruşa dayanıyorsa (bkz. IceVisualMarker.totalHits), her nitelikli
+    /// temasta TAM erime yerine bu vuruş efekti oynar: buz KENDİ BOYUTUNDA KALIR (küçülmez),
+    /// sadece kısa bir sıkışma/geri sekme (hit feedback), bir buhar/parıltı patlaması ve
+    /// birkaç su damlası oynar; kalan vuruş sayısı üzerindeki etikette (IceVisualMarker)
+    /// güncellenir. Buzun tamamen erimesi yalnızca kalan vuruş 0'a indiğinde PlayIceMelt
+    /// ile gerçekleşir (bkz. GridManager.AnimateThawAndDestroy).
+    /// </summary>
+    public static void PlayIceChip(GameObject targetBlock, int remainingHits, int totalHits, Action onComplete = null)
+    {
+        Instance.PlayIceChipEffect(targetBlock, remainingHits, totalHits, onComplete);
+    }
+
+    private void PlayIceChipEffect(GameObject targetBlock, int remainingHits, int totalHits, Action onComplete)
+    {
+        if (targetBlock == null)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+
+        Vector3 center = targetBlock.transform.position;
+        Renderer targetRend = targetBlock.GetComponentInChildren<Renderer>();
+        var marker = targetBlock.GetComponent<IceVisualMarker>();
+        Vector3 baseScale = marker != null ? marker.baseScale : targetBlock.transform.localScale;
+
+        targetBlock.transform.DOKill();
+        if (targetRend != null && targetRend.sharedMaterial != null) targetRend.sharedMaterial.DOKill();
+
+        const float chipDuration = 0.3f;
+
+        Sequence seq = DOTween.Sequence();
+        // Kısa bir sıkışma ardından TAM orijinal boyuta geri sekme — buz kalıcı olarak
+        // küçülmüyor, sadece bir vuruş aldığını hissettiriyor. Boyut yerine, kaç vuruş
+        // kaldığını gösteren sayaç (IceVisualMarker.UpdateCount) azalıyor.
+        seq.Append(targetBlock.transform.DOScale(baseScale * 0.9f, 0.05f).SetEase(Ease.OutQuad));
+        seq.AppendCallback(() => SpawnBurstParticles(center, 3, EdgeGlowColor, radiating: true));
+        seq.Append(targetBlock.transform.DOScale(baseScale, chipDuration * 0.75f).SetEase(Ease.OutBack));
+        seq.InsertCallback(chipDuration * 0.25f, () => SpawnWaterDroplets(center, baseScale, 2));
+
+        // Kısa bir kenar-parıltısı yanıp söner (MaterialPropertyBlock ile — PlayIceMeltEffect'teki
+        // gibi, gereksiz materyal instance'ı oluşturmamak için).
+        if (targetRend != null && targetRend.sharedMaterial != null && targetRend.sharedMaterial.HasProperty("_EmissionColor"))
+        {
+            MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
+            targetRend.GetPropertyBlock(propBlock);
+            DOVirtual.Float(0f, 1f, 0.16f, t =>
+            {
+                if (targetRend == null) return;
+                float yoyo = Mathf.Sin(t * Mathf.PI);
+                propBlock.SetColor("_EmissionColor", Color.Lerp(Color.clear, EdgeGlowColor * 1.4f, yoyo));
+                targetRend.SetPropertyBlock(propBlock);
+            }).SetEase(Ease.Linear);
+        }
+
+        seq.OnComplete(() => onComplete?.Invoke());
+    }
+
+    /// <summary>
     /// Düşen (yerçekimi hissi veren) su damlaları — buz kırıklarının aksine
     /// dışa doğru patlamaz, aşağı süzülüp hafif sönerek kaybolur.
     /// </summary>

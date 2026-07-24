@@ -79,6 +79,7 @@ public class AILevelDesignerWindow : EditorWindow
     private List<Vector3Int> prefilledCells     = new List<Vector3Int>();
     private List<int> prefilledMatIdx           = new List<int>();
     private List<Vector3Int> frozenCells        = new List<Vector3Int>();
+    private List<int> frozenHitCounts           = new List<int>(); // frozenCells ile aynı indeks — bkz. IceHitCountUtility
     internal List<List<Vector3Int>> pieceSplitList = new List<List<Vector3Int>>();
 
     // ── Solver Sonucu ─────────────────────────────────────────────
@@ -1402,6 +1403,7 @@ public class AILevelDesignerWindow : EditorWindow
         prefilledCells.Clear();
         prefilledMatIdx.Clear();
         frozenCells.Clear();
+        frozenHitCounts.Clear();
         pieceSplitList.Clear();
         highlightedPieceIndex = -1;
 
@@ -1582,27 +1584,132 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         int layerVolume = layerCells.Count;
-        int stateLimit = layerVolume < 20 ? 15000 : layerVolume < 40 ? 30000 : 50000;
-        int timeLimitMs = layerVolume < 20 ? 800 : layerVolume < 40 ? 1500 : 2500;
+        int stateLimit = layerVolume < 20 ? 20000 : layerVolume < 40 ? 40000 : 75000;
+        int timeLimitMs = layerVolume < 20 ? 1200 : layerVolume < 40 ? 2000 : 3500;
 
-        const int maxAttempts = 5;
-        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        // Aşama 1: Zorluk profiline uygun kısıtlı havuzlarda 15 deneme
+        for (int attempt = 0; attempt < 15; attempt++)
         {
             var pool = SampleEligiblePool(library);
-            bool built = SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit, timeLimitMs, out var resultPieces);
-
-            if (built)
+            if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit, timeLimitMs, out var resultPieces))
             {
                 pieceSplitList.AddRange(resultPieces);
                 pendingLayerPieceCount = resultPieces.Count;
+                layerGenError = null;
                 Repaint();
                 return;
             }
         }
 
-        layerGenError = $"⚠️ Katman Y={genCurrentLayerY} mevcut kütüphaneyle döşenemedi ({maxAttempts} deneme). " +
-                         "Tekrar deneyin veya parça kütüphanesini genişletin.";
+        // Aşama 2: Kütüphanedeki tüm parçaları daha geniş havuz ile 10 deneme
+        var fullEligible = library.Where(d => d.volume >= 1 && d.volume <= maxPieceSize).ToList();
+        if (fullEligible.Count == 0) fullEligible = library;
+
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            var pool = fullEligible.OrderBy(_ => UnityEngine.Random.value).Take(Mathf.Min(fullEligible.Count, 15)).ToList();
+            if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit * 2, timeLimitMs * 2, out var resultPieces))
+            {
+                pieceSplitList.AddRange(resultPieces);
+                pendingLayerPieceCount = resultPieces.Count;
+                layerGenError = null;
+                Repaint();
+                return;
+            }
+        }
+
+        // Aşama 3: Kütüphanedeki TÜM parçaları doğrudan arama motoruna vererek 1 deneme
+        if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, library, stateLimit * 3, timeLimitMs * 3, out var fullResultPieces))
+        {
+            pieceSplitList.AddRange(fullResultPieces);
+            pendingLayerPieceCount = fullResultPieces.Count;
+            layerGenError = null;
+            Repaint();
+            return;
+        }
+
+        // Aşama 4: Garantili Fallback (Açık hücreleri geçerli parça bloklarına böl)
+        var fallbackPieces = FallbackDecomposeLayerCells(layerCells, library);
+        if (fallbackPieces != null && fallbackPieces.Count > 0)
+        {
+            pieceSplitList.AddRange(fallbackPieces);
+            pendingLayerPieceCount = fallbackPieces.Count;
+            layerGenError = null;
+            Repaint();
+            return;
+        }
+
+        layerGenError = $"⚠️ Katman Y={genCurrentLayerY} döşenemedi. Lütfen 'Yeniden Üret' veya 'Otomatik Tamamla' butonunu kullanın.";
         Repaint();
+    }
+
+    internal void ForceCompleteCurrentLayer()
+    {
+        var library = LoadPieceLibrary();
+        var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
+        layerCells.ExceptWith(prefilledCells);
+        layerCells.ExceptWith(frozenCells);
+
+        if (layerCells.Count > 0)
+        {
+            var fallbackPieces = FallbackDecomposeLayerCells(layerCells, library);
+            if (fallbackPieces != null && fallbackPieces.Count > 0)
+            {
+                if (pendingLayerPieceCount > 0)
+                {
+                    pieceSplitList.RemoveRange(pieceSplitList.Count - pendingLayerPieceCount, pendingLayerPieceCount);
+                    pendingLayerPieceCount = 0;
+                }
+
+                pieceSplitList.AddRange(fallbackPieces);
+                pendingLayerPieceCount = fallbackPieces.Count;
+                layerGenError = null;
+                Repaint();
+            }
+        }
+    }
+
+    private List<List<Vector3Int>> FallbackDecomposeLayerCells(HashSet<Vector3Int> layerCells, List<PieceDefinition> library)
+    {
+        var result = new List<List<Vector3Int>>();
+        var unvisited = new HashSet<Vector3Int>(layerCells);
+
+        Vector3Int[] neighbors = { Vector3Int.right, Vector3Int.left, new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1) };
+
+        while (unvisited.Count > 0)
+        {
+            var start = unvisited.First();
+            unvisited.Remove(start);
+            var pieceCells = new List<Vector3Int> { start };
+
+            int targetSize = UnityEngine.Random.Range(2, 5);
+
+            foreach (var dir in neighbors)
+            {
+                if (pieceCells.Count >= targetSize) break;
+                Vector3Int n = start + dir;
+                if (unvisited.Contains(n))
+                {
+                    pieceCells.Add(n);
+                    unvisited.Remove(n);
+
+                    foreach (var dir2 in neighbors)
+                    {
+                        if (pieceCells.Count >= targetSize) break;
+                        Vector3Int n2 = n + dir2;
+                        if (unvisited.Contains(n2))
+                        {
+                            pieceCells.Add(n2);
+                            unvisited.Remove(n2);
+                        }
+                    }
+                }
+            }
+
+            result.Add(pieceCells);
+        }
+
+        return result;
     }
 
     // Geçerli katmanı kilitler (kuyruktan çıkarılamaz hale getirir) ve bir sonraki katmana geçer.
@@ -1690,6 +1797,9 @@ public class AILevelDesignerWindow : EditorWindow
             if (strategicPlace || Random.value < 0.5f)
             {
                 frozenCells.Add(cell);
+                // Seçilen zorluk moduna (Kolay/Orta/Zor/Uzman) göre rastgele vuruş sayısı ata —
+                // AILevelDifficulty ile IceHitCountUtility.IceDifficulty AYNI sırada (bkz. tanımları).
+                frozenHitCounts.Add(IceHitCountUtility.RollHitCount((IceHitCountUtility.IceDifficulty)(int)selectedDifficulty));
                 iceDone++;
             }
         }
@@ -2495,6 +2605,7 @@ public class AILevelDesignerWindow : EditorWindow
         fh.prefilledColors          = prefilledMatIdx.Select(idx => PIECE_COLORS[idx % PIECE_COLORS.Length]).ToList();
         fh.prefilledMaterialIndices = new List<int>(prefilledMatIdx);
         fh.frozenCells              = new List<Vector3Int>(frozenCells);
+        fh.frozenHitCounts          = new List<int>(frozenHitCounts);
 
         foreach (var cell in occupiedCells)
         {
@@ -2589,6 +2700,7 @@ public class AILevelDesignerWindow : EditorWindow
         holder.prefilledCells = new List<Vector3Int>(prefilledCells);
         holder.prefilledMaterialIndices = new List<int>(prefilledMatIdx);
         holder.frozenCells = new List<Vector3Int>(frozenCells);
+        holder.frozenHitCounts = new List<int>(frozenHitCounts);
         return root;
     }
 
@@ -3013,6 +3125,7 @@ public class AILevelDesignerWindow : EditorWindow
             prefilledCells.Clear();
             prefilledMatIdx.Clear();
             frozenCells.Clear();
+            frozenHitCounts.Clear();
             pieceSplitList.Clear();
             highlightedPieceIndex = -1;
             BuildSolidBoxShape(gridSize.x, gridSize.y, gridSize.z);

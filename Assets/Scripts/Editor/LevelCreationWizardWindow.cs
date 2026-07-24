@@ -358,6 +358,17 @@ public class LevelCreationWizardWindow : EditorWindow
             if (!string.IsNullOrEmpty(aiDesigner.layerGenError))
             {
                 EditorGUILayout.HelpBox(aiDesigner.layerGenError, MessageType.Warning);
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("🔄  Tekrar Dene (Farklı Parçalarla)", stylePrimaryButton, GUILayout.Height(30)))
+                {
+                    aiDesigner.RegenerateCurrentLayer();
+                }
+                if (GUILayout.Button("⚡  Otomatik Tamamla (Varsayılan Parçalarla Döşe)", styleSuccessButton, GUILayout.Height(30)))
+                {
+                    aiDesigner.ForceCompleteCurrentLayer();
+                }
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.Space(4);
             }
 
             EditorGUILayout.Space(4);

@@ -41,6 +41,11 @@ public class GridManager : MonoBehaviour
     private readonly Dictionary<Vector3Int, GameObject> iceVisuals = new Dictionary<Vector3Int, GameObject>();
     private static GameObject icePrefabCache;
 
+    // Buz hücresi başına kalan vuruş sayısı (bkz. CubeShapeDataHolder.GetFrozenHitCount /
+    // IceVisualMarker). Değer 0'a inince buz gerçekten erir; ara vuruşlarda IceBreakEffect.PlayIceChip
+    // oynar ve buz frozenCells'te kalmaya devam eder (bkz. CheckAndResolveFrozenCells).
+    private Dictionary<Vector3Int, int> iceRemainingHits = new Dictionary<Vector3Int, int>();
+
     private static GameObject IcePrefab
     {
         get
@@ -67,10 +72,13 @@ public class GridManager : MonoBehaviour
 
         // DÜZELTME: ApplyTargetGhost (LevelManager.cs) fonksiyonunun buzun kendi materyalini
         // yarı saydam yeşil ghost materyaliyle ezmesini önlemek için IceVisualMarker'ı dinamik olarak ekliyoruz.
-        if (go.GetComponent<IceVisualMarker>() == null)
+        var marker = go.GetComponent<IceVisualMarker>();
+        if (marker == null)
         {
-            go.AddComponent<IceVisualMarker>();
+            marker = go.AddComponent<IceVisualMarker>();
         }
+        int hitsRequired = iceRemainingHits.TryGetValue(cell, out int h) ? h : 1;
+        marker.Initialize(hitsRequired);
 
         iceVisuals[cell] = go;
     }
@@ -103,6 +111,7 @@ public class GridManager : MonoBehaviour
     {
         foreach (var kv in iceVisuals) if (kv.Value != null) Destroy(kv.Value);
         iceVisuals.Clear();
+        iceRemainingHits.Clear();
     }
 
     public float  CellSize { get; private set; }
@@ -414,12 +423,33 @@ public class GridManager : MonoBehaviour
         // (önceden burada boş listeyi "tanımlanmamış" sayıp katman başına rastgele %25 hücreyi
         // buzlayan bir fallback vardı; bu, buzsuz tasarlanan seviyeleri de oynanamaz hale
         // getirebiliyordu — özellikle tek parçanın tüm tahtayı kapladığı küçük seviyelerde).
+        iceRemainingHits.Clear();
         if (shapeHolder != null && shapeHolder.frozenCells != null)
         {
             Debug.Log($"[GridManager] Initialize: shapeHolder.frozenCells.Count = {shapeHolder.frozenCells.Count}");
+            int currentLevelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+
             foreach (var cell in shapeHolder.frozenCells)
             {
                 frozenCells.Add(cell);
+                int hitCount = shapeHolder.GetFrozenHitCount(cell);
+
+                // Eğer özel vuruş verisi pişirilmemişse (veya <= 1 ise) ve LevelManager üzerinden dinamik zorluk aktifse:
+                bool useDynamic = LevelManager.Instance == null || LevelManager.Instance.autoAssignIceHitsByDifficulty;
+                if (useDynamic && hitCount <= 1)
+                {
+                    if (LevelManager.Instance != null && LevelManager.Instance.overrideHitCountPerLevel)
+                    {
+                        var range = LevelManager.Instance.customHitCountRange;
+                        hitCount = Random.Range(Mathf.Min(range.x, range.y), Mathf.Max(range.x, range.y) + 1);
+                    }
+                    else
+                    {
+                        hitCount = IceHitCountUtility.RollHitCountForLevel(currentLevelNum);
+                    }
+                }
+
+                iceRemainingHits[cell] = Mathf.Max(1, hitCount);
             }
         }
         else
@@ -1045,6 +1075,7 @@ public class GridManager : MonoBehaviour
             cellColors.Remove(cell);
             targetCells.Remove(cell);
             frozenCells.Remove(cell); // Buz hücreleri de kaldır
+            iceRemainingHits.Remove(cell);
 
             if (targetRenderers.TryGetValue(cell, out var renderer) && renderer != null)
             {
@@ -1172,6 +1203,14 @@ public class GridManager : MonoBehaviour
         }
         iceVisuals.Clear();
         foreach (var kvp in newIce) iceVisuals[kvp.Key] = kvp.Value;
+
+        var newIceHits = new Dictionary<Vector3Int, int>();
+        foreach (var kvp in iceRemainingHits)
+        {
+            if (kvp.Key.y == clearedY) continue;
+            newIceHits[kvp.Key.y > clearedY ? new Vector3Int(kvp.Key.x, kvp.Key.y - 1, kvp.Key.z) : kvp.Key] = kvp.Value;
+        }
+        iceRemainingHits = newIceHits;
 
         var newMelting = new HashSet<Vector3Int>();
         foreach (var c in meltingIceCells)
@@ -2704,8 +2743,10 @@ public class GridManager : MonoBehaviour
             return false;
         }
 
-        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();   // kalan vuruş 0'a indi -> tam erime
+        HashSet<Vector3Int> cellsToChip = new HashSet<Vector3Int>();   // hâlâ donuk, sadece sayaç azaldı
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
 
         foreach (var touchCell in touchingCells)
         {
@@ -2718,17 +2759,27 @@ public class GridManager : MonoBehaviour
             foreach (var offset in horizontalNeighbors)
             {
                 Vector3Int neighbor = touchCell + offset;
-                if (frozenCells.Contains(neighbor)) cellsToThaw.Add(neighbor);
+                if (!frozenCells.Contains(neighbor)) continue;
+                if (!hitFrozenThisCall.Add(neighbor)) continue;
+
+                // Buz kaç vuruşa dayanıyorsa (bkz. CubeShapeDataHolder.GetFrozenHitCount, tool
+                // üzerinden ayarlanır), her nitelikli temas bu sayacı 1 azaltır; 0'a inince erir.
+                int remaining = iceRemainingHits.TryGetValue(neighbor, out int r) ? r : 1;
+                remaining = Mathf.Max(0, remaining - 1);
+                iceRemainingHits[neighbor] = remaining;
+
+                if (remaining <= 0) cellsToThaw.Add(neighbor);
+                else cellsToChip.Add(neighbor);
             }
         }
 
-        if (cellsToThaw.Count == 0)
+        if (cellsToThaw.Count == 0 && cellsToChip.Count == 0)
         {
             onComplete?.Invoke(false);
             return false;
         }
 
-        StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToDestroy, () => onComplete?.Invoke(true)));
+        StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToChip, cellsToDestroy, () => onComplete?.Invoke(true)));
         return true;
     }
 
@@ -2836,9 +2887,9 @@ public class GridManager : MonoBehaviour
 
     // Eriyen buz hücreleri normal boş hedef hücreye dönerken, cellsToDestroy içindeki 
     // hücreler de patlayıp boşalır. (Eski mantığa dönüldüğü için artık cellsToDestroy genelde boş gelir).
-    private IEnumerator AnimateThawAndDestroy(HashSet<Vector3Int> cellsToThaw, HashSet<Vector3Int> cellsToDestroy, System.Action onComplete)
+    private IEnumerator AnimateThawAndDestroy(HashSet<Vector3Int> cellsToThaw, HashSet<Vector3Int> cellsToChip, HashSet<Vector3Int> cellsToDestroy, System.Action onComplete)
     {
-        if (cellsToThaw != null && cellsToThaw.Count > 0)
+        if ((cellsToThaw != null && cellsToThaw.Count > 0) || (cellsToChip != null && cellsToChip.Count > 0))
         {
             AudioManager.Instance?.PlayIceMeltSound();
         }
@@ -2846,6 +2897,7 @@ public class GridManager : MonoBehaviour
         foreach (var cell in cellsToThaw)
         {
             frozenCells.Remove(cell);
+            iceRemainingHits.Remove(cell);
         }
 
         foreach (var cell in cellsToDestroy)
@@ -2855,7 +2907,7 @@ public class GridManager : MonoBehaviour
             cellMatIndex.Remove(cell);
         }
 
-        int pendingEffects = cellsToThaw.Count + cellsToDestroy.Count;
+        int pendingEffects = cellsToThaw.Count + cellsToChip.Count + cellsToDestroy.Count;
         if (pendingEffects == 0)
         {
             onComplete?.Invoke();
@@ -2901,6 +2953,28 @@ public class GridManager : MonoBehaviour
                 {
                     onThisIceDone();
                 }
+            }
+            else
+            {
+                onOneEffectDone();
+            }
+        }
+
+        // Kısmi erime (chip): buz hâlâ frozenCells'te kalır, sadece üzerindeki sayaç bir
+        // azalır ve IceBreakEffect.PlayIceChip ile küçük bir "kırpılma" animasyonu oynar.
+        foreach (var cell in cellsToChip)
+        {
+            var iceGo = GetIceVisual(cell);
+            int remaining = iceRemainingHits.TryGetValue(cell, out int r) ? r : 0;
+            var marker = iceGo != null ? iceGo.GetComponent<IceVisualMarker>() : null;
+            if (marker != null)
+            {
+                marker.UpdateCount(remaining, true);
+            }
+
+            if (iceGo != null && IceBreakEffect.Instance != null)
+            {
+                IceBreakEffect.PlayIceChip(iceGo, remaining, marker != null ? marker.totalHits : remaining + 1, onOneEffectDone);
             }
             else
             {

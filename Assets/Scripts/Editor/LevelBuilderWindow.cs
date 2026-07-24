@@ -53,7 +53,12 @@ public class LevelBuilderWindow : EditorWindow
     private List<Vector3Int>    prefilledCells  = new List<Vector3Int>();
     private List<int>           prefilledMatIdx = new List<int>();
     private List<Vector3Int>    frozenCells     = new List<Vector3Int>();
+    private List<int>           frozenHitCounts = new List<int>(); // frozenCells ile aynı indeks
     private HashSet<Vector3Int> disabledCells   = new HashSet<Vector3Int>();
+
+    // ── Buz Vuruş Sayısı (Ice) ──────────────────────────────────────
+    private int activeIceHitCount = 1; // Şu an fırça ile boyanacak vuruş sayısı
+    private IceHitCountUtility.IceDifficulty iceDifficulty = IceHitCountUtility.IceDifficulty.Orta;
 
     // ── UI Durumu ─────────────────────────────────────────────────
     private int      activeLayer      = 0;
@@ -300,6 +305,29 @@ public class LevelBuilderWindow : EditorWindow
             }
             EditorGUILayout.EndHorizontal();
         }
+        else if (drawMode == DrawMode.Ice)
+        {
+            GUILayout.Space(6);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("❄️ Vuruş Sayısı (erimesi için gereken eşleşme sayısı):", EditorStyles.boldLabel, GUILayout.Width(300));
+            activeIceHitCount = EditorGUILayout.IntSlider(activeIceHitCount, 1, 9, GUILayout.Width(160));
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Rastgele doldurma zorluğu:", GUILayout.Width(160));
+            iceDifficulty = (IceHitCountUtility.IceDifficulty)EditorGUILayout.EnumPopup(iceDifficulty, GUILayout.Width(100));
+            GUILayout.Space(8);
+            if (GUILayout.Button("🎲 Tüm Buzları Zorluğa Göre Rastgele Doldur", GUILayout.Height(22)))
+            {
+                RandomizeIceHitCounts();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            var iceRangeNow = IceHitCountUtility.GetRange(iceDifficulty);
+            EditorGUILayout.HelpBox(
+                $"{iceDifficulty}: mevcut tüm buz hücrelerine {iceRangeNow.min}-{iceRangeNow.max} arası rastgele vuruş sayısı atar. " +
+                "Yeni yerleştirilen buzlar yukarıdaki sabit sayıyla boyanır.", MessageType.None);
+        }
         EditorGUILayout.EndVertical();
 
         // Prominent Horizontal Layer Selector Row
@@ -479,12 +507,15 @@ public class LevelBuilderWindow : EditorWindow
 
             if (isIce && cellPx >= 18)
             {
-                var iceLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                int hIdx = frozenCells.IndexOf(cell);
+                int hitCount = (hIdx >= 0 && hIdx < frozenHitCounts.Count) ? frozenHitCounts[hIdx] : 1;
+                var iceLabelStyle = new GUIStyle(EditorStyles.miniBoldLabel)
                 {
                     alignment = TextAnchor.MiddleCenter,
-                    fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.50f), 9, 22)
+                    fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.42f), 9, 20),
+                    normal = { textColor = new Color(0.05f, 0.22f, 0.48f) }
                 };
-                GUI.Label(new Rect(ox + cell.x * cellPx, oy + cell.z * cellPx, cellPx, cellPx), "❄️", iceLabelStyle);
+                GUI.Label(new Rect(ox + cell.x * cellPx, oy + cell.z * cellPx, cellPx, cellPx), hitCount.ToString(), iceLabelStyle);
             }
         }
 
@@ -516,13 +547,13 @@ public class LevelBuilderWindow : EditorWindow
                     EditorGUI.DrawRect(hoverRect, new Color(0.5f, 0.85f, 1.0f, 0.7f));
                     if (cellPx >= 22)
                     {
-                        var iceLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                        var iceLabelStyle = new GUIStyle(EditorStyles.miniBoldLabel)
                         {
                             alignment = TextAnchor.MiddleCenter,
                             fontSize = Mathf.Clamp(Mathf.RoundToInt(cellPx * 0.45f), 10, 20),
-                            normal = { textColor = new Color(1, 1, 1, 0.6f) }
+                            normal = { textColor = new Color(1, 1, 1, 0.85f) }
                         };
-                        GUI.Label(hoverRect, "❄️", iceLabelStyle);
+                        GUI.Label(hoverRect, activeIceHitCount.ToString(), iceLabelStyle);
                     }
                 }
                 else if (drawMode == DrawMode.DisableCell)
@@ -647,13 +678,15 @@ public class LevelBuilderWindow : EditorWindow
                 disabledCells.Remove(c);
                 occupiedCells.Add(c);
                 RemoveFromPrefilled(c);
-                frozenCells.Remove(c);
+                RemoveFromFrozen(c);
                 break;
             case DrawMode.Ice:
                 disabledCells.Remove(c);
                 occupiedCells.Add(c);
                 RemoveFromPrefilled(c);
-                if (!frozenCells.Contains(c)) frozenCells.Add(c);
+                int iceIdx = frozenCells.IndexOf(c);
+                if (iceIdx < 0) { frozenCells.Add(c); frozenHitCounts.Add(activeIceHitCount); }
+                else if (iceIdx < frozenHitCounts.Count) frozenHitCounts[iceIdx] = activeIceHitCount; // yeniden boyama: sayıyı günceller
                 break;
             case DrawMode.Erase:
                 EraseCell(c);
@@ -661,7 +694,7 @@ public class LevelBuilderWindow : EditorWindow
             case DrawMode.Prefilled:
                 disabledCells.Remove(c);
                 occupiedCells.Add(c);
-                frozenCells.Remove(c);
+                RemoveFromFrozen(c);
                 int existing = prefilledCells.IndexOf(c);
                 if (existing >= 0) prefilledMatIdx[existing] = activePrefilledColor;
                 else { prefilledCells.Add(c); prefilledMatIdx.Add(activePrefilledColor); }
@@ -677,7 +710,7 @@ public class LevelBuilderWindow : EditorWindow
     {
         occupiedCells.Remove(c);
         RemoveFromPrefilled(c);
-        frozenCells.Remove(c);
+        RemoveFromFrozen(c);
         disabledCells.Remove(c);
     }
 
@@ -685,6 +718,23 @@ public class LevelBuilderWindow : EditorWindow
     {
         int i = prefilledCells.IndexOf(c);
         if (i >= 0) { prefilledCells.RemoveAt(i); prefilledMatIdx.RemoveAt(i); }
+    }
+
+    private void RemoveFromFrozen(Vector3Int c)
+    {
+        int i = frozenCells.IndexOf(c);
+        if (i >= 0) { frozenCells.RemoveAt(i); if (i < frozenHitCounts.Count) frozenHitCounts.RemoveAt(i); }
+    }
+
+    private void RandomizeIceHitCounts()
+    {
+        var range = IceHitCountUtility.GetRange(iceDifficulty);
+        for (int i = 0; i < frozenCells.Count; i++)
+        {
+            while (frozenHitCounts.Count <= i) frozenHitCounts.Add(1);
+            frozenHitCounts[i] = UnityEngine.Random.Range(range.min, range.max + 1);
+        }
+        Repaint();
     }
 
     // ── Mini Layer ────────────────────────────────────────────────
@@ -798,7 +848,7 @@ public class LevelBuilderWindow : EditorWindow
     private void FillLayer(int y) { for (int x = 0; x < gridSize.x; x++) for (int z = 0; z < gridSize.z; z++) occupiedCells.Add(new Vector3Int(x, y, z)); Repaint(); }
     private void ClearLayer(int y) { var rem = occupiedCells.Where(c => c.y == y).ToList(); foreach (var c in rem) EraseCell(c); Repaint(); }
     private void FillAll()  { for (int y = 0; y < gridSize.y; y++) FillLayer(y); }
-    private void ClearAll() { occupiedCells.Clear(); prefilledCells.Clear(); prefilledMatIdx.Clear(); frozenCells.Clear(); disabledCells.Clear(); Repaint(); }
+    private void ClearAll() { occupiedCells.Clear(); prefilledCells.Clear(); prefilledMatIdx.Clear(); frozenCells.Clear(); frozenHitCounts.Clear(); disabledCells.Clear(); Repaint(); }
 
     private void ClearPrefilledInLayer(int y)
     {
@@ -887,6 +937,8 @@ public class LevelBuilderWindow : EditorWindow
                 if (h.frozenCells != null)
                 {
                     foreach (var c in h.frozenCells) frozenCells.Add(c);
+                    for (int i = 0; i < frozenCells.Count; i++)
+                        frozenHitCounts.Add(h.frozenHitCounts != null && i < h.frozenHitCounts.Count && h.frozenHitCounts[i] >= 1 ? h.frozenHitCounts[i] : 1);
                 }
             }
         }
@@ -925,6 +977,7 @@ public class LevelBuilderWindow : EditorWindow
         fh.prefilledColors          = prefilledMatIdx.Select(i => PREFILL_COLORS[i % PREFILL_COLORS.Length]).ToList();
         fh.prefilledMaterialIndices = new List<int>(prefilledMatIdx);
         fh.frozenCells              = new List<Vector3Int>(frozenCells);
+        fh.frozenHitCounts          = new List<int>(frozenHitCounts);
         foreach (var cell in occupiedCells)
         {
             GameObject cube = cubePrefab != null
