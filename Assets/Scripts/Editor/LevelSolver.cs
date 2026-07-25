@@ -404,10 +404,18 @@ public class LevelSolver
     }
 
     // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
-    // buz eritme AYNI TÜR şartı aramaz, ve yok olan grup kasıtlı olarak SADECE 2 hücre
-    // (flood-fill DEĞİL). TÜM buzlu hücreler taranır (sadece bu adımda yerleşen parçaya değil)
-    // — aksi halde buza ÖNCEDEN değen bir hücrenin yanına şimdi ikinci bir hücre yerleşmesiyle
-    // tamamlanan erime kaçırılır.
+    // buza değen hücreden başlayan AYNI RENKTEKİ bağlantılı (flood-fill) grup ≥2 üyeliyse TAMAMI
+    // patlar (bkz. FloodFillSameColorInSolver / GridManager.FloodFillSameSpecies). TÜM buzlu
+    // hücreler taranır (sadece bu adımda yerleşen parçaya değil) — aksi halde buza ÖNCEDEN değen
+    // bir hücrenin yanına şimdi ikinci bir hücre yerleşmesiyle tamamlanan erime kaçırılır.
+    // [Düzeltme] Bu metod önceden buza değen hücre + rastgele bulunan İLK komşusunu (renk kontrolü
+    // OLMADAN) yok ediyordu — yorumların ve gerçek oyunun (GridManager.CheckAndResolveFrozenCells +
+    // FloodFillSameSpecies) tanımladığı "buza değen hücreden başlayan AYNI RENKTEKİ bağlantılı grup
+    // ≥2 üyeliyse TAMAMI patlar" kuralını UYGULAMIYORDU (rengi hiç okumuyordu, grubu flood-fill
+    // etmiyordu, sadece 2 hücre siliyordu). Bu, hem bu dosyanın kendi test beklentileriyle
+    // (LevelSolverTests.CreateIceGroupExplosionLevel: totalDestroyed==3, minMoveCount==5) hem de
+    // gerçek oyun mekaniğiyle çelişiyordu — aşağıdaki flood-fill, GridManager.FloodFillSameSpecies
+    // ile birebir aynı kuralı (currentOccupied/currentMatIndex üzerinden) uygular.
     private void ResolveFrozenCellsInSolver(PlacementStep step)
     {
         if (frozenCells.Count == 0) return;
@@ -429,22 +437,13 @@ public class LevelSolver
             {
                 Vector3Int touchCell = frozenCell + offset;
                 if (!currentOccupied.Contains(touchCell)) continue;
+                if (!currentMatIndex.TryGetValue(touchCell, out int touchColor)) continue;
 
-                Vector3Int? partner = null;
-                foreach (var offset2 in horizontalNeighbors)
-                {
-                    Vector3Int neighbor = touchCell + offset2;
-                    if (currentOccupied.Contains(neighbor))
-                    {
-                        partner = neighbor;
-                        break;
-                    }
-                }
-                if (partner == null) continue;
+                var group = FloodFillSameColorInSolver(touchCell, touchColor, horizontalNeighbors);
+                if (group.Count < 2) continue;
 
                 qualifiedFrozen.Add(frozenCell);
-                cellsToDestroy.Add(touchCell);
-                cellsToDestroy.Add(partner.Value);
+                cellsToDestroy.UnionWith(group);
             }
         }
 
@@ -478,6 +477,32 @@ public class LevelSolver
             currentOccupied.Remove(cell);
             currentMatIndex.Remove(cell);
         }
+    }
+
+    // GridManager.FloodFillSameSpecies ile birebir aynı: start'tan başlayıp SADECE aynı renkteki
+    // (currentMatIndex == color) bağlantılı (yatay 4 komşuluk) dolu hücreleri toplar.
+    private HashSet<Vector3Int> FloodFillSameColorInSolver(Vector3Int start, int color, Vector3Int[] horizontalNeighbors)
+    {
+        var visited = new HashSet<Vector3Int> { start };
+        var stack = new Stack<Vector3Int>();
+        stack.Push(start);
+
+        while (stack.Count > 0)
+        {
+            var cur = stack.Pop();
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = cur + offset;
+                if (visited.Contains(neighbor)) continue;
+                if (!currentOccupied.Contains(neighbor)) continue;
+                if (!currentMatIndex.TryGetValue(neighbor, out int idx) || idx != color) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
+            }
+        }
+
+        return visited;
     }
 
     private bool AllLayersValid()
@@ -605,6 +630,82 @@ public class LevelSolver
         return "zor";
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  MONTE CARLO BUZ DOĞRULAMASI — bkz. LevelForge.IStochasticReevaluator,
+    //  Assets/Scripts/Editor/LevelForgeAdapter/BlockMerge3DIceRevalidator.cs
+    // ═══════════════════════════════════════════════════════════════════
+    // Ana arama (BacktrackingSolve/TryPlacePiece) buz erimesini pieceIndex % 8 gibi DETERMİNİSTİK
+    // bir vekil (proxy) renkle simüle eder — gerçek oyunda parça rengi spawn anında RASTGELE atanır
+    // (bkz. TryPlacePiece'teki proxyColor notu). Bu metod, zaten bulunmuş bir çözümün adım SIRASINI
+    // ve hücrelerini aynen koruyarak (yeniden arama YAPMAZ — geometri zaten kanıtlı çözülebilir,
+    // ucuz bir "replay" yeterli), her denemede FARKLI rastgele renklerle olayı yeniden oynatır ve
+    // aynı sıralamanın hâlâ tüm hedef hücreleri doldurduğunu doğrular.
+    //
+    // Bir denemenin başarısız olması şu anlama gelir: o rastgele renk kombinasyonunda, AYNI parça
+    // sırası bir hücre çakışmasına yol açtı (beklenen ama bu sefer gerçekleşmeyen bir buz/patlama
+    // temizliği yüzünden — solver'ın "best-effort" buz simülasyonunun gerçek oyunda kırılabileceği
+    // tam olarak bu senaryo). Döndürülen değer, trials denemesinin kaçının geçtiğinin oranıdır
+    // (1.0 = buzsuz seviye ya da tüm denemeler geçti).
+    public float ReplayWithRandomizedColors(List<PlacementStep> solutionSteps, CubeShapeDataHolder holder, int trials, int paletteSize, System.Random rng)
+    {
+        if (solutionSteps == null || solutionSteps.Count == 0 || trials <= 0) return 1f;
+        if (holder.frozenCells == null || holder.frozenCells.Count == 0) return 1f; // renk sadece buz erimesini etkiler
+
+        InitializeFromHolder(holder);
+        int passCount = 0;
+
+        for (int t = 0; t < trials; t++)
+        {
+            // Her deneme için taze başlangıç durumu (targetCells/gridSize/prefilledCells sabit kalır,
+            // InitializeFromHolder ile üstte bir kez set edildi — sadece buz/doluluk durumu resetlenir).
+            frozenCells = new HashSet<Vector3Int>(holder.frozenCells);
+            frozenRemainingHits = new Dictionary<Vector3Int, int>();
+            foreach (var cell in frozenCells)
+                frozenRemainingHits[cell] = holder.GetFrozenHitCount(cell);
+
+            currentOccupied = new HashSet<Vector3Int>(prefilledCells);
+            currentMatIndex = new Dictionary<Vector3Int, int>();
+            if (holder.prefilledCells != null && holder.prefilledMaterialIndices != null)
+            {
+                for (int i = 0; i < holder.prefilledCells.Count && i < holder.prefilledMaterialIndices.Count; i++)
+                    currentMatIndex[holder.prefilledCells[i]] = holder.prefilledMaterialIndices[i];
+            }
+
+            bool trialOk = true;
+            foreach (var originalStep in solutionSteps)
+            {
+                foreach (var cell in originalStep.cells)
+                {
+                    if (currentOccupied.Contains(cell) || frozenCells.Contains(cell))
+                    {
+                        trialOk = false;
+                        break;
+                    }
+                }
+                if (!trialOk) break;
+
+                int randomColor = rng.Next(Mathf.Max(1, paletteSize));
+                var scratchStep = new PlacementStep
+                {
+                    pieceIndex = originalStep.pieceIndex,
+                    offset = originalStep.offset,
+                    rotation = originalStep.rotation,
+                    cells = new List<Vector3Int>(originalStep.cells)
+                };
+                foreach (var cell in scratchStep.cells)
+                {
+                    currentOccupied.Add(cell);
+                    currentMatIndex[cell] = randomColor;
+                }
+                ResolveFrozenCellsInSolver(scratchStep);
+            }
+
+            if (trialOk && targetCells.All(c => currentOccupied.Contains(c)))
+                passCount++;
+        }
+
+        return (float)passCount / trials;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════

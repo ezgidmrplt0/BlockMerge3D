@@ -342,6 +342,48 @@ public class LevelSolverTests
                             ? $"BAŞARISIZ: {result4.minMoveCount} hamle bekleniyordu 5 (1 tetikleyici + 4 yeniden-doldurma)"
                             : $"Çözülebilir: {result4.minMoveCount} hamle, grup patlaması (3 üyeli) doğru simüle edildi"
         });
+        // ── Test 5: Buzsuz seviyede Monte Carlo replay her zaman %100 geçer (renk hiç etkilemiyor) ──
+        var test5 = CreateSimpleSolvableLevel();
+        var result5 = solver.SolveFromPrefabs(test5.mainShape, test5.pieces);
+        float noIcePassRate = result5.isSolvable
+            ? solver.ReplayWithRandomizedColors(result5.solutionSteps, test5.mainShape.GetComponent<CubeShapeDataHolder>(), 20, 8, new System.Random(1))
+            : -1f;
+        results.Add(new PieceTestResult
+        {
+            name = "Monte Carlo replay — buzsuz seviyede renk etkisiz (her zaman %100)",
+            passed = result5.isSolvable && noIcePassRate == 1f,
+            message = !result5.isSolvable
+                ? $"BAŞARISIZ: temel seviye çözülemedi ({result5.failureReason})"
+                : noIcePassRate == 1f
+                    ? "20 rastgele-renk denemesinin tamamı geçti (beklenen davranış)"
+                    : $"BAŞARISIZ: buz yokken geçiş oranı %{noIcePassRate * 100f:F0} olmalıydı %100"
+        });
+        Object.DestroyImmediate(test5.mainShape);
+        foreach (var p in test5.pieces) Object.DestroyImmediate(p);
+
+        // ── Test 6: Buzlu seviyede Monte Carlo replay, deterministik proxy rengin ıskaladığı riski
+        // gerçekten yakalıyor mu? (bkz. LevelSolver.ReplayWithRandomizedColors, Kural #2). Bu fixture'da
+        // tetikleyici parçanın rastgele rengi, prefilled hücrelerin SABİT rengiyle (0) eşleşmezse grup
+        // patlaması tetiklenmez ve aynı adım sırası bir hücre çakışmasına düşer — 8 renklik bir palette
+        // bu ~7/8 ihtimalle olur, bu yüzden sabit bir tohumla (deterministik, kararsız olmayan test)
+        // 40 denemede en az bir başarısızlık BEKLENİR (passRate < 1.0).
+        bool test4SolvedForReplay = result4.isSolvable && result4.solutionSteps != null;
+        float icePassRate = test4SolvedForReplay
+            ? solver.ReplayWithRandomizedColors(result4.solutionSteps, test4.mainShape.GetComponent<CubeShapeDataHolder>(), 40, 8, new System.Random(7))
+            : -1f;
+        results.Add(new PieceTestResult
+        {
+            name = "Monte Carlo replay — buzlu seviyede renk uyuşmazlığı yakalanıyor",
+            passed = test4SolvedForReplay && icePassRate < 1f,
+            message = !test4SolvedForReplay
+                ? "BAŞARISIZ: Test 4 çözülemediği için replay denenemedi"
+                : icePassRate < 1f
+                    ? $"Beklendiği gibi: geçiş oranı %{icePassRate * 100f:F0} (<%100) — deterministik proxy rengin " +
+                      "gerçek rastgele renk atamasında kırılabileceğini doğru tespit etti"
+                    : "BAŞARISIZ: 40 denemenin tamamı geçti — beklenen ~%12.5 (1/8) geçiş oranından sapma, " +
+                      "replay renk uyuşmazlığını yakalayamıyor olabilir"
+        });
+
         Object.DestroyImmediate(test4.mainShape);
         foreach (var p in test4.pieces) Object.DestroyImmediate(p);
 

@@ -1,0 +1,16 @@
+{
+  "name": "com.fogboundgames.levelforge",
+  "version": "0.1.0",
+  "displayName": "LevelForge - Difficulty-Targeted Procedural Generation Engine",
+  "description": "A generic, game-agnostic closed-loop engine: generate a candidate, evaluate it against a difficulty target, mutate parameters, retry within a bounded budget until the target is met (or fail with a clear diagnostic). Contains no game-specific rules - each project supplies a small adapter (IDifficultyEvaluator + IParameterSpace) that wraps its own generator/solver. See ADAPTER_GUIDE.md.",
+  "unity": "2021.3",
+  "keywords": [
+    "procedural generation",
+    "level design",
+    "difficulty",
+    "editor tooling"
+  ],
+  "author": {
+    "name": "fogboundgames"
+  }
+}

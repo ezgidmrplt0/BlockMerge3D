@@ -3,6 +3,7 @@ using UnityEditor;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using LevelForge;
 
 // ═══════════════════════════════════════════════════════════════════
 //  AI LEVEL DESIGNER  —  Yapay Zeka Destekli Seviye Oluşturucu
@@ -85,6 +86,11 @@ public class AILevelDesignerWindow : EditorWindow
     // ── Solver Sonucu ─────────────────────────────────────────────
     internal SolverResult lastSolverResult;
     internal bool solverRan = false;
+    // RunDifficultySearch tarafından doldurulur — kapalı döngü aramanın tam teşhis izini taşır
+    // (kaç deneme yapıldı, her denemenin skoru/nedeni). Wizard'ın (LevelCreationWizardWindow)
+    // kendi layer-by-layer akışı bu motoru kullanmadığı için orada null kalır — DrawSolverResultSection
+    // bunu null-safe ele alır.
+    internal LevelForge.SearchResult<BlockMerge3DCandidate> lastSearchResult;
     private int highlightedPieceIndex = -1;
 
     // ── Katman Katman Üretim (LevelCreationWizardWindow Adım 3) ─────
@@ -1092,10 +1098,10 @@ public class AILevelDesignerWindow : EditorWindow
                 normal = { textColor = new Color(0.18f, 0.70f, 0.40f) }
             };
             GUILayout.Label("✅  BAŞARILI: SEVİYE ÇÖZÜLEBİLİR!", solverSuccessStyle);
-            
+
             EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
-            
+
             // Move count card
             DrawStatBlock("En Kısa Yol", $"{lastSolverResult.minMoveCount} Hamle");
             GUILayout.Space(8);
@@ -1104,7 +1110,32 @@ public class AILevelDesignerWindow : EditorWindow
             string diffText = string.IsNullOrEmpty(lastSolverResult.difficultyLabel) ? "Bilinmiyor" : lastSolverResult.difficultyLabel.ToUpper();
             DrawStatBlock("Zorluk", $"{diffText} ({lastSolverResult.difficultyScore:F2})");
 
+            // Kapalı döngü arama kaç deneme sürdü (lastSearchResult sadece RunDifficultySearch
+            // yolundan geçince set edilir — wizard'ın kendi akışında null kalır, bu blok o durumda
+            // sadece bu kartı atlar).
+            if (lastSearchResult != null)
+            {
+                GUILayout.Space(8);
+                DrawStatBlock("Kapalı Döngü", $"{lastSearchResult.attemptsUsed} deneme");
+            }
+
             EditorGUILayout.EndHorizontal();
+
+            var lastAttemptDiag = lastSearchResult != null && lastSearchResult.allAttempts.Count > 0
+                ? lastSearchResult.allAttempts[lastSearchResult.allAttempts.Count - 1]
+                : null;
+            if (lastAttemptDiag != null && lastAttemptDiag.stochasticPassRate < 1f)
+            {
+                EditorGUILayout.HelpBox($"❄️ Buz Monte Carlo doğrulaması: %{lastAttemptDiag.stochasticPassRate * 100f:F0} geçiş oranı.", MessageType.None);
+            }
+
+            // Havuz sessizce "tag+boyut" kademesinin altına düştüyse (bkz. SampleEligiblePool) —
+            // ör. seçilen zorluğa uygun etiketli/boyutlu parça kalmadığı için tüm kütüphaneden
+            // örneklendiyse — bunu burada görünür kıl.
+            if (!string.IsNullOrEmpty(lastPoolFallbackInfo) && !lastPoolFallbackInfo.StartsWith("tag+boyut"))
+            {
+                EditorGUILayout.HelpBox($"🧬 Parça havuzu kademesi: {lastPoolFallbackInfo}", MessageType.Warning);
+            }
         }
         else if (lastSolverResult.timedOut)
         {
@@ -1114,7 +1145,7 @@ public class AILevelDesignerWindow : EditorWindow
                 normal = { textColor = new Color(0.95f, 0.65f, 0.15f) }
             };
             GUILayout.Label("⏱️  BELİRSİZ: ZAMAN / DURUM LİMİTİ AŞILDI", solverTimeoutStyle);
-            EditorGUILayout.HelpBox(lastSolverResult.failureReason, MessageType.Warning);
+            EditorGUILayout.HelpBox(BuildSolverFailureMessage(), MessageType.Warning);
 
             if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir", styleSuccessButton, GUILayout.Height(28)))
             {
@@ -1129,7 +1160,7 @@ public class AILevelDesignerWindow : EditorWindow
                 normal = { textColor = new Color(0.88f, 0.25f, 0.25f) }
             };
             GUILayout.Label("❌  HATA: SEVİYE ÇÖZÜLEMEZ DURUMDA!", solverFailStyle);
-            EditorGUILayout.HelpBox(lastSolverResult.failureReason, MessageType.Error);
+            EditorGUILayout.HelpBox(BuildSolverFailureMessage(), MessageType.Error);
 
             if (GUILayout.Button(retryLabel ?? "🔁  Parametreleri İyileştir", styleSuccessButton, GUILayout.Height(28)))
             {
@@ -1137,6 +1168,19 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
         EndSectionCard();
+    }
+
+    // lastSearchResult (kapalı döngü arama) varsa onun tam denemeler-arası özetini gösterir — kaç
+    // deneme yapıldı ve en yakın denemenin nereden saptığı. Yoksa (wizard'ın kendi akışı gibi
+    // lastSearchResult'ı hiç set etmeyen çağrı yolları için) eski davranışa (tek solver mesajı) düşer.
+    private string BuildSolverFailureMessage()
+    {
+        if (lastSearchResult != null && !lastSearchResult.success)
+        {
+            return $"{lastSearchResult.failureSummary}\n\n" +
+                   $"({lastSearchResult.attemptsUsed} deneme yapıldı, hiçbiri '{selectedDifficulty}' zorluğunu toleransla tutturamadı.)";
+        }
+        return lastSolverResult.failureReason;
     }
 
     private void DrawRightPanel()
@@ -1300,19 +1344,19 @@ public class AILevelDesignerWindow : EditorWindow
 
         EditorGUILayout.BeginVertical(styleInstructionBox);
         GUILayout.Label("3. DONDURULMUŞ VE RENKLİ BLOK YERLEŞTİRME KURALLARI", EditorStyles.boldLabel);
-        GUILayout.Label(" • Dondurulmuş Bloklar (Buz): Oyuncu bu hücrelerin üzerine blok koyduğunda, katman temizlenmesi için önce buzun kırılması gerekir. AI, buzu stratejik olarak taban katmanlara veya şekil dış çeperine yerleştirir.\n" +
-                      " • Renkli Bloklar (Prefilled): Seviye başında ızgaraya yerleştirilen sabit bloklardır. Bunlar seviyenin renk temasını belirler. AI, renk bütünlüğünü korumak adına aynı renkteki blokları yan yana dizmeye çalışır.", EditorStyles.wordWrappedLabel);
+        GUILayout.Label(" • Dondurulmuş Bloklar (Buz): Oyuncu bu hücrelerin üzerine blok koyduğunda, katman temizlenmesi için önce buzun kırılması gerekir (bkz. GridManager.CheckAndResolveFrozenCells). Üretici, buzu taban katmanlara veya şekil dış çeperine ağırlıklı olarak yerleştirir (bkz. DistributeObstacles).\n" +
+                      " • Renkli Bloklar (Prefilled): Seviye başında ızgaraya yerleştirilen sabit bloklardır, kozmetiktir. Renk bir katman başına TEK seferde seçilir (hücre bazında değil) — bu, aynı katmanda birbirinden farklı renkte prefilled hücrelerin o katmanı kalıcı olarak temizlenemez bırakmasını önlemek içindir; 'renk bütünlüğü' gibi bir estetik hedefi YOKTUR.", EditorStyles.wordWrappedLabel);
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
 
         EditorGUILayout.BeginVertical(styleInstructionBox);
-        GUILayout.Label("4. PARÇALARA OTOMATİK BÖLME ALGORİTMASI (INTELLIGENT AUTO-SPLITTER)", EditorStyles.boldLabel);
-        GUILayout.Label("Bir 3D bulmaca seviyesini elle parçalara ayırmak oldukça zordur. AI, bunu yapabilmek için BFS (Genişlik Öncelikli Arama) tabanlı kümeleme kullanır:\n" +
-                      " 1. Şekildeki atanmamış bloklardan rastgele bir başlangıç noktası (seed) seçer.\n" +
-                      " 2. Komşularını tarayarak (6-yönlü 3D komşuluk) parçayı hedef boyuta (örneğin 4 blok) ulaşana kadar büyütür.\n" +
-                      " 3. İşlemi tüm bloklar atanana kadar tekrarlar.\n" +
-                      " 4. Kenarda tek kalan veya küçük parçaları, en yakınındaki büyük parçaya ekleyerek bütünlüğü korur.", EditorStyles.wordWrappedLabel);
+        GUILayout.Label("4. PARÇALARA BÖLME: SOLUTION-FIRST KÜTÜPHANE + KAPALI DÖNGÜ ZORLUK ARAMASI", EditorStyles.boldLabel);
+        GUILayout.Label("Şekli önce çizip sonra parçalara bölen bir BFS kümelemesi YOKTUR (bu, artık kaldırılmış eski bir moddu). Gerçek akış tam tersi yönde çalışır:\n" +
+                      " 1. Assets/PieceDefinitions/ kütüphanesinden zorluk etiketine ve boyut aralığına uyan rastgele bir parça havuzu örneklenir (bkz. SampleEligiblePool).\n" +
+                      " 2. SolutionFirstBuilder, bu havuzun şekli TAM olarak döşeyip döşeyemediğini katman katman, geri izlemeli (backtracking) arayarak dener — başarılıysa sonuç zaten inşa sırasında çözülmüş olur.\n" +
+                      " 3. LevelSolver bu döşemeyi bağımsız olarak yeniden doğrular (geometri + buz erimesi dahil) ve 0-1 arası bir zorluk skoru üretir.\n" +
+                      " 4. LevelForge.DifficultySearchEngine bu skoru seçilen zorluk hedefiyle karşılaştırır; tutmuyorsa parametreleri (buz/hazır küp oranı, parça boyutu) YAPILANDIRILMIŞ biçimde değiştirip yeniden dener — hedefe toleransla ulaşana kadar (sınırlı sayıda deneme) sürer, tutturamazsa AÇIKÇA başarısız bildirir (en yakın ama hedef dışı sonucu sessizce kabul etmez).", EditorStyles.wordWrappedLabel);
         EditorGUILayout.EndVertical();
 
         GUILayout.Space(10);
@@ -1345,9 +1389,13 @@ public class AILevelDesignerWindow : EditorWindow
 
         EditorGUILayout.BeginVertical(styleInstructionBox);
         GUILayout.Label("6. PROMPT TABANLI ŞEKİL ÜRETİM MODELİ (PROMPT-BASED GENERATOR)", EditorStyles.boldLabel);
-        GUILayout.Label("Yapay Zeka prompt içindeki 'l-shaped', 'flat line', 't-shaped plus', 'stair step zigzag', 'compact box' gibi anahtar kelimeleri algılar:\n" +
-                      " • Algılanan kelimeye göre ilgili geometrik algoritma tetiklenir (örn. L-şeklinde 90 derecelik köşe dönüşü ekleme).\n" +
-                      " • Boyutlar ve hücre yerleşimleri bu kısıtlamalar dahilinde rastgeleleştirilerek kurallara uyan benzersiz varyasyonlar üretilir.", EditorStyles.wordWrappedLabel);
+        GUILayout.Label("Bu, bir dil modeli DEĞİL — düz substring/keyword eşleştirmesidir (bkz. GeneratePromptBasedShape). " +
+                      "Ana seviye şekli için tanınan kelimeler: 'hollow'/'oyuk'/'bos' (oyuk gövde), 'pyramid'/'piramit', " +
+                      "'star'/'yildiz'/'cross'/'arti' (eksenler boyunca kollar), 'tower'/'kule'. " +
+                      "(Not: 'AI Parça Yapıcı' sekmesindeki AYRI PromptBased modu — tek bir parça üretir, tüm seviyeyi değil — " +
+                      "farklı ve bağımsız bir kelime kümesi kullanır: 'l-shaped', 'flat line', 't-shaped plus', 'stair step zigzag', 'compact box'.)\n" +
+                      " • Algılanan kelimeye göre ilgili geometrik kural tetiklenir; hiçbir kelime eşleşmezse tam dolu bir kutu üretilir.\n" +
+                      " • Boyutlar ve hücre yerleşimleri bu kısıtlamalar dahilinde rastgeleleştirilerek varyasyonlar üretilir.", EditorStyles.wordWrappedLabel);
         EditorGUILayout.EndVertical();
 
         EditorGUILayout.EndScrollView();
@@ -1767,15 +1815,18 @@ public class AILevelDesignerWindow : EditorWindow
     // GenerateLevelProcedurally ve GenerateAndExportAIBatchDataset tarafından ortak kullanılır.
     private void ApplyObstaclesAndSplitPieces(int W, int H, int D)
     {
-        DistributeObstacles(W, H, D);
-
-        // 3. Akıllı Parça Üretimi: Birden fazla strateji dene, en iyisini seç
-        SmartPieceSplitting();
+        // 2+3. Engelleri dağıt + parçalara böl: artık DistributeObstacles/SolutionFirstBuilder tek
+        // seferlik değil, LevelForge.DifficultySearchEngine tarafından hedef zorluğa toleransla
+        // ulaşana kadar (yapılandırılmış parametre mutasyonlarıyla) tekrar tekrar çalıştırılıyor —
+        // bkz. RunDifficultySearch.
+        RunDifficultySearch(W, H, D);
     }
 
     // ApplyObstaclesAndSplitPieces'in buz/prefilled dağıtım kısmı — StartLayerByLayerGeneration
-    // (katman katman üretim akışı) tarafından da SmartPieceSplitting'i tetiklemeden ayrıca
-    // kullanılabilmesi için ayrı bir metoda çıkarıldı. Davranış AYNI, sadece taşındı.
+    // (katman katman üretim akışı) tarafından da RunDifficultySearch'ü hiç tetiklemeden ayrıca
+    // TEK SEFERLİK kullanılabilmesi için ayrı bir metoda çıkarıldı (bkz. GenerateCandidateForSearch,
+    // burayı her denemede TEKRAR TEKRAR çağırıyor — DistributeObstacles'ın kendisi bundan habersiz,
+    // davranışı hep aynı, sadece çağrılma sıklığı bağlama göre değişiyor).
     private void DistributeObstacles(int W, int H, int D)
     {
         // 2. AI Parametreleri: Renkli Küpler (Prefilled) ve Buzları Dağıt
@@ -2042,6 +2093,12 @@ public class AILevelDesignerWindow : EditorWindow
     // yapılıyor, burada sadece havuzun İÇERİĞİ seçiliyor). SplitShapeWithSolutionFirstLibrary
     // (şekil bazlı) ve GenerateCurrentLayerPieces (katman bazlı) tarafından ortak kullanılır —
     // ikisi de aynı örnekleme mantığına güveniyor, sadece cellsToFill kapsamları farklı.
+    // Havuzun hangi kademeden geldiğini (tag+boyut / sadece boyut / tüm kütüphane) UI/log'a
+    // yansıtmak için — eskiden bu kademe hiç dışa raporlanmıyordu, ör. "Kolay" bir seviye
+    // sessizce tüm (etiketsiz, her boyuttan) kütüphaneden örnekleyebiliyordu ve kimse fark
+    // etmiyordu. RunDifficultySearch başladığında sıfırlanır (bkz. çağrı yeri).
+    internal string lastPoolFallbackInfo;
+
     private List<PieceDefinition> SampleEligiblePool(List<PieceDefinition> library)
     {
         string profileTag = selectedDifficulty.ToString();
@@ -2049,17 +2106,23 @@ public class AILevelDesignerWindow : EditorWindow
             .Where(d => d.difficultyTags == null || d.difficultyTags.Count == 0 || d.difficultyTags.Contains(profileTag))
             .Where(d => d.volume >= minPieceSize && d.volume <= maxPieceSize)
             .ToList();
-            
-        if (eligible.Count == 0) 
+
+        lastPoolFallbackInfo = $"tag+boyut eşleşmesi ({profileTag}, {minPieceSize}-{maxPieceSize})";
+
+        if (eligible.Count == 0)
         {
             // Zorluk etiketine uyan uygun boyutta parça yoksa, sadece boyut filtresini uygula
             eligible = library.Where(d => d.volume >= minPieceSize && d.volume <= maxPieceSize).ToList();
+            lastPoolFallbackInfo = $"sadece boyut filtresi ({minPieceSize}-{maxPieceSize}) — '{profileTag}' etiketli uygun boyutta parça bulunamadı";
+            Debug.LogWarning($"⚠️ SampleEligiblePool: {lastPoolFallbackInfo}");
         }
-        
-        if (eligible.Count == 0) 
+
+        if (eligible.Count == 0)
         {
             // Hiçbiri yoksa son çare olarak hepsini al
             eligible = library;
+            lastPoolFallbackInfo = "TÜM kütüphane (boyut/etiket filtresi de eşleşmedi) — pool boyut/etiket açısından tamamen kontrolsüz";
+            Debug.LogWarning($"⚠️ SampleEligiblePool: {lastPoolFallbackInfo}");
         }
 
         int idealCount = DifficultySpecs.TryGetValue(selectedDifficulty, out var spec) ? spec.idealPieceCount : 5;
@@ -2090,8 +2153,8 @@ public class AILevelDesignerWindow : EditorWindow
         return selected;
     }
 
-    // "Kütüphane / Solution-First" modu: SmartPieceSplitting'in mevcut çok-denemeli
-    // döngüsündeki her attempt için Assets/PieceDefinitions/ altından TAZE, rastgele bir
+    // "Kütüphane / Solution-First" modu: RunDifficultySearch'ün (LevelForge.DifficultySearchEngine)
+    // her denemesi için Assets/PieceDefinitions/ altından TAZE, rastgele bir
     // parça havuzu örnekler (spawnWeight'e göre ağırlıklı, difficultyTags'e göre filtrelenmiş)
     // ve SolutionFirstBuilder ile o havuzun bu şekli GERÇEKTEN döşeyip döşeyemediğini
     // geri izlemeli olarak dener. Diğer 3 mod gibi "önce şekli çiz, sonra parçalara böl"
@@ -2195,130 +2258,141 @@ public class AILevelDesignerWindow : EditorWindow
     }
 
     // ═════════════════════════════════════════════════════════════
-    // AKILLI PARÇA ÜRETİMİ - Birden fazla strateji dene, en iyisini seç
+    // KAPALI DÖNGÜ ZORLUK ARAMASI — LevelForge.DifficultySearchEngine
+    // Eskiden burada "3-5 strateji dene, çözülebilenler arasından en iyi puanlıyı seç" vardı
+    // (bkz. git geçmişi) — hiçbiri hedef zorluğa yakın olmasa bile en az kötüyü export ediyordu.
+    // Artık gerçek bir kapalı döngü: LevelForge motoru hedefe toleransla ulaşana kadar (yapılandırılmış
+    // parametre mutasyonlarıyla, bkz. BlockMerge3DParameterSpace) dener, tutturamazsa AÇIKÇA
+    // başarısız döner (lastSearchResult.success=false) — "en yakın ama hedef dışı" bir sonucu asla
+    // sessizce kabul etmez. Bkz. Packages/com.fogboundgames.levelforge/ADAPTER_GUIDE.md.
     // ═════════════════════════════════════════════════════════════
-    private void SmartPieceSplitting()
+    private int searchAttemptCounter;
+    private BlockMerge3DCandidate lastGeneratedCandidateForSearch;
+
+    private SearchBudget BuildSearchBudget()
     {
-        Debug.Log("🧠 Akıllı Parça Üretimi başlatılıyor - birden fazla strateji deneniyor...");
-        
-        List<(List<List<Vector3Int>> pieces, SolverResult result, string strategyName)> strategies = 
-            new List<(List<List<Vector3Int>>, SolverResult, string)>();
-
-        // Grid boyutuna göre strateji sayısını ayarla
         int gridVolume = gridSize.x * gridSize.y * gridSize.z;
-        int maxStrategies = gridVolume < 50 ? 3 :    // Küçük grid: 3 strateji
-                            gridVolume < 100 ? 4 :   // Orta grid: 4 strateji
-                            5;                        // Büyük grid: 5 strateji
-        
-        // En az 2 çözülebilir aday toplanmadan seçim yapılmaz; aksi halde ilk bulunan
-        // (genelde en kolay/standart) strateji hiç karşılaştırılmadan kabul edilir ve
-        // seçilen zorluk modu (Zor/Uzman) etkisiz kalır.
-        int maxSolvableNeeded = gridVolume < 50 ? 2 : 3;
-        
-        for (int attempt = 0; attempt < maxStrategies; attempt++)
+        return new SearchBudget
         {
-            // Her denemede farklı parametrelerle parçala
-            int variantMinSize = minPieceSize;
-            int variantMaxSize = maxPieceSize;
-            string strategyName = "Standart";
+            maxAttempts = gridVolume < 50 ? 18 : gridVolume < 100 ? 24 : 30,
+            maxTotalTimeMs = gridVolume < 50 ? 12000 : gridVolume < 100 ? 20000 : 30000,
+            // Bkz. BlockMerge3DDifficultyTiers.ScoreTolerance notu: en yüksek çarpan (1.5x) bile
+            // komşu tier'ların hedef bandına asla taşmayacak şekilde seçildi.
+            toleranceMultiplierSchedule = new float[] { 1f, 1f, 1f, 1f, 1.15f, 1.15f, 1.3f, 1.3f, 1.5f }
+        };
+    }
 
-            switch (attempt)
-            {
-                case 0: // Standart Tetris Odaklı
-                    variantMinSize = minPieceSize;
-                    variantMaxSize = maxPieceSize;
-                    strategyName = "Standart";
-                    break;
-                case 1: // Sıkı Triplet (Sadece 3)
-                    variantMinSize = 3;
-                    variantMaxSize = 3;
-                    strategyName = "Sıkı Triplet (3 Blok)";
-                    break;
-                case 2: // Daha Büyük, Toplu Parçalar
-                    variantMinSize = minPieceSize + 1;
-                    variantMaxSize = maxPieceSize + 2;
-                    strategyName = "Biraz Daha Büyük (Kolay)";
-                    break;
-                case 3: // Orta Boyutlar
-                    variantMinSize = Mathf.Max(3, minPieceSize);
-                    variantMaxSize = Mathf.Min(8, maxPieceSize + 1);
-                    strategyName = "Orta Boyutlar";
-                    break;
-                case 4: // Karma Boyutlar
-                    variantMinSize = Mathf.Max(2, minPieceSize - 1);
-                    variantMaxSize = maxPieceSize;
-                    strategyName = "Karma Boyutlar";
-                    break;
-            }
+    // Her denemede DistributeObstacles + SolutionFirstBuilder'ı çalıştırıp bağımsız bir aday üretir.
+    // DistributeObstacles/SplitShapeWithSolutionFirstLibrary pencerenin ENSTANTANE alanlarını
+    // (icePercentage, prefillPercentage, minPieceSize, maxPieceSize, prefilledCells, frozenCells, ...)
+    // doğrudan okur/yazar — bu yüzden her çağrıda önce bu denemenin parametreleriyle güncelleniyor
+    // (GenerateAndExportAIBatchDataset'in de kullandığı "geçici state mutasyonu" deseniyle aynı).
+    private BlockMerge3DCandidate GenerateCandidateForSearch(BlockMerge3DGenerationParams p, int W, int H, int D)
+    {
+        icePercentage = p.icePercentage;
+        prefillPercentage = p.prefillPercentage;
+        minPieceSize = p.minPieceSize;
+        maxPieceSize = p.maxPieceSize;
 
-            // Bu stratejiyle parçala — tek üretim yolu: kütüphaneden solution-first backtracking
-            // (bkz. SolutionFirstBuilder.cs). variantMinSize/variantMaxSize bu modda kullanılmıyor,
-            // sadece yukarıdaki switch'in çeşitlilik amacıyla ürettiği attempt indeksi kullanılıyor.
-            List<List<Vector3Int>> piecesForThisStrategy = SplitShapeWithSolutionFirstLibrary(attempt);
+        prefilledCells.Clear();
+        prefilledMatIdx.Clear();
+        frozenCells.Clear();
+        frozenHitCounts.Clear();
 
-            if (piecesForThisStrategy.Count == 0)
-            {
-                Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): Parça üretilemedi, atlandı");
-                continue;
-            }
+        DistributeObstacles(W, H, D);
+        var pieces = SplitShapeWithSolutionFirstLibrary(searchAttemptCounter++);
 
-            // Adaptif timeout: Grid boyutuna göre ayarla (gridVolume üstte tanımlı)
-            int adaptiveTimeout = gridVolume < 50 ? 1000 :   // Küçük grid: 1 saniye
-                                  gridVolume < 100 ? 2000 :  // Orta grid: 2 saniye
-                                  3000;                       // Büyük grid: 3 saniye
-            
-            pieceSplitList = piecesForThisStrategy;
-            var solverResult = TestCurrentPiecesWithSolver(adaptiveTimeout);
-            
-            // Timeout veya arama limiti aşıldıysa atla
-            if (solverResult.failureReason != null && 
-                (solverResult.failureReason.Contains("Arama limiti") || solverResult.failureReason.Contains("Timeout")))
-            {
-                Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): " +
-                         $"Parça={piecesForThisStrategy.Count}, TIMEOUT - atlandı");
-                continue;
-            }
-            
-            strategies.Add((new List<List<Vector3Int>>(piecesForThisStrategy), solverResult, strategyName));
-            
-            Debug.Log($"  Strateji {attempt + 1}/{maxStrategies} ({strategyName}): " +
-                     $"Parça={piecesForThisStrategy.Count}, " +
-                     $"Çözülebilir={solverResult.isSolvable}, " +
-                     $"Hamle={solverResult.minMoveCount}, " +
-                     $"Zorluk={solverResult.difficultyLabel}");
+        var candidate = new BlockMerge3DCandidate
+        {
+            gridSize = gridSize,
+            cellSize = cellSize,
+            spacing = spacing,
+            occupiedCells = new List<Vector3Int>(occupiedCells),
+            prefilledCells = new List<Vector3Int>(prefilledCells),
+            prefilledMaterialIndices = new List<int>(prefilledMatIdx),
+            frozenCells = new List<Vector3Int>(frozenCells),
+            frozenHitCounts = new List<int>(frozenHitCounts),
+            pieceSplitList = pieces
+        };
+        lastGeneratedCandidateForSearch = candidate;
+        return candidate;
+    }
 
-            // Erken durma: Yeterli çözülebilir strateji bulundu mu?
-            int solvableCount = strategies.Count(s => s.result.isSolvable);
-            if (solvableCount >= maxSolvableNeeded)
-            {
-                Debug.Log($"✅ {solvableCount} çözülebilir strateji bulundu, arama durduruluyor (performans için)");
-                break;
-            }
+    // lastSearchResult.best (başarı) ya da son üretilen adayı (başarısızlık — kullanıcı en azından
+    // NE üretildiğini görebilsin diye) pencere durumuna (grid önizleme, parça listesi) uygular.
+    private void ApplyCandidateToWindowState(BlockMerge3DCandidate candidate)
+    {
+        if (candidate == null)
+        {
+            pieceSplitList = new List<List<Vector3Int>>();
+            return;
         }
+        prefilledCells = new List<Vector3Int>(candidate.prefilledCells);
+        prefilledMatIdx = new List<int>(candidate.prefilledMaterialIndices);
+        frozenCells = new List<Vector3Int>(candidate.frozenCells);
+        frozenHitCounts = new List<int>(candidate.frozenHitCounts);
+        pieceSplitList = candidate.pieceSplitList != null
+            ? new List<List<Vector3Int>>(candidate.pieceSplitList)
+            : new List<List<Vector3Int>>();
+    }
 
-        // En iyi stratejiyi seç
-        var bestStrategy = SelectBestStrategy(strategies);
-        
-        if (bestStrategy.pieces != null)
+    private void RunDifficultySearch(int W, int H, int D)
+    {
+        searchAttemptCounter = 0;
+        lastGeneratedCandidateForSearch = null;
+
+        var engine = new DifficultySearchEngine();
+        var tier = BlockMerge3DDifficultyTiers.GetTier(selectedDifficulty);
+        var evaluator = new BlockMerge3DDifficultyEvaluator();
+        var paramSpace = new BlockMerge3DParameterSpace();
+        var iceRevalidator = new BlockMerge3DIceRevalidator();
+
+        var initialParams = new BlockMerge3DGenerationParams
         {
-            pieceSplitList = bestStrategy.pieces;
-            lastSolverResult = bestStrategy.result;
+            icePercentage = icePercentage,
+            prefillPercentage = prefillPercentage,
+            minPieceSize = minPieceSize,
+            maxPieceSize = maxPieceSize
+        };
+
+        var result = engine.Run(
+            initialParams,
+            tier,
+            p => GenerateCandidateForSearch(p, W, H, D),
+            evaluator,
+            paramSpace,
+            BuildSearchBudget(),
+            stochasticCheck: iceRevalidator,
+            stochasticTrials: 12,
+            stochasticRequiredPassRate: 1f);
+
+        lastSearchResult = result;
+
+        if (result.success)
+        {
+            ApplyCandidateToWindowState(result.best);
+            lastSolverResult = result.best.lastSolverResult;
             solverRan = true;
-            
-            Debug.Log($"✅ EN İYİ STRATEJİ SEÇİLDİ: {bestStrategy.strategyName} - " +
-                     $"Parça={pieceSplitList.Count}, " +
-                     $"Çözülebilir={bestStrategy.result.isSolvable}, " +
-                     $"Hamle={bestStrategy.result.minMoveCount}, " +
-                     $"Zorluk={bestStrategy.result.difficultyLabel} ({bestStrategy.result.difficultyScore:F2})");
+
+            Debug.Log($"✅ Kapalı döngü BAŞARILI: {result.attemptsUsed} deneme, " +
+                     $"skor={lastSolverResult.difficultyScore:F2}, zorluk={lastSolverResult.difficultyLabel}, " +
+                     $"parça={pieceSplitList.Count}");
         }
         else
         {
-            // Hiçbir deneme çözülebilir bulunamadıysa, kütüphaneden son bir kez daha dene
-            // (taze bir rastgele havuzla) ve sonucu (başarısız da olsa) doğrudan raporla —
-            // pieceSplitList/lastSolverResult/solverRan burada set edilmiş olur.
-            Debug.LogWarning("⚠️ Hiçbir strateji çözülebilir bulunamadı, son bir deneme daha yapılıyor");
-            pieceSplitList = SplitShapeWithSolutionFirstLibrary(0);
-            RunSolverAnalysis();
+            // Son üretilen (ama hedefi tutturamayan) adayı yine de görsel olarak göster — kullanıcı
+            // en azından neyle karşılaştığını inceleyebilsin. solverRan/lastSolverResult BAŞARISIZ
+            // işaretlenir: ExportProceduralLevelCore'daki Zorunlu Koruma Kuralı #1 bunu reddeder.
+            ApplyCandidateToWindowState(lastGeneratedCandidateForSearch);
+            solverRan = true;
+            lastSolverResult = new SolverResult
+            {
+                isSolvable = false,
+                timedOut = false,
+                failureReason = result.failureSummary
+            };
+
+            Debug.LogWarning($"❌ Kapalı döngü BAŞARISIZ: {result.failureSummary}");
         }
     }
 
@@ -2367,11 +2441,15 @@ public class AILevelDesignerWindow : EditorWindow
     }
 
     // Tüm zorluk modlarının parametreleri TEK bir yerden okunur (bkz. DifficultySpecs altta).
-    // Eskiden ApplyDifficultyScaleForMode ve GetDifficultyTargets birbirinden bağımsız iki ayrı
-    // switch/hardcoded tablo tutuyordu — biri güncellenip diğeri unutulursa (ör. ORTA'ya yeni bir
-    // alan eklenip diğer tabloya yansıtılmazsa) sessizce birbirinden sapabiliyordu. Artık ikisi de
-    // aynı DifficultySpecs sözlüğünden okuyor.
-    private struct AIDifficultySpec
+    // Eskiden ApplyDifficultyScaleForMode ve (artık kaldırılmış) SelectBestStrategy'nin hedef
+    // tablosu birbirinden bağımsız iki ayrı switch/hardcoded tablo tutuyordu — biri güncellenip
+    // diğeri unutulursa (ör. ORTA'ya yeni bir alan eklenip diğer tabloya yansıtılmazsa) sessizce
+    // birbirinden sapabiliyordu. Artık hem ApplyDifficultyScaleForMode hem de kapalı döngü arama
+    // motorunun DifficultyTier'ları (bkz. BlockMerge3DDifficultyTiers) AYNI DifficultySpecs
+    // sözlüğünden okuyor.
+    // internal: LevelForgeAdapter/BlockMerge3DDifficultyTiers bu tabloyu DifficultyTier
+    // asset'lerine dönüştürmek için doğrudan okuyor (kopyalamadan, tek gerçek kaynak burada kalır).
+    internal struct AIDifficultySpec
     {
         public float baseTime;
         public float baseTarget;
@@ -2379,14 +2457,14 @@ public class AILevelDesignerWindow : EditorWindow
         public float icePercentage;
         public int minPieceSize;
         public int maxPieceSize;
-        // Solver tabanlı strateji seçiminde kullanılan hedefler (bkz. SelectBestStrategy).
+        // Kapalı döngü arama motorunun hedefleri (bkz. BlockMerge3DDifficultyTiers, DifficultySearchEngine).
         public float solverTargetScore; // LevelSolver 0.0-1.0 zorluk skalası
         public int idealPieceCount;
         public int minMoves;
         public int maxMoves;
     }
 
-    private static readonly Dictionary<AILevelDifficulty, AIDifficultySpec> DifficultySpecs = new Dictionary<AILevelDifficulty, AIDifficultySpec>
+    internal static readonly Dictionary<AILevelDifficulty, AIDifficultySpec> DifficultySpecs = new Dictionary<AILevelDifficulty, AIDifficultySpec>
     {
         { AILevelDifficulty.Kolay, new AIDifficultySpec {
             baseTime = 90f, baseTarget = 80f, prefillPercentage = 0f, icePercentage = 0f,
@@ -2416,71 +2494,9 @@ public class AILevelDesignerWindow : EditorWindow
             solverTargetScore = 0.85f, idealPieceCount = 10, minMoves = 8, maxMoves = 24 } },
     };
 
-    private static AIDifficultySpec GetDifficultySpec(AILevelDifficulty mode)
+    internal static AIDifficultySpec GetDifficultySpec(AILevelDifficulty mode)
     {
         return DifficultySpecs.TryGetValue(mode, out var spec) ? spec : DifficultySpecs[AILevelDifficulty.Orta];
-    }
-
-    // Seçilen zorluk moduna göre hedef zorluk skoru (LevelSolver 0.0-1.0 skalasında çalışır),
-    // ideal parça sayısı ve ideal hamle aralığı. SelectBestStrategy bu hedeflere göre puanlar;
-    // aksi halde (eskiden olduğu gibi) sabit "orta zorluk" hedefi Zor/Uzman modlarında bile
-    // en kolay/az parçalı sonucu seçmeye devam eder.
-    private (float targetScore, int idealPieceCount, int minMoves, int maxMoves) GetDifficultyTargets(AILevelDifficulty mode)
-    {
-        var spec = GetDifficultySpec(mode);
-        return (spec.solverTargetScore, spec.idealPieceCount, spec.minMoves, spec.maxMoves);
-    }
-
-    private (List<List<Vector3Int>> pieces, SolverResult result, string strategyName)
-        SelectBestStrategy(List<(List<List<Vector3Int>> pieces, SolverResult result, string strategyName)> strategies)
-    {
-        // En iyi stratejiyi seçme kriterleri:
-        // 1. Önce çözülebilir olanları filtrele
-        // 2. Seçilen zorluk moduna (Kolay/Orta/Zor/Uzman) en yakın olanı seç
-
-        var solvable = strategies.Where(s => s.result.isSolvable).ToList();
-
-        if (solvable.Count == 0)
-        {
-            Debug.LogWarning("⚠️ Çözülebilir strateji bulunamadı!");
-            return (null, null, "");
-        }
-
-        var targets = GetDifficultyTargets(selectedDifficulty);
-
-        // En iyi stratejiyi seç (çok faktörlü skor sistemi)
-        var best = solvable
-            .Select(s => new
-            {
-                strategy = s,
-                // Skor hesaplama:
-                // - Parça sayısı skoru (ideal, zorluk moduna göre değişir)
-                pieceScore = 100f - Mathf.Abs(s.pieces.Count - targets.idealPieceCount) * 8f,
-                // - Zorluk skoru: solver 0.0-1.0 döndürür, hedefle aynı skalada karşılaştırılır
-                difficultyScore = 100f - Mathf.Abs(s.result.difficultyScore - targets.targetScore) * 100f,
-                // - Hamle sayısı skoru (zorluk moduna göre ideal aralık)
-                moveScore = (s.result.minMoveCount >= targets.minMoves && s.result.minMoveCount <= targets.maxMoves) ? 100f : 50f,
-                // Toplam skor
-                totalScore = 0f
-            })
-            .Select(x => new
-            {
-                x.strategy,
-                x.pieceScore,
-                x.difficultyScore,
-                x.moveScore,
-                totalScore = x.pieceScore + x.difficultyScore + x.moveScore
-            })
-            .OrderByDescending(x => x.totalScore)
-            .First();
-
-        Debug.Log($"📊 Skor Detayları - {best.strategy.strategyName}: " +
-                 $"Parça Skoru={best.pieceScore:F1}, " +
-                 $"Zorluk Skoru={best.difficultyScore:F1}, " +
-                 $"Hamle Skoru={best.moveScore:F1}, " +
-                 $"TOPLAM={best.totalScore:F1}");
-
-        return best.strategy;
     }
 
     // ═════════════════════════════════════════════════════════════
@@ -2534,7 +2550,8 @@ public class AILevelDesignerWindow : EditorWindow
         else
         {
             EditorUtility.DisplayDialog("Kaydedilemedi",
-                "Seviye doğrulanmamış olduğu için kaydedilmedi (Zorunlu Koruma Kuralı #1).", "Tamam");
+                "Seviye kaydedilmedi: solver tarafından doğrulanmamış (Kural #1) ya da buz Monte Carlo " +
+                "doğrulamasından geçemedi (Kural #2). Ayrıntı için Console'a bakın.", "Tamam");
         }
     }
 
@@ -2549,6 +2566,31 @@ public class AILevelDesignerWindow : EditorWindow
         {
             Debug.LogWarning($"⛔ '{targetLevelName}' kaydedilmedi: solver tarafından doğrulanmamış/çözülemez.");
             return null;
+        }
+
+        // Zorunlu Koruma Kuralı #2: buz içeren bir seviye, LevelSolver'ın DETERMİNİSTİK vekil renk
+        // simülasyonunu (proxyColor = pieceIndex % 8, bkz. LevelSolver.TryPlacePiece) geçmiş olsa
+        // bile gerçek oyunun RASTGELE renk atamasında kırılabilir — bkz. LevelSolver.
+        // ReplayWithRandomizedColors üstündeki not. RunDifficultySearch yolundan gelen bir seviye
+        // bunu zaten (kabul edilmeden önce, bkz. BlockMerge3DIceRevalidator) doğrulamış olur — ama
+        // bu kontrol burada, Kural #1 ile AYNI TEK kayıt noktasında, o motoru kullanmayan yollar
+        // (ör. LevelCreationWizardWindow'un katman-katman akışı) için de tekrar çalıştırılır.
+        // timedOut durumunda solutionSteps yok (hiçbir çözüm bulunamadı) — bu yüzden sadece
+        // isSolvable=true iken kontrol edilir.
+        if (lastSolverResult.isSolvable && frozenCells.Count > 0)
+        {
+            GameObject iceCheckShape = CreateTempMainShape();
+            float passRate = new LevelSolver().ReplayWithRandomizedColors(
+                lastSolverResult.solutionSteps, iceCheckShape.GetComponent<CubeShapeDataHolder>(),
+                12, BlockMerge3DIceRevalidator.IcePaletteSize, new System.Random());
+            DestroyImmediate(iceCheckShape);
+
+            if (passRate < 1f)
+            {
+                Debug.LogWarning($"⛔ '{targetLevelName}' kaydedilmedi: buz Monte Carlo doğrulaması başarısız " +
+                                 $"(geçiş oranı %{passRate * 100f:F0}) — Zorunlu Koruma Kuralı #2.");
+                return null;
+            }
         }
 
         string levelDir = $"{LEVELS_PATH}/{targetLevelName}";
@@ -2664,31 +2706,6 @@ public class AILevelDesignerWindow : EditorWindow
 
     // ══ SOLVER ENTEGRASYONU ══════════════════════════════════════════════════
 
-    private void RunSolverAnalysis()
-    {
-        solverRan = false;
-        lastSolverResult = null;
-
-        // Adaptif timeout
-        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
-        int timeout = gridVolume < 50 ? 2000 :   // Küçük: 2 saniye
-                      gridVolume < 100 ? 3000 :  // Orta: 3 saniye
-                      5000;                       // Büyük: 5 saniye
-        
-        lastSolverResult = TestCurrentPiecesWithSolver(timeout);
-        solverRan = true;
-
-        // Sonucu logla
-        if (lastSolverResult.isSolvable)
-        {
-            Debug.Log($"✅ Seviye çözülebilir: {lastSolverResult.minMoveCount} hamle, Zorluk: {lastSolverResult.difficultyLabel} ({lastSolverResult.difficultyScore:F2})");
-        }
-        else
-        {
-            Debug.LogWarning($"❌ Seviye çözülemez: {lastSolverResult.failureReason}");
-        }
-    }
-
     private GameObject CreateTempMainShape()
     {
         GameObject root = new GameObject("TempMainShape");
@@ -2731,47 +2748,24 @@ public class AILevelDesignerWindow : EditorWindow
         return pieces;
     }
 
+    // Eskiden burada lastSolverResult.failureReason Türkçe metni üzerinde elle ayrıştırılan
+    // (".Contains("yetersiz")" vb.) TEK SEFERLİK bir parametre düzeltmesi vardı — hem kırılgandı
+    // (LevelSolver'ın mesajı değişirse sessizce bozulurdu) hem de "renk"/"katman" dalı artık asla
+    // tetiklenmeyen ölü koddu (2026-07-13 redesign'da o kısıt kaldırıldı). Bu iş artık motorun
+    // içinde, her deneme için YAPILANDIRILMIŞ (FailureReasonCode bazlı) olarak yapılıyor — bkz.
+    // BlockMerge3DParameterSpace, RunDifficultySearch. Bu buton artık kapalı döngü aramayı yeni
+    // bir rastgele tohumla baştan çalıştırır.
     private void AutoAdjustAndRegenerate()
     {
-        // Çözülemez seviyeyi düzeltmeye çalış
-        if (lastSolverResult != null && !string.IsNullOrEmpty(lastSolverResult.failureReason))
-        {
-            string reason = lastSolverResult.failureReason.ToLower();
-
-            // Yetersiz/fazla hücre problemi
-            if (reason.Contains("yetersiz") || reason.Contains("fazla"))
-            {
-                // Parça boyutlarını ayarla
-                minPieceSize = Mathf.Max(2, minPieceSize - 1);
-                maxPieceSize = Mathf.Min(8, maxPieceSize + 1);
-                Debug.Log("Parça boyutları ayarlandı");
-            }
-            // Renk çakışması problemi
-            else if (reason.Contains("renk") || reason.Contains("katman"))
-            {
-                // Prefilled ve frozen oranlarını azalt
-                prefillPercentage = Mathf.Max(0f, prefillPercentage - 0.05f);
-                icePercentage = Mathf.Max(0f, icePercentage - 0.05f);
-                Debug.Log("Engel oranları azaltıldı");
-            }
-            // Zaman aşımı
-            else if (reason.Contains("limit"))
-            {
-                // Grid boyutunu küçült veya parça sayısını azalt
-                gridSize = new Vector3Int(
-                    Mathf.Max(3, gridSize.x - 1),
-                    Mathf.Max(3, gridSize.y - 1),
-                    Mathf.Max(3, gridSize.z - 1)
-                );
-                fillDensity = Mathf.Max(0.5f, fillDensity - 0.1f);
-                Debug.Log("Grid boyutu ve doluluk azaltıldı");
-            }
-        }
-
-        // Yeniden üret
         GenerateLevelProcedurally();
-        EditorUtility.DisplayDialog("Yeniden Üretim", 
-            "Parametreler ayarlandı ve seviye yeniden oluşturuldu. Sonuçları kontrol edin.", "Tamam");
+
+        bool ok = lastSolverResult != null && lastSolverResult.isSolvable;
+        EditorUtility.DisplayDialog("Yeniden Üretim",
+            ok
+                ? "Kapalı döngü arama başarılı oldu ve seviye yeniden oluşturuldu. Sonuçları kontrol edin."
+                : "Kapalı döngü arama yine hedef zorluğu tutturamadı. 'Çözülebilirlik Doğrulama' kutusundaki " +
+                  "özete bakıp zorluk parametrelerini elle gevşetmeyi (buz/hazır küp oranını azaltmayı) deneyin.",
+            "Tamam");
     }
 
     // internal: LevelCreationWizardWindow, aiDesigner.OnGUI()'yi hiç çağırmadan
@@ -2974,6 +2968,7 @@ public class AILevelDesignerWindow : EditorWindow
         float origIcePercentage = icePercentage;
         int origMinPieceSize = minPieceSize;
         int origMaxPieceSize = maxPieceSize;
+        AILevelDifficulty origSelectedDifficulty = selectedDifficulty;
 
         // 2. Seviye Sırasını yükle veya oluştur
         const string LEVEL_ORDER_PATH = "Assets/LevelOrder.asset";
@@ -3002,7 +2997,19 @@ public class AILevelDesignerWindow : EditorWindow
             EditorUtility.DisplayProgressBar("İlk 10 Level Üretimi", $"Level {i}/10 üretiliyor...", i / 10f);
 
             levelName = $"Level_{i}";
-            
+
+            // RunDifficultySearch (bkz. ApplyObstaclesAndSplitPieces) artık selectedDifficulty'nin
+            // DifficultyTier'ına doğru AKTİF olarak yönlendiriyor (eskiden sadece pasif puanlama
+            // yapan SelectBestStrategy de aynı alanı okuyordu, ama pasif skorlamanın etkisi zayıftı).
+            // Bu yüzden bu küratörlü 10-level müfredatın her adımı, pencerede o an seçili olan
+            // (kullanıcının UI'de bıraktığı) zorlukla değil, KENDİ kademesine karşılık gelen tier'la
+            // aranmalı — aksi halde örn. Level 1'in kasıtlı olarak trivial tasarımı, pencerede "Uzman"
+            // seçiliyse kapalı döngü tarafından zorlaştırılmaya çalışılırdı.
+            selectedDifficulty = i <= 3 ? AILevelDifficulty.Kolay
+                                : i <= 6 ? AILevelDifficulty.Orta
+                                : i <= 8 ? AILevelDifficulty.Zor
+                                : AILevelDifficulty.Uzman;
+
             // Tasarım spesifikasyonlarını uygula
             switch (i)
             {
@@ -3210,6 +3217,7 @@ public class AILevelDesignerWindow : EditorWindow
         icePercentage = origIcePercentage;
         minPieceSize = origMinPieceSize;
         maxPieceSize = origMaxPieceSize;
+        selectedDifficulty = origSelectedDifficulty;
 
         // Seviye 1'i önizlemede göstermek için son kez oluştur
         GenerateLevelProcedurally();
