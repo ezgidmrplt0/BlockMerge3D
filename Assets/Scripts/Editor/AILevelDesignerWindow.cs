@@ -1264,22 +1264,20 @@ public class AILevelDesignerWindow : EditorWindow
 
         GUILayout.Space(12);
 
-        // Zorunlu Koruma Kuralı #1: doğrulanmamış (validated == false) hiçbir seviye
-        // kaydedilemez. Solver hiç çalışmadıysa, sonuç yoksa veya çözülemez bulduysa buton
-        // tamamen devre dışı — ExportProceduralLevelCore de aynı kontrolü tekrar yapıyor
-        // (savunmacı: buton her nasılsa aktifleşse bile kayıt yine reddedilir).
+        // Kaydet artık HER ZAMAN açık — solver doğrulaması TAVSİYE, engel değil (istek üzerine
+        // eski "Zorunlu Koruma Kuralı #1" hard-block'u kaldırıldı). Kullanıcı çözülebilir görünen
+        // ama solver'ın (çözemedi/bütçe aştı) doğrulayamadığı seviyeleri de kaydedip oyunda kendi
+        // test edebilsin. Doğrulanmamışsa uyarı gösterilir + kayıtta bilinçli onay sorulur.
         bool isValidatedSolvable = solverRan && lastSolverResult != null && (lastSolverResult.isSolvable || lastSolverResult.timedOut);
-        EditorGUI.BeginDisabledGroup(!isValidatedSolvable);
         GUI.backgroundColor = new Color(0.2f, 0.85f, 0.4f, 1f); // Doygun Yeşil
         if (GUILayout.Button("💾 SEVİYEYİ TAMAMEN OLUŞTUR\n(BÖLÜMÜ KAYDET)", GUILayout.Height(50)))
         {
             ExportProceduralLevel();
         }
         GUI.backgroundColor = Color.white;
-        EditorGUI.EndDisabledGroup();
         if (!isValidatedSolvable)
         {
-            EditorGUILayout.HelpBox("Kaydetmeden önce seviye solver tarafından ÇÖZÜLEBİLİR olarak doğrulanmalı. Önce '⚡ BÖLÜM & PARÇALARI ÖNİZLE' ile üretip yeşil '✅ Çözülebilir' sonucunu bekleyin.", MessageType.Warning);
+            EditorGUILayout.HelpBox("Bu seviye solver tarafından çözülebilir DOĞRULANMADI (çözülemez bulundu ya da arama bütçesi aşıldı). Yine de kaydedebilirsin — kayıtta onay sorulur, oyunda kendin test et.", MessageType.Warning);
         }
 
         GUILayout.Space(15);
@@ -2418,9 +2416,9 @@ public class AILevelDesignerWindow : EditorWindow
         }
         else
         {
-            // Son üretilen (ama hedefi tutturamayan) adayı yine de görsel olarak göster — kullanıcı
-            // en azından neyle karşılaştığını inceleyebilsin. solverRan/lastSolverResult BAŞARISIZ
-            // işaretlenir: ExportProceduralLevelCore'daki Zorunlu Koruma Kuralı #1 bunu reddeder.
+            // Son üretilen (ama hedefi tutturamayan) adayı yine de pencereye yükle — kullanıcı
+            // inceleyip İSTERSE kaydedebilsin. Artık engellenmiyor: kayıtta yalnızca onay sorulur
+            // (bkz. ExportProceduralLevel — eski "Zorunlu Koruma Kuralı #1" hard-block kaldırıldı).
             ApplyCandidateToWindowState(lastGeneratedCandidateForSearch);
             solverRan = true;
             lastSolverResult = new SolverResult
@@ -2565,15 +2563,18 @@ public class AILevelDesignerWindow : EditorWindow
         // timedOut da geçerli sayılır: arama limiti aşımı "çözülemez" KANITLAMAZ, sadece bu
         // bütçede bulunamadı demektir (bkz. LevelSolver.SolverResult.timedOut). Sadece kanıtlanmış
         // (gerçek) çözülemezlik export'u engellemeli.
+        // Eskiden burada HARD BLOCK vardı (doğrulanmadıysa kaydedilemez). İstek üzerine tavsiyeye
+        // çevrildi: kullanıcı çözülebilir görünen bir seviyeyi kaydedip oyunda test edebilsin.
+        // Silent kötü kayıtları önlemek için yalnızca bilinçli bir ONAY soruluyor, engel yok.
         bool validatedOk = solverRan && lastSolverResult != null && (lastSolverResult.isSolvable || lastSolverResult.timedOut);
         if (!validatedOk)
         {
-            EditorUtility.DisplayDialog("Doğrulanmamış Seviye",
-                "Bu seviye solver tarafından ÇÖZÜLEBİLİR olarak doğrulanmadı, bu yüzden kaydedilemez " +
-                "(Zorunlu Koruma Kuralı #1).\n\n" +
-                "Önce '⚡ BÖLÜM & PARÇALARI ÖNİZLE' ile tekrar üretin ya da '🔁 Parametreleri Ayarlayıp " +
-                "Yeniden Üret' butonunu kullanın.", "Tamam");
-            return;
+            bool proceed = EditorUtility.DisplayDialog("Doğrulanmamış Seviye",
+                "Bu seviye solver tarafından ÇÖZÜLEBİLİR olarak doğrulanmadı (çözülemez bulundu ya da " +
+                "arama bütçesi aşıldı — çözülemez KANITLANMADI).\n\n" +
+                "Yine de kaydetmek istiyor musun? Oyunda kendin test edebilirsin.",
+                "Yine de Kaydet", "Vazgeç");
+            if (!proceed) return;
         }
 
         LevelData ld = ExportProceduralLevelCore(levelName, levelTime, levelTarget);
@@ -2588,8 +2589,8 @@ public class AILevelDesignerWindow : EditorWindow
         else
         {
             EditorUtility.DisplayDialog("Kaydedilemedi",
-                "Seviye kaydedilmedi: solver tarafından doğrulanmamış (Kural #1) ya da buz Monte Carlo " +
-                "doğrulamasından geçemedi (Kural #2). Ayrıntı için Console'a bakın.", "Tamam");
+                "Seviye kaydedilemedi (dosya/asset yazımı sırasında bir sorun oluştu). " +
+                "Ayrıntı için Console'a bakın.", "Tamam");
         }
     }
 
@@ -2602,8 +2603,9 @@ public class AILevelDesignerWindow : EditorWindow
         // timedOut da geçerli sayılır — bkz. ExportProceduralLevel'daki aynı gerekçe.
         if (!(solverRan && lastSolverResult != null && (lastSolverResult.isSolvable || lastSolverResult.timedOut)))
         {
-            Debug.LogWarning($"⛔ '{targetLevelName}' kaydedilmedi: solver tarafından doğrulanmamış/çözülemez.");
-            return null;
+            // Artık ENGELLEMİYOR (istek üzerine): yalnızca uyarı. Kullanıcı bilinçli olarak
+            // (bkz. ExportProceduralLevel onayı) doğrulanmamış bir seviyeyi kaydetmeyi seçebilir.
+            Debug.LogWarning($"⚠️ '{targetLevelName}' solver tarafından doğrulanmadı — yine de kaydediliyor (kullanıcı isteği). Oyunda test et.");
         }
 
         // Zorunlu Koruma Kuralı #2: buz içeren bir seviye, LevelSolver'ın DETERMİNİSTİK vekil renk
@@ -2625,9 +2627,10 @@ public class AILevelDesignerWindow : EditorWindow
 
             if (passRate < 1f)
             {
-                Debug.LogWarning($"⛔ '{targetLevelName}' kaydedilmedi: buz Monte Carlo doğrulaması başarısız " +
-                                 $"(geçiş oranı %{passRate * 100f:F0}) — Zorunlu Koruma Kuralı #2.");
-                return null;
+                // Artık ENGELLEMİYOR: uyarı. Buz erime sırası bazı renk dağılımlarında kırılabilir
+                // ama kullanıcı yine de kaydedip oyunda test etmek isteyebilir.
+                Debug.LogWarning($"⚠️ '{targetLevelName}': buz Monte Carlo doğrulaması zayıf " +
+                                 $"(geçiş oranı %{passRate * 100f:F0}) — yine de kaydediliyor (kullanıcı isteği). Oyunda test et.");
             }
         }
 
