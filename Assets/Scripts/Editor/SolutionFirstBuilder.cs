@@ -15,6 +15,7 @@ public static class SolutionFirstBuilder
     {
         public PieceDefinition definition;
         public int usedCount;
+        public List<List<Vector3Int>> rotationVariants; // TryBuild'de BİR kez hesaplanan normalize dönüşler
     }
 
     private static HashSet<Vector3Int> targetCells;
@@ -57,9 +58,24 @@ public static class SolutionFirstBuilder
         targetCells = cellsToFill;
         currentOccupied = new HashSet<Vector3Int>();
         gridSize = boardGridSize;
+        // Havuz BİR kez kuruluyor: dönüş varyantları önceden hesaplanıyor ve sıralama (büyük
+        // parçalar önce, eşitlikte spawnWeight, sonra rastgele tie-break) burada bir kez yapılıyor.
+        // Eskiden bu sıralama HER backtracking düğümünde (OrderBy + düğüm başına yeni Random.value)
+        // yapılıyor, ayrıca RotateAndNormalize her düğümde yeniden çağrılıyordu → on binlerce
+        // düğümde on binlerce gereksiz allocation. Aramanın yavaşlığının / editörü dondurmanın
+        // başlıca sebeplerindendi.
         pool = candidatePool
             .Where(d => d != null && d.cells != null && d.cells.Count > 0)
-            .Select(d => new PieceCandidate { definition = d, usedCount = 0 })
+            .Select(d => new PieceCandidate
+            {
+                definition = d,
+                usedCount = 0,
+                rotationVariants = BuildRotationVariants(d)
+            })
+            .Where(p => p.rotationVariants.Count > 0)
+            .OrderByDescending(p => p.definition.volume)
+            .ThenByDescending(p => p.definition.spawnWeight)
+            .ThenBy(_ => Random.value)
             .ToList();
         placedPieces = new List<List<Vector3Int>>();
 
@@ -86,34 +102,17 @@ public static class SolutionFirstBuilder
 
         int activeLayer = GetLowestIncompleteLayer();
 
-        // [2026-07-14] DÜZELTİLDİ: eskiden sadece spawnWeight'e göre sıralanıyordu, ama
-        // kütüphanedeki TÜM tanımlar (Filler_1x1 dahil) spawnWeight=1 olduğu için sıralama
-        // pratikte rastgeleydi. Bu, ilk başarılı yerleşimi kabul edip döndüğü için (aşağıdaki
-        // "if (BacktrackingBuild()) return true;"), her fırsatta HER YERE sığan ve
-        // maxCopiesPerLevel=-1 (sınırsız) olan tek-küplük Filler_1x1'e sürükleniyor, sonuç
-        // olarak levellerin çoğu tek-hücrelik parçaya boğuluyordu. Şimdi önce hücre SAYISINA
-        // göre büyükten küçüğe sıralanıyor (büyük/ilginç parçalar önce denenir, küçük
-        // parçalara sadece büyükler sığmadığında düşülür), spawnWeight ve rastgelelik sadece
-        // eşit boyuttaki parçalar arasında ayırt edici kalıyor.
-        var orderedPool = pool
-            .Where(p => p.definition.maxCopiesPerLevel < 0 || p.usedCount < p.definition.maxCopiesPerLevel)
-            .OrderByDescending(p => p.definition.volume)
-            .ThenByDescending(p => p.definition.spawnWeight)
-            .ThenBy(_ => Random.value)
-            .ToList();
-
-        foreach (var candidate in orderedPool)
+        // Havuz TryBuild'de BİR kez sıralandı (büyük parçalar önce — böylece arama büyük/ilginç
+        // parçalara öncelik verir, tek-hücrelik Filler'lara sadece büyükler sığmayınca düşülür)
+        // ve dönüş varyantları önceden hesaplandı. Burada yalnızca maxCopies filtresini uygulayıp
+        // doğrudan geziyoruz; düğüm başına OrderBy/RotateAndNormalize allocation'ı YOK.
+        foreach (var candidate in pool)
         {
             var def = candidate.definition;
-            var rotations = (def.allowedRotations != null && def.allowedRotations.Count > 0)
-                ? def.allowedRotations
-                : new List<Vector3Int> { Vector3Int.zero };
+            if (def.maxCopiesPerLevel >= 0 && candidate.usedCount >= def.maxCopiesPerLevel) continue;
 
-            foreach (var rotEuler in rotations)
+            foreach (var rotatedCells in candidate.rotationVariants)
             {
-                var rotatedCells = PieceGeometryUtils.RotateAndNormalize(
-                    def.cells, Quaternion.Euler(rotEuler.x, rotEuler.y, rotEuler.z));
-
                 foreach (var offset in GetPossibleOffsets(rotatedCells, activeLayer))
                 {
                     if (TryPlace(rotatedCells, offset, activeLayer))
@@ -131,6 +130,47 @@ public static class SolutionFirstBuilder
         }
 
         return false;
+    }
+
+    // Bir tanımın izin verilen tüm dönüşlerini BİR kez hesaplayıp normalize eder. Aynı normalize
+    // hücre setini veren dönüşler (simetrik parçalar) elenir → gereksiz dallanma da azalır.
+    private static List<List<Vector3Int>> BuildRotationVariants(PieceDefinition def)
+    {
+        var rotations = (def.allowedRotations != null && def.allowedRotations.Count > 0)
+            ? def.allowedRotations
+            : new List<Vector3Int> { Vector3Int.zero };
+
+        var variants = new List<List<Vector3Int>>(rotations.Count);
+        var seen = new HashSet<string>();
+        foreach (var rotEuler in rotations)
+        {
+            var rotated = PieceGeometryUtils.RotateAndNormalize(
+                def.cells, Quaternion.Euler(rotEuler.x, rotEuler.y, rotEuler.z));
+            if (rotated == null || rotated.Count == 0) continue;
+
+            // Tiler bir parçayı YALNIZCA tek bir katmana yerleştirir (bkz. TryPlace: tüm hücreler
+            // activeLayerY'de olmalı). Çok-katmanlı (3D) varyantlar ASLA yerleşemez. Bunları eleyerek:
+            //  (a) kütüphaneye yanlışlıkla girmiş çok-katmanlı "tüm-level" artefaktları (Level6-12,
+            //      AI_Level_1 vb. — hiçbir dönüşte tek-katman olmayan 7-75 hücrelik 3D şekiller)
+            //      TAMAMEN havuz dışı kalır → SampleEligiblePool onları örnekleyip havuzu bunlarla
+            //      doldurup gerçek parça bırakmama ("InsufficientContent") sorunu ortadan kalkar;
+            //  (b) yerleşemeyecek varyantlarda boşa dallanma/offset taraması yapılmaz (hız).
+            if (!IsSingleLayer(rotated)) continue;
+
+            string key = string.Join(";", rotated
+                .OrderBy(c => c.x).ThenBy(c => c.y).ThenBy(c => c.z)
+                .Select(c => $"{c.x},{c.y},{c.z}"));
+            if (seen.Add(key)) variants.Add(rotated);
+        }
+        return variants;
+    }
+
+    private static bool IsSingleLayer(List<Vector3Int> cells)
+    {
+        int y = cells[0].y;
+        for (int i = 1; i < cells.Count; i++)
+            if (cells[i].y != y) return false;
+        return true;
     }
 
     // Üretim her zaman alttan üste ilerler (oynanış sırası GridManager'da ayrı — bkz.

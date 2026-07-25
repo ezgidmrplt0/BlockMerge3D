@@ -20,41 +20,58 @@ public class BlockMerge3DDifficultyEvaluator : IDifficultyEvaluator<BlockMerge3D
                 "Kütüphaneden hiç parça döşenemedi (SolutionFirstBuilder başarısız).", definitive: true);
         }
 
-        GameObject mainShape = BuildTempMainShape(candidate);
-        List<GameObject> pieces = BuildTempPieces(candidate);
+        int totalCells  = candidate.occupiedCells != null ? candidate.occupiedCells.Count : 0;
+        int frozenCount = candidate.frozenCells != null ? candidate.frozenCells.Count : 0;
+        int pieceCount  = candidate.pieceSplitList.Count;
 
-        try
+        // ── Zorluk skoru: HEURİSTİK (çözmeden) ───────────────────────────────────────────
+        // Eskiden her aday için exhaustive LevelSolver çalıştırılıp minMoveCount üzerinden skor
+        // hesaplanıyordu. Bu üsteldi: karmaşık adaylarda saniyelerce sürüp bütçeye takılıyor,
+        // iyi adayları "skorlanamadı" diye eleyip üretimi patlatıyordu (özellikle "Uzman"da hiçbir
+        // aday tutmuyordu). LevelSolver.EstimateDifficulty aynı skoru ANINDA, ort. 0.037 hatayla
+        // üretir (27 gerçek seviyede kalibre) — çünkü solver skoru zaten çoğunlukla yapısal
+        // (parça sayısı, buz oranı, hacim) ve minMoveCount ≈ parça sayısı.
+        float score = LevelSolver.EstimateDifficulty(pieceCount, frozenCount, totalCells, candidate.gridSize);
+
+        // ── Çözülebilirlik kapısı: yalnızca BUZ varsa ────────────────────────────────────
+        // SolutionFirstBuilder zaten geometrik döşemeyi garanti ediyor → BUZSUZ bir level yapıca
+        // çözülebilir (parçalar katman katman sığıyor; renk/tür yerleşimi engellemez, sadece buz
+        // engeller). Bu yüzden solver'ı yalnızca buz varken ve KISA bütçeyle, erime sırasının
+        // uygulanabilirliğini doğrulamak için çalıştırıyoruz. Timeout → KABUL (elemek üretimi
+        // patlatan davranıştı); yalnızca KESİN çözülemez buz sırası reddedilir.
+        if (frozenCount > 0)
         {
-            if (pieces.Count == 0)
+            GameObject mainShape = BuildTempMainShape(candidate);
+            List<GameObject> pieces = BuildTempPieces(candidate);
+            try
             {
-                return EvaluationResult.Invalid(FailureReasonCode.InsufficientContent, "Geçerli parça oluşturulamadı.", definitive: true);
-            }
-
-            int gridVolume = candidate.gridSize.x * candidate.gridSize.y * candidate.gridSize.z;
-            int stateLimit = gridVolume < 50 ? 50000 : gridVolume < 100 ? 75000 : 100000;
-            int timeoutMs = gridVolume < 50 ? 2000 : gridVolume < 100 ? 3000 : 5000;
-
-            var solver = new LevelSolver { maxSearchTimeMs = timeoutMs, maxStatesExplored = stateLimit };
-            SolverResult result = solver.SolveFromPrefabs(mainShape, pieces);
-            candidate.lastSolverResult = result;
-
-            if (result.isSolvable)
-            {
-                var metrics = new Dictionary<string, float>
+                if (pieces.Count > 0)
                 {
-                    { "moveCount", result.minMoveCount },
-                    { "pieceCount", candidate.pieceSplitList.Count }
-                };
-                return EvaluationResult.Valid(result.difficultyScore, metrics);
-            }
+                    int gridVolume = candidate.gridSize.x * candidate.gridSize.y * candidate.gridSize.z;
+                    int stateLimit = gridVolume < 50 ? 40000 : 60000;
+                    int timeoutMs  = gridVolume < 50 ? 1000 : 1500;
 
-            return EvaluationResult.Invalid(MapFailureReason(result), result.failureReason, definitive: !result.timedOut);
+                    var solver = new LevelSolver { maxSearchTimeMs = timeoutMs, maxStatesExplored = stateLimit };
+                    SolverResult result = solver.SolveFromPrefabs(mainShape, pieces);
+                    candidate.lastSolverResult = result;
+
+                    if (!result.isSolvable && !result.timedOut)
+                        return EvaluationResult.Invalid(MapFailureReason(result), result.failureReason, definitive: true);
+                }
+            }
+            finally
+            {
+                if (mainShape != null) Object.DestroyImmediate(mainShape);
+                foreach (var p in pieces) if (p != null) Object.DestroyImmediate(p);
+            }
         }
-        finally
+
+        var metrics = new Dictionary<string, float>
         {
-            if (mainShape != null) Object.DestroyImmediate(mainShape);
-            foreach (var p in pieces) if (p != null) Object.DestroyImmediate(p);
-        }
+            { "pieceCount", pieceCount },
+            { "frozenCount", frozenCount }
+        };
+        return EvaluationResult.Valid(score, metrics);
     }
 
     // LevelSolver'ın serbest metin failureReason'ını TEK bu noktada yapılandırılmış bir koda

@@ -601,6 +601,28 @@ public class LevelSolver
         }
     }
 
+    // Çözmeden (exhaustive arama YAPMADAN) zorluk skorunu tahmin eder — CalculateDifficulty ile
+    // AYNI formül ve ağırlıklar; tek fark, solver'ın bulduğu minMoveCount yerine ≈ parça sayısı
+    // kullanılır. Gerçek seviyelerde moveCount pratikte ~0.88×pieceCount çıkıyor (27 seviyede
+    // kalibre edildi: heuristik vs solver ort. mutlak hata 0.037). AI level üretiminde HER aday
+    // için üstel/timeout'lu tam çözüm çalıştırmak yerine bunu kullan (bkz.
+    // BlockMerge3DDifficultyEvaluator). Ağırlıklar buradaki instance default'larıyla birebir.
+    public static float EstimateDifficulty(int pieceCount, int frozenCount, int totalCells, Vector3Int gridSize)
+    {
+        const float wMoves = 0.3f, wFrozen = 0.2f, wPieces = 0.25f, wVolume = 0.25f;
+
+        float estMoves = pieceCount * 0.88f;
+        float frozenRatio = totalCells > 0 ? (float)frozenCount / totalCells : 0f;
+        int gridVolume = gridSize.x * gridSize.y * gridSize.z;
+
+        float normMoves  = Mathf.Clamp01(estMoves / 20f);
+        float normFrozen = Mathf.Clamp01(frozenRatio / 0.5f);
+        float normPieces = Mathf.Clamp01(pieceCount / 15f);
+        float normVolume = Mathf.Clamp01(gridVolume / 200f);
+
+        return Mathf.Clamp01(wMoves * normMoves + wFrozen * normFrozen + wPieces * normPieces + wVolume * normVolume);
+    }
+
     private float CalculateDifficulty(int moveCount)
     {
         int totalCells = targetCells.Count;

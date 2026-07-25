@@ -1635,11 +1635,20 @@ public class AILevelDesignerWindow : EditorWindow
         int stateLimit = layerVolume < 20 ? 20000 : layerVolume < 40 ? 40000 : 75000;
         int timeLimitMs = layerVolume < 20 ? 1200 : layerVolume < 40 ? 2000 : 3500;
 
-        // Aşama 1: Zorluk profiline uygun kısıtlı havuzlarda 15 deneme
+        // Katman başına TOPLAM süre tavanı. Eskiden 15+10+1 deneme her biri kendi time-limit'ine
+        // kadar bloklu koştuğu için zor katmanda editör ~2 dakika donabiliyordu (senkron, UI
+        // thread'inde). Artık toplam bütçe aşılınca denemeler kesiliyor ve her denemenin süresi
+        // KALAN bütçeye kırpılıyor — tek bir deneme bile tavanı aşamaz.
+        var layerSw = System.Diagnostics.Stopwatch.StartNew();
+        int totalBudgetMs = layerVolume < 20 ? 3500 : layerVolume < 40 ? 6000 : 9000;
+
+        // Aşama 1: Zorluk profiline uygun kısıtlı havuzlarda denemeler
         for (int attempt = 0; attempt < 15; attempt++)
         {
+            int remaining = totalBudgetMs - (int)layerSw.ElapsedMilliseconds;
+            if (remaining <= 0) break;
             var pool = SampleEligiblePool(library);
-            if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit, timeLimitMs, out var resultPieces))
+            if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit, Mathf.Min(timeLimitMs, remaining), out var resultPieces))
             {
                 pieceSplitList.AddRange(resultPieces);
                 pendingLayerPieceCount = resultPieces.Count;
@@ -1649,14 +1658,16 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        // Aşama 2: Kütüphanedeki tüm parçaları daha geniş havuz ile 10 deneme
+        // Aşama 2: Kütüphanedeki tüm parçaları daha geniş havuz ile denemeler
         var fullEligible = library.Where(d => d.volume >= 1 && d.volume <= maxPieceSize).ToList();
         if (fullEligible.Count == 0) fullEligible = library;
 
         for (int attempt = 0; attempt < 10; attempt++)
         {
+            int remaining = totalBudgetMs - (int)layerSw.ElapsedMilliseconds;
+            if (remaining <= 0) break;
             var pool = fullEligible.OrderBy(_ => UnityEngine.Random.value).Take(Mathf.Min(fullEligible.Count, 15)).ToList();
-            if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit * 2, timeLimitMs * 2, out var resultPieces))
+            if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, pool, stateLimit * 2, Mathf.Min(timeLimitMs * 2, remaining), out var resultPieces))
             {
                 pieceSplitList.AddRange(resultPieces);
                 pendingLayerPieceCount = resultPieces.Count;
@@ -1666,8 +1677,9 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        // Aşama 3: Kütüphanedeki TÜM parçaları doğrudan arama motoruna vererek 1 deneme
-        if (SolutionFirstBuilder.TryBuild(layerCells, gridSize, library, stateLimit * 3, timeLimitMs * 3, out var fullResultPieces))
+        // Aşama 3: Kütüphanedeki TÜM parçaları doğrudan arama motoruna vererek 1 deneme (kalan bütçe)
+        int rem3 = totalBudgetMs - (int)layerSw.ElapsedMilliseconds;
+        if (rem3 > 0 && SolutionFirstBuilder.TryBuild(layerCells, gridSize, library, stateLimit * 3, Mathf.Min(timeLimitMs * 3, rem3), out var fullResultPieces))
         {
             pieceSplitList.AddRange(fullResultPieces);
             pendingLayerPieceCount = fullResultPieces.Count;
@@ -1676,18 +1688,12 @@ public class AILevelDesignerWindow : EditorWindow
             return;
         }
 
-        // Aşama 4: Garantili Fallback (Açık hücreleri geçerli parça bloklarına böl)
-        var fallbackPieces = FallbackDecomposeLayerCells(layerCells, library);
-        if (fallbackPieces != null && fallbackPieces.Count > 0)
-        {
-            pieceSplitList.AddRange(fallbackPieces);
-            pendingLayerPieceCount = fallbackPieces.Count;
-            layerGenError = null;
-            Repaint();
-            return;
-        }
-
-        layerGenError = $"⚠️ Katman Y={genCurrentLayerY} döşenemedi. Lütfen 'Yeniden Üret' veya 'Otomatik Tamamla' butonunu kullanın.";
+        // Otomatik junk fallback KALDIRILDI: kütüphaneyle döşenemeyen katman için, kütüphanede
+        // karşılığı OLMAYAN keyfi/çirkin parçalar üretmek yerine dürüstçe başarısız oluyoruz
+        // ("geometrik cart curt"ın kaynağı buydu). Kullanıcı bilinçli olarak manuel "Otomatik
+        // Tamamla" (ForceCompleteCurrentLayer) butonunu kullanabilir.
+        layerGenError = $"⚠️ Katman Y={genCurrentLayerY} kütüphane parçalarıyla döşenemedi. Buz/hazır " +
+                         "oranını düşürüp 'Yeniden Üret' deneyin; yine olmazsa 'Otomatik Tamamla' kullanın.";
         Repaint();
     }
 
@@ -1717,6 +1723,10 @@ public class AILevelDesignerWindow : EditorWindow
         }
     }
 
+    // Manuel "Otomatik Tamamla" için son çare bölme. Kütüphaneyle birebir eşleşmeyi GARANTİ
+    // etmez (o yüzden otomatik akışta ARTIK kullanılmıyor, sadece kullanıcı bilinçli basınca),
+    // ama düzgün BFS ile BAĞLI, kompakt 3-4 hücrelik parçalar üretir ve tek-hücrelik junk
+    // parçaları komşularına kaynaştırır — eski açgözlü sürüm kopuk/tek-hücre şekiller üretebiliyordu.
     private List<List<Vector3Int>> FallbackDecomposeLayerCells(HashSet<Vector3Int> layerCells, List<PieceDefinition> library)
     {
         var result = new List<List<Vector3Int>>();
@@ -1730,31 +1740,42 @@ public class AILevelDesignerWindow : EditorWindow
             unvisited.Remove(start);
             var pieceCells = new List<Vector3Int> { start };
 
-            int targetSize = UnityEngine.Random.Range(2, 5);
+            int targetSize = UnityEngine.Random.Range(3, 5); // 3-4 hücre
 
-            foreach (var dir in neighbors)
+            // BFS: parçanın HERHANGİ bir hücresinin komşularından büyü (eski sürüm sadece
+            // start ve onun ilk komşusundan bakıyordu → çoğu zaman kopuk/eksik büyüyordu).
+            var frontier = new Queue<Vector3Int>();
+            frontier.Enqueue(start);
+            while (pieceCells.Count < targetSize && frontier.Count > 0)
             {
-                if (pieceCells.Count >= targetSize) break;
-                Vector3Int n = start + dir;
-                if (unvisited.Contains(n))
+                var cur = frontier.Dequeue();
+                foreach (var dir in neighbors)
                 {
-                    pieceCells.Add(n);
-                    unvisited.Remove(n);
-
-                    foreach (var dir2 in neighbors)
+                    if (pieceCells.Count >= targetSize) break;
+                    Vector3Int n = cur + dir;
+                    if (unvisited.Remove(n))
                     {
-                        if (pieceCells.Count >= targetSize) break;
-                        Vector3Int n2 = n + dir2;
-                        if (unvisited.Contains(n2))
-                        {
-                            pieceCells.Add(n2);
-                            unvisited.Remove(n2);
-                        }
+                        pieceCells.Add(n);
+                        frontier.Enqueue(n);
                     }
                 }
             }
 
             result.Add(pieceCells);
+        }
+
+        // Tek-hücrelik parça bırakma: komşu bir parçaya kaynaştır (junk single'ları yok et).
+        for (int i = result.Count - 1; i >= 0; i--)
+        {
+            if (result[i].Count > 1) continue;
+            var solo = result[i][0];
+            foreach (var other in result)
+            {
+                if (other == result[i]) continue;
+                bool adjacent = other.Any(c =>
+                    Mathf.Abs(c.x - solo.x) + Mathf.Abs(c.y - solo.y) + Mathf.Abs(c.z - solo.z) == 1);
+                if (adjacent) { other.Add(solo); result.RemoveAt(i); break; }
+            }
         }
 
         return result;
@@ -2148,6 +2169,23 @@ public class AILevelDesignerWindow : EditorWindow
             int idx = UnityEngine.Random.Range(0, remaining.Count);
             selected.Add(remaining[idx]);
             remaining.RemoveAt(idx);
+        }
+
+        // ── Dolgu garantisi ──────────────────────────────────────────────────────
+        // Exact tiling'in TAMAMLANABİLMESİ için havuzda mutlaka küçük dolgu parçası olmalı:
+        // büyük parçalar hacmin çoğunu doldurur, 1-2 hücrelik dolgular artık boşlukları kapatır.
+        // minPieceSize yüksekken (ör. "Uzman") bu dolgular boyut filtresince dışlanıp havuz
+        // {5,6,8,9} gibi birkaç büyük parçaya düşüyor ve çoğu katman TAM döşenemiyordu → her
+        // deneme InsufficientContent (bkz. SplitShapeWithSolutionFirstLibrary). Bu yüzden en
+        // küçük 1-2 parçayı minPieceSize'tan BAĞIMSIZ garanti ekliyoruz. Zorluk yine büyük
+        // parçalardan gelir: SolutionFirstBuilder büyüğü ÖNCE koyduğu için dolgu baskın olmaz,
+        // yalnızca büyükler sığmadığında artık boşluğu kapatır; aşırı kolay çıkarsa zaten
+        // DifficultySearchEngine skoru tutturamayıp o adayı eler.
+        foreach (int fillerVol in new[] { 1, 2 })
+        {
+            if (selected.Any(d => d.volume == fillerVol)) continue;
+            var cand = library.Where(d => d.volume == fillerVol).ToList();
+            if (cand.Count > 0) selected.Add(cand[UnityEngine.Random.Range(0, cand.Count)]);
         }
 
         return selected;
