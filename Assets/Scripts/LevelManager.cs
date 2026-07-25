@@ -28,7 +28,11 @@ public class LevelManager : MonoBehaviour
     [Header("Visual Settings")]
     public int   maxVisiblePieces = 2;
     [Range(0f, 1f)] public float smartSpawnProbability = 0.20f;
-    
+    [Tooltip("Ağırlıklı rastgele parça havuzunda, aktif katmandaki buza komşu düşebilecek parçalara verilen ek bilet (cellCount ile çarpılır). Erimeyi garanti ETMEZ, sadece ihtimalini artırır.")]
+    [Range(0, 10)] public int iceAdjacencyWeightBonus = 2;
+    [Tooltip("Ağırlıklı rastgele parça havuzunda, hold'daki parçayla birlikte katmanı tam tamamlayacak adaylara verilen ek bilet (cellCount ile çarpılır).")]
+    [Range(0, 10)] public int holdCompletionWeightBonus = 3;
+
     private List<bool> activeIsSmart = new List<bool>();
 
     private GameObject activeMainPiece;
@@ -1284,6 +1288,91 @@ public class LevelManager : MonoBehaviour
         return false;
     }
 
+    // Ağırlıklandırma için "geometrik" bir ipucu: adayın herhangi bir geçerli yerleşiminde,
+    // yerleşen hücrelerden en az biri aktif katmandaki buzlu bir hücreye komşu düşüyor mu?
+    // NOT: Gerçek erime rengin/türün eşleşmesine bağlıdır (GridManager.CheckAndResolveFrozenCells)
+    // ve tür seçimi şekil seçiminden SONRA yapılır — bu yüzden burada "kesin eritir" garantisi
+    // verilemez, sadece buza yakın düşme İHTİMALİ artırılır.
+    private static readonly Vector3Int[] PlanarNeighborDirs =
+    {
+        new Vector3Int(1, 0, 0), new Vector3Int(-1, 0, 0),
+        new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
+    };
+
+    private bool CandidateHasIceAdjacentPlacement(int index)
+    {
+        if (gridManager == null) return false;
+        if (gridManager.frozenCells.Count == 0) return false;
+        if (!gridManager.frozenCells.Any(c => c.y == gridManager.ActiveLayerY)) return false;
+        if (index < 0 || index >= allPiecePrefabs.Count || allPiecePrefabs[index] == null) return false;
+
+        var h = allPiecePrefabs[index].GetComponent<CubeShapeDataHolder>();
+        if (h == null) return false;
+
+        Quaternion[] rots = { Quaternion.identity, Quaternion.Euler(0, 90, 0), Quaternion.Euler(0, 180, 0), Quaternion.Euler(0, 270, 0) };
+
+        foreach (var rot in rots)
+        {
+            var rotated = GridManager.RotateCells(h.occupiedCells, rot);
+            foreach (var offset in gridManager.GetPossibleOffsets(rotated))
+            {
+                foreach (var cell in rotated)
+                {
+                    var placed = cell + offset;
+                    foreach (var dir in PlanarNeighborDirs)
+                        if (gridManager.frozenCells.Contains(placed + dir)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Hold slotundaki parçayla BİRLİKTE, aktif katmanın kalan tüm boş hedef hücrelerini tam
+    // (fazlasız/eksiksiz) kaplayacak bir yerleşim var mı? Bu da garanti değil, ağırlık bonusu
+    // için bir "ihtimal" sinyalidir — havuzdaki bilet sayısını artırır, seçimi belirlemez.
+    private bool CandidateCompletesLayerWithHold(int index)
+    {
+        if (holdPiece == null || gridManager == null) return false;
+        if (index < 0 || index >= allPiecePrefabs.Count || allPiecePrefabs[index] == null) return false;
+
+        var holdHolder = holdPiece.GetComponent<CubeShapeDataHolder>();
+        var h = allPiecePrefabs[index].GetComponent<CubeShapeDataHolder>();
+        if (holdHolder == null || h == null) return false;
+
+        int activeLayer = gridManager.ActiveLayerY;
+        var emptyInLayer = new HashSet<Vector3Int>(
+            gridManager.targetCells.Where(t => t.y == activeLayer && !gridManager.occupiedCells.Contains(t)));
+        if (emptyInLayer.Count == 0) return false;
+
+        Quaternion[] rots = { Quaternion.identity, Quaternion.Euler(0, 90, 0), Quaternion.Euler(0, 180, 0), Quaternion.Euler(0, 270, 0) };
+
+        var holdShapes = new List<HashSet<Vector3Int>>();
+        foreach (var rot in rots)
+        {
+            var rc = GridManager.RotateCells(holdHolder.occupiedCells, rot);
+            int mx = rc.Min(c => c.x), mz = rc.Min(c => c.z);
+            holdShapes.Add(new HashSet<Vector3Int>(rc.Select(c => new Vector3Int(c.x - mx, 0, c.z - mz))));
+        }
+
+        foreach (var rot in rots)
+        {
+            var rotated = GridManager.RotateCells(h.occupiedCells, rot);
+            foreach (var offset in gridManager.GetPossibleOffsets(rotated))
+            {
+                var placed = new HashSet<Vector3Int>(rotated.Select(c => c + offset));
+                var leftover = new HashSet<Vector3Int>(emptyInLayer.Where(c => !placed.Contains(c)));
+                if (leftover.Count == 0 || leftover.Count != holdHolder.occupiedCells.Count) continue;
+
+                int lx = leftover.Min(c => c.x), lz = leftover.Min(c => c.z);
+                var normalizedLeftover = new HashSet<Vector3Int>(
+                    leftover.Select(c => new Vector3Int(c.x - lx, 0, c.z - lz)));
+
+                if (holdShapes.Any(hs => hs.SetEquals(normalizedLeftover))) return true;
+            }
+        }
+        return false;
+    }
+
     private Material FindClosestMaterial(Color targetColor)
     {
         if (pieceMaterials == null || pieceMaterials.Length == 0) return null;
@@ -1978,6 +2067,15 @@ public class LevelManager : MonoBehaviour
                     if (fits)
                     {
                         int weight = cellCount > 1 ? (cellCount * 5) : (hasMultiCellFits ? 1 : 3);
+
+                        // Garanti değil, ihtimal artışı: buza komşu düşebilecek ve/veya hold'daki
+                        // parçayla katmanı tam tamamlayacak adaylara ek "bilet" verilir — çekiliş
+                        // yine Random.Range ile yapılır, bulmaca oyuncunun elinde kalır.
+                        if (CandidateHasIceAdjacentPlacement(i))
+                            weight += cellCount * iceAdjacencyWeightBonus;
+                        if (CandidateCompletesLayerWithHold(i))
+                            weight += cellCount * holdCompletionWeightBonus;
+
                         for (int w = 0; w < weight; w++)
                             weightedPool.Add(i);
                     }
