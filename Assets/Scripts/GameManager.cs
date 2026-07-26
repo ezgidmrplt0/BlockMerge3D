@@ -37,6 +37,14 @@ public class GameManager : MonoBehaviour
 
     private const string PREF_LEVEL = "CurrentLevelIndex";
 
+    // ── Sürüm-kapılı ilerleme sıfırlama ──────────────────────────────────────────
+    // Bir güncellemede TÜM oyuncuları level 1'den başlatmak istediğinde bu sayıyı ARTIR.
+    // Açılışta oyuncunun kayıtlı reset-sürümü bundan küçükse ilerleme bir kez sıfırlanır ve
+    // yeni sürüm işaretlenir → aynı oyuncuda tekrar tetiklenmez (mevcut oyuncular korunur,
+    // sadece bu güncellemede bir kez level 1'e döner). Sıfırlama İSTEMİYORSAN dokunma.
+    private const int LEVEL_RESET_VERSION = 1;
+    private const string PREF_RESET_VERSION = "LevelResetVersion";
+
     private void Awake() { Instance = this; }
 
     private void Start()
@@ -44,6 +52,14 @@ public class GameManager : MonoBehaviour
         IsVibrationEnabled = PlayerPrefs.GetInt(PREF_VIBRATION, 1) == 1;
         IsAudioEnabled = PlayerPrefs.GetInt(PREF_AUDIO, 1) == 1;
         ApplyAudioSetting();
+
+        // Bu güncellemede herkesi level 1'e döndür (bir kez). Bkz. LEVEL_RESET_VERSION notu.
+        if (PlayerPrefs.GetInt(PREF_RESET_VERSION, 0) < LEVEL_RESET_VERSION)
+        {
+            PlayerPrefs.SetInt(PREF_LEVEL, 0);                         // level 1 (index 0)
+            PlayerPrefs.SetInt(PREF_RESET_VERSION, LEVEL_RESET_VERSION);
+            PlayerPrefs.Save();
+        }
 
         currentLevelIndex = PlayerPrefs.GetInt(PREF_LEVEL, 0);
         LoadCurrentLevel();
