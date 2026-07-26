@@ -114,6 +114,12 @@ public class AILevelDesignerWindow : EditorWindow
     private bool show3D              = true;
     private Vector2 leftScroll, rightScroll;
     private GameObject cubePrefab;
+    // Yeniden-pişirmede PARÇA küplerinin üretileceği obje prefabı (LevelRebakeWindow'dan set edilir).
+    // null ise cubePrefab kullanılır. FullShape (hedef outline) her zaman cubePrefab'la üretilir.
+    private GameObject pieceCubePrefabOverride;
+    // Yeniden-pişirmede: parçaları kanonik (tek) yönde sakla + aynı şekil+katmandaki parçalar tek
+    // prefab'ı paylaşsın. Oyun rotasyonu zaten kendisi hallettiği için "dönmüş kopya" gereksizdi.
+    private bool bakePiecesCanonical;
     private Material[] prefilledMaterials; // Engel (prefilled) küplerin gerçek rengini oynatan materyal paleti — pieceMaterials (LevelManager) ile aynı sırada olmalı
     private int activeTab = 0; // 0: AI Jeneratör, 1: AI Eğitim Paneli, 2: AI Parça Jeneratörü
 
@@ -2240,7 +2246,10 @@ public class AILevelDesignerWindow : EditorWindow
         var cellsToFill = new HashSet<Vector3Int>(occupiedCells);
         cellsToFill.ExceptWith(prefilledCells);
 
-        var pool = SampleEligiblePool(library);
+        // Yeniden-pişirmede (bakePiecesCanonical) TÜM kütüphaneyi kullan → maksimum çeşitlilik.
+        // SampleEligiblePool sadece ~7 parçalık alt küme veriyor; "hep aynı parça"nın asıl sebebi
+        // buydu. Normal üretimde zorluk-kontrollü sampled havuz kalır.
+        var pool = bakePiecesCanonical ? library : SampleEligiblePool(library);
 
         int gridVolume = gridSize.x * gridSize.y * gridSize.z;
         int stateLimit = gridVolume < 50 ? 30000 : gridVolume < 100 ? 50000 : 80000;
@@ -2603,30 +2612,55 @@ public class AILevelDesignerWindow : EditorWindow
 
         // 1. Her Bir Parça Prefabını Oluştur
         List<GameObject> piecePrefabs = new List<GameObject>();
+        // Kanonik mod (yeniden-pişirmede açık): parçalar tek (kanonik) yönde saklanır ve AYNI
+        // şekildeki + AYNI katmandaki parçalar tek prefab'ı paylaşır. Oyun zaten rastgele döndürüp
+        // oyuncuya çevirtiyor (DraggablePiece.RotateAroundY + LevelManager random spawn rotasyonu),
+        // o yüzden çözüm-yönünü prefab'a gömmek anlamsızdı ("aynı parçanın dönmüş kopyaları").
+        // Katman (originLayerY) KORUNUR — sıralı katman seçimi buna bağlı (LevelManager:2028/2104),
+        // bu yüzden dedup anahtarı şekil + katman.
+        var canonCache = new Dictionary<string, GameObject>();
+        int bakedCount = 0;
         for (int i = 0; i < pieceSplitList.Count; i++)
         {
             List<Vector3Int> cells = pieceSplitList[i];
             if (cells.Count == 0) continue;
 
-            // Normalize et (en küçük koordinat local sıfıra çekilir)
-            int minX = cells.Min(c => c.x), minY = cells.Min(c => c.y), minZ = cells.Min(c => c.z);
-            var shift = new Vector3Int(minX, minY, minZ);
-            List<Vector3Int> normCells = cells.Select(c => c - shift).ToList();
+            int solutionLayerY = cells.Min(c => c.y); // parçanın çözüldüğü katman (dönüşten bağımsız)
+            List<Vector3Int> normCells;
+            string dedupKey = null;
 
-            string pPath = $"{levelDir}/{targetLevelName}_Piece_{i + 1}.prefab";
-            GameObject pRoot = new GameObject($"{targetLevelName}_Piece_{i + 1}");
+            if (bakePiecesCanonical)
+            {
+                normCells = CanonicalYOrientation(cells, out string canonSig);
+                dedupKey = $"{canonSig}@{solutionLayerY}";
+                if (canonCache.TryGetValue(dedupKey, out var shared)) { piecePrefabs.Add(shared); continue; }
+            }
+            else
+            {
+                // Normalize et (en küçük koordinat local sıfıra çekilir) — çözüm-yönü korunur.
+                int minX = cells.Min(c => c.x), minY = cells.Min(c => c.y), minZ = cells.Min(c => c.z);
+                var shift = new Vector3Int(minX, minY, minZ);
+                normCells = cells.Select(c => c - shift).ToList();
+            }
+
+            bakedCount++;
+            string pPath = $"{levelDir}/{targetLevelName}_Piece_{bakedCount}.prefab";
+            GameObject pRoot = new GameObject($"{targetLevelName}_Piece_{bakedCount}");
             var ph = pRoot.AddComponent<CubeShapeDataHolder>();
-            ph.shapeName     = $"{targetLevelName}_Piece_{i + 1}";
+            ph.shapeName     = $"{targetLevelName}_Piece_{bakedCount}";
             ph.gridSize      = gridSize;
             ph.cellSize      = cellSize;
             ph.spacing       = spacing;
             ph.occupiedCells = new List<Vector3Int>(normCells);
-            ph.originLayerY  = minY; // Sıralı katman mekaniği bu parçanın hangi katman için çözüldüğünü bilmeli.
+            ph.originLayerY  = solutionLayerY; // Sıralı katman mekaniği bu parçanın hangi katman için çözüldüğünü bilmeli.
 
+            // Parça küpleri: LevelRebakeWindow'dan seçilmiş obje prefabı varsa ONDAN üret
+            // (yoksa varsayılan grid küpü). "Parçalar hep küp oldu" sorununun çözümü bu.
+            GameObject pieceSrc = pieceCubePrefabOverride != null ? pieceCubePrefabOverride : cubePrefab;
             foreach (var cell in normCells)
             {
-                GameObject cube = cubePrefab != null
-                    ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+                GameObject cube = pieceSrc != null
+                    ? (GameObject)PrefabUtility.InstantiatePrefab(pieceSrc)
                     : GameObject.CreatePrimitive(PrimitiveType.Cube);
                 cube.transform.SetParent(pRoot.transform);
                 cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
@@ -2637,6 +2671,7 @@ public class AILevelDesignerWindow : EditorWindow
             GameObject savedPiece = PrefabUtility.SaveAsPrefabAsset(pRoot, pPath);
             DestroyImmediate(pRoot);
             piecePrefabs.Add(savedPiece);
+            if (bakePiecesCanonical) canonCache[dedupKey] = savedPiece;
         }
 
         // 2. Ana Şekil Prefabını Oluştur
@@ -2651,12 +2686,13 @@ public class AILevelDesignerWindow : EditorWindow
         fh.frozenCells              = new List<Vector3Int>(frozenCells);
         fh.frozenHitCounts          = new List<int>(frozenHitCounts);
 
+        // Grid/FullShape hücreleri için de re-bake'te seçilen obje prefabını kullan (istek üzerine):
+        // seçilen prefab HEM parçalara HEM gride uygulansın. Override yoksa varsayılan grid küpü.
+        GameObject gridSrc = pieceCubePrefabOverride != null ? pieceCubePrefabOverride : cubePrefab;
         foreach (var cell in occupiedCells)
         {
-            // Target grid / full shape outline should always be made with the constant global cubePrefab
-            // so they render as clean translucent slot boxes at runtime instead of duplicate animal models.
-            GameObject cube = cubePrefab != null
-                ? (GameObject)PrefabUtility.InstantiatePrefab(cubePrefab)
+            GameObject cube = gridSrc != null
+                ? (GameObject)PrefabUtility.InstantiatePrefab(gridSrc)
                 : GameObject.CreatePrimitive(PrimitiveType.Cube);
             cube.transform.SetParent(fullRoot.transform);
             cube.transform.localPosition = (Vector3)cell * step + Vector3.one * (cellSize * 0.5f);
@@ -2704,6 +2740,166 @@ public class AILevelDesignerWindow : EditorWindow
         AssetDatabase.Refresh();
 
         return ld;
+    }
+
+    // ══ ESKİ LEVELLERİ YENİDEN PİŞİRME (şekli koru, parçaları güncelle) ══════════
+    // Bir levelin ŞEKLİNİ (occupied/ice/prefill) aynen koruyup parçalarını GÜNCEL kütüphaneyle
+    // yeniden döşer ve MEVCUT LevelData asset'inin İÇİNE yazar (GUID korunur → LevelOrder ve
+    // diğer referanslar bozulmaz). Çözülemeyen/döşenemeyen levele DOKUNMAZ. Runtime mantığı
+    // değişmez: level yine "pişmiş parça listesi"ni kullanır, sadece o liste tazelenmiştir.
+
+    // Birden çok leveli sırayla yeniden pişirir. Pencerenin mevcut düzenleme durumunu snapshot'layıp
+    // en sonda GERİ YÜKLER (kullanıcının açık penceredeki işi bozulmasın).
+    internal void RebakeLevelsPreservingShape(LevelData[] levels, GameObject pieceCubePrefab = null, bool canonicalize = true)
+    {
+        // ── Snapshot ──
+        var sGrid = gridSize; var sCell = cellSize; var sSpacing = spacing;
+        var sOcc = occupiedCells; var sPre = prefilledCells; var sPmi = prefilledMatIdx;
+        var sFro = frozenCells; var sFhc = frozenHitCounts;
+        var sName = levelName; var sMin = minPieceSize; var sMax = maxPieceSize;
+        var sPsl = pieceSplitList; var sSolverRan = solverRan; var sLsr = lastSolverResult;
+        var sOverride = pieceCubePrefabOverride; var sCanon = bakePiecesCanonical;
+
+        // Parça küplerini bu prefabdan üret (boşsa varsayılan grid küpü) + kanonik yön/dedup.
+        pieceCubePrefabOverride = pieceCubePrefab;
+        bakePiecesCanonical = canonicalize;
+        // Tiling çeşitlilik modu: aynı parçayı tekrar tekrar koymak yerine parçalar arasında gezsin.
+        bool sVariety = SolutionFirstBuilder.PreferVariety;
+        SolutionFirstBuilder.PreferVariety = true;
+
+        var sb = new System.Text.StringBuilder();
+        int ok = 0, skip = 0;
+        try
+        {
+            for (int i = 0; i < levels.Length; i++)
+            {
+                EditorUtility.DisplayProgressBar("Yeniden Pişiriliyor",
+                    levels[i] != null ? levels[i].levelName : "?", (i + 1f) / levels.Length);
+                string line = RebakeLevelPreservingShape(levels[i]);
+                sb.AppendLine(line);
+                if (line.StartsWith("✓")) ok++; else skip++;
+            }
+        }
+        finally
+        {
+            EditorUtility.ClearProgressBar();
+            // ── Restore ──
+            gridSize = sGrid; cellSize = sCell; spacing = sSpacing;
+            occupiedCells = sOcc; prefilledCells = sPre; prefilledMatIdx = sPmi;
+            frozenCells = sFro; frozenHitCounts = sFhc;
+            levelName = sName; minPieceSize = sMin; maxPieceSize = sMax;
+            pieceSplitList = sPsl; solverRan = sSolverRan; lastSolverResult = sLsr;
+            pieceCubePrefabOverride = sOverride; bakePiecesCanonical = sCanon;
+            SolutionFirstBuilder.PreferVariety = sVariety;
+        }
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log($"🔁 Yeniden pişirme bitti — {ok} güncellendi, {skip} atlandı:\n{sb}");
+        EditorUtility.DisplayDialog("Yeniden Pişirme Bitti",
+            $"{ok} seviye güncellendi, {skip} atlandı (döşenemedi/geçersiz).\n\n{sb}", "Tamam");
+    }
+
+    // Tek bir leveli yeniden pişirir. Döner: '✓ ...' başarı, '✗ ...' / '· ...' atlandı.
+    internal string RebakeLevelPreservingShape(LevelData ld)
+    {
+        if (ld == null) return "· (null LevelData)";
+        if (ld.mainShapePrefab == null) return $"· {ld.levelName}: mainShape yok — atlandı";
+        var h = ld.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
+        if (h == null || h.occupiedCells == null || h.occupiedCells.Count == 0)
+            return $"· {ld.levelName}: geçerli şekil yok — atlandı";
+
+        // Şekli window state'e yükle (parça listesi HARİÇ — onu yeniden üreteceğiz).
+        gridSize        = h.gridSize;
+        cellSize        = h.cellSize > 0f ? h.cellSize : 1f;
+        spacing         = h.spacing;
+        occupiedCells   = new HashSet<Vector3Int>(h.occupiedCells);
+        prefilledCells  = h.prefilledCells != null ? new List<Vector3Int>(h.prefilledCells) : new List<Vector3Int>();
+        prefilledMatIdx = h.prefilledMaterialIndices != null ? new List<int>(h.prefilledMaterialIndices) : new List<int>();
+        frozenCells     = h.frozenCells != null ? new List<Vector3Int>(h.frozenCells) : new List<Vector3Int>();
+        frozenHitCounts = h.frozenHitCounts != null ? new List<int>(h.frozenHitCounts) : new List<int>();
+        levelName       = ld.levelName;
+
+        // Döşemeyi kolaylaştır: tüm parça boyutlarına izin ver (dolgu garantisi zaten havuzda).
+        minPieceSize = 1;
+        maxPieceSize = 10;
+
+        // Yeniden döşe — birçok deneme yapıp EN ÇEŞİTLİ (en çok farklı şekil) sonucu seç.
+        // Tek başına ilk çözüm genelde 1-2 şekli tekrar ediyor (biggest-first + dolgu garantisi);
+        // denemeler arası farklı rastgele havuzlardan en çeşitlisini almak belirgin fark yaratır.
+        pieceSplitList = new List<List<Vector3Int>>();
+        int bestScore = int.MinValue;
+        for (int a = 0; a < 25; a++)
+        {
+            var pieces = SplitShapeWithSolutionFirstLibrary(a);
+            if (pieces == null || pieces.Count == 0) continue;
+
+            // Puan: çeşitlilik iyi (+), tek-küp dolgu kötü (−). En yüksek puanlı döşemeyi seç →
+            // hem farklı şekiller, hem "aynı tek-küp 5 kez" sorunu asgaride.
+            int variety = CountDistinctShapes(pieces);
+            int singles = pieces.Count(p => p != null && p.Count == 1);
+            int score = variety * 8 - singles * 10; // çeşitlilik iyi, tek-küp AĞIR cezalı
+            if (score > bestScore) { bestScore = score; pieceSplitList = pieces; }
+        }
+        if (pieceSplitList.Count == 0)
+            return $"✗ {ld.levelName}: kütüphaneyle döşenemedi — DOKUNULMADI";
+
+        // Çözülebilirlik (kısa, sadece rapor için — kayıt engellenmez).
+        lastSolverResult = TestCurrentPiecesWithSolver(2000);
+        solverRan = true;
+        string solveTxt = lastSolverResult.isSolvable ? $"çöz✓ {lastSolverResult.minMoveCount}h"
+                        : lastSolverResult.timedOut ? "çöz? limit" : "çöz✗";
+
+        // Eski parça prefablarını temizle (yeni bölme daha az parça üretirse orphan kalmasın).
+        DeleteExistingPiecePrefabs(ld.levelName);
+
+        // Pişir — MEVCUT LevelData'yı yerinde günceller (GUID korunur).
+        var result = ExportProceduralLevelCore(ld.levelName, ld.timeLimit, ld.targetScore);
+        if (result == null) return $"✗ {ld.levelName}: kaydedilemedi";
+        return $"✓ {ld.levelName}: {pieceSplitList.Count} parça ({solveTxt})";
+    }
+
+    private void DeleteExistingPiecePrefabs(string lvlName)
+    {
+        string dir = $"{LEVELS_PATH}/{lvlName}";
+        if (!AssetDatabase.IsValidFolder(dir)) return;
+        foreach (var g in AssetDatabase.FindAssets("t:GameObject", new[] { dir }))
+        {
+            var p = AssetDatabase.GUIDToAssetPath(g);
+            if (System.IO.Path.GetFileName(p).Contains("_Piece_")) AssetDatabase.DeleteAsset(p);
+        }
+    }
+
+    // Bir (tek-katman) parçayı Y-ekseni etrafındaki 4 dönüşün leksikografik en küçüğüne indirir:
+    // aynı şekil her zaman aynı hücrelere normalize olur (kanonik in-plane yön; parça FLAT kalır,
+    // sadece Y dönüşleri denenir). canonKey = kanonik imza (dedup için). Oyun rotasyonu kendisi
+    // hallettiği için baked yön önemsiz — bu yalnızca veriyi temizler.
+    private static List<Vector3Int> CanonicalYOrientation(List<Vector3Int> cells, out string canonKey)
+    {
+        List<Vector3Int> best = null;
+        canonKey = null;
+        for (int r = 0; r < 4; r++)
+        {
+            var rot = PieceGeometryUtils.RotateAndNormalize(cells, Quaternion.Euler(0f, r * 90f, 0f));
+            var sorted = rot.OrderBy(c => c.x).ThenBy(c => c.y).ThenBy(c => c.z).ToList();
+            string key = string.Join(";", sorted.Select(c => $"{c.x},{c.y},{c.z}"));
+            if (canonKey == null || string.CompareOrdinal(key, canonKey) < 0) { canonKey = key; best = sorted; }
+        }
+        return best;
+    }
+
+    // Bir döşemedeki FARKLI şekil sayısı (dönüşten bağımsız, kanonik imzaya göre). Yeniden-pişirmede
+    // en çeşitli döşemeyi seçmek için kullanılır — tek çözüm genelde aynı 1-2 şekli tekrarlar.
+    private static int CountDistinctShapes(List<List<Vector3Int>> pieces)
+    {
+        var shapes = new HashSet<string>();
+        foreach (var p in pieces)
+        {
+            if (p == null || p.Count == 0) continue;
+            CanonicalYOrientation(p, out string sig);
+            shapes.Add(sig);
+        }
+        return shapes.Count;
     }
 
     // ══ SOLVER ENTEGRASYONU ══════════════════════════════════════════════════

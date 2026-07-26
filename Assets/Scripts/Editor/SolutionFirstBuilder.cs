@@ -29,6 +29,11 @@ public static class SolutionFirstBuilder
     private static int maxStatesExplored;
     private static int maxSearchTimeMs;
 
+    // Çeşitlilik modu (yeniden-pişirme açar): her düğümde en AZ kullanılmış parçaları önce dener,
+    // böylece aynı şekli tekrarlamak yerine parçalar arasında gezinir. Kapalıyken (varsayılan)
+    // havuz büyükten küçüğe sabit sırayla gezilir (hızlı yol — normal üretim böyle kalır).
+    public static bool PreferVariety = false;
+
     /// <summary>
     /// cellsToFill'i (bir seviyenin doldurulması gereken hücreleri — prefilled hariç)
     /// candidatePool'daki parçalarla tam olarak döşemeye çalışır. Başarılı olursa
@@ -106,7 +111,17 @@ public static class SolutionFirstBuilder
         // parçalara öncelik verir, tek-hücrelik Filler'lara sadece büyükler sığmayınca düşülür)
         // ve dönüş varyantları önceden hesaplandı. Burada yalnızca maxCopies filtresini uygulayıp
         // doğrudan geziyoruz; düğüm başına OrderBy/RotateAndNormalize allocation'ı YOK.
-        foreach (var candidate in pool)
+        // Varsayılan: havuz TryBuild'de bir kez büyükten küçüğe sıralandı, sabit sırayla gez.
+        // Çeşitlilik modu: bu düğümde en AZ kullanılmış parçaları önce dene (eşitlikte büyük önce)
+        // → kök en büyüğü koyar, sonra o parça "kullanıldı" olduğu için bir sonraki düğüm FARKLI
+        // parça dener; böylece aynı şekli tekrarlamak yerine parçalar arasında dönülür.
+        IEnumerable<PieceCandidate> order = PreferVariety
+            ? pool.OrderBy(p => p.definition.volume <= 1 ? 1 : 0)   // tek-küp dolgu EN SONA (sadece gerçek boşlukta)
+                  .ThenBy(p => p.usedCount)                          // çeşitlilik: en az kullanılmış önce
+                  .ThenByDescending(p => p.definition.volume)        // eşitlikte büyük parça önce
+            : pool;
+
+        foreach (var candidate in order)
         {
             var def = candidate.definition;
             if (def.maxCopiesPerLevel >= 0 && candidate.usedCount >= def.maxCopiesPerLevel) continue;
