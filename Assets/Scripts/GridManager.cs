@@ -2748,28 +2748,46 @@ public class GridManager : MonoBehaviour
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
         HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
 
+        // İSTEK ÜZERİNE: aynı-tür şartı yok (buza yatay komşu HERHANGİ bir parça buzu vurur) VE
+        // buza DEĞEN hücreler (hayvanlar) PATLAR — cellsToDestroy'a eklenir. Çok-vuruşlu buz
+        // sayacı korunuyor: her buz aynı hamlede yalnızca bir kez vurulur (hitFrozenThisCall).
         foreach (var touchCell in touchingCells)
         {
-            if (!cellMatIndex.TryGetValue(touchCell, out int touchSpecies) || touchSpecies < 0) continue;
-
-            var group = FloodFillSameSpecies(touchCell, touchSpecies, horizontalNeighbors);
-            if (group.Count < 2) continue;
-
-            cellsToDestroy.UnionWith(group);
+            bool touchesIce = false;
             foreach (var offset in horizontalNeighbors)
             {
                 Vector3Int neighbor = touchCell + offset;
                 if (!frozenCells.Contains(neighbor)) continue;
+                touchesIce = true;
                 if (!hitFrozenThisCall.Add(neighbor)) continue;
 
-                // Buz kaç vuruşa dayanıyorsa (bkz. CubeShapeDataHolder.GetFrozenHitCount, tool
-                // üzerinden ayarlanır), her nitelikli temas bu sayacı 1 azaltır; 0'a inince erir.
+                // Buz kaç vuruşa dayanıyorsa (bkz. CubeShapeDataHolder.GetFrozenHitCount), her temas
+                // bu sayacı 1 azaltır; 0'a inince erir.
                 int remaining = iceRemainingHits.TryGetValue(neighbor, out int r) ? r : 1;
                 remaining = Mathf.Max(0, remaining - 1);
                 iceRemainingHits[neighbor] = remaining;
 
                 if (remaining <= 0) cellsToThaw.Add(neighbor);
                 else cellsToChip.Add(neighbor);
+            }
+
+            // Buza değen hücre VE ona YATAY bağlı TÜM dolu hücreler patlar — TÜR fark etmez
+            // ("ne değiyorsa patlasın"). Aynı-tür kısıtı yok; bağlı olan her hayvan patlar.
+            if (touchesIce)
+            {
+                var grp = new HashSet<Vector3Int> { touchCell };
+                var stack = new Stack<Vector3Int>();
+                stack.Push(touchCell);
+                while (stack.Count > 0)
+                {
+                    var cur = stack.Pop();
+                    foreach (var off in horizontalNeighbors)
+                    {
+                        var nb = cur + off;
+                        if (occupiedCells.Contains(nb) && grp.Add(nb)) stack.Push(nb);
+                    }
+                }
+                cellsToDestroy.UnionWith(grp);
             }
         }
 
