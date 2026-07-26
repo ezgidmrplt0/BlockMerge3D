@@ -383,6 +383,13 @@ public class LevelCreationWizardWindow : EditorWindow
 
             GUILayout.Space(8);
 
+            if (GUILayout.Button("❄️  Buzlu Yerleri Tespit Et", stylePrimaryButton, GUILayout.Height(32)))
+            {
+                aiDesigner.DetectAndDistributeIce();
+            }
+
+            GUILayout.Space(8);
+
             if (GUILayout.Button("🔁  Bu Katmanı Yeniden Üret", styleDarkButton, GUILayout.Height(32)))
             {
                 aiDesigner.RegenerateCurrentLayer();

@@ -342,8 +342,16 @@ public class AILevelDesignerWindow : EditorWindow
             }
             else
             {
-                EditorGUILayout.HelpBox("⚠️ Şablon seçilmedi. Assets/Templates/ klasöründen bir şablon seçin.", MessageType.Warning);
+                EditorGUILayout.HelpBox("⚠️ Şablon seçilmedi. Assets/Templates/ klasöründen bir şablon seçin veya yeni tasarlayın.", MessageType.Warning);
             }
+
+            EditorGUILayout.Space(4);
+            GUI.backgroundColor = new Color(0.25f, 0.65f, 0.95f);
+            if (GUILayout.Button("🏰  Yeni Level Şablonu Tasarla / Düzenle", GUILayout.Height(28)))
+            {
+                LevelTemplateManagerWindow.ShowWindow();
+            }
+            GUI.backgroundColor = Color.white;
         }
         else if (generationBaseType == GenerationBaseType.CustomPrefab)
         {
@@ -621,7 +629,7 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Space(10);
 
         BeginSectionCard("PARÇA KÜTÜPHANESİ", new Color(0.35f, 0.35f, 0.40f), "🧬");
-        EditorGUILayout.HelpBox("🧬 Parçalar Assets/PieceDefinitions/ kütüphanesinden gelir: rastgele bir havuz seçilir ve şekil geri izlemeli (backtracking) olarak ÖNCE ÇÖZÜLMÜŞ halde inşa edilir.", MessageType.Info);
+        EditorGUILayout.HelpBox("🧬 Parçalar Assets/PieceDefinitions/ kütüphanesinden gelir. Tasarladığınız tüm özel parçalar seviye/katman doldurma sırasında SolutionFirstBuilder tarafından doğrudan referans alınır.", MessageType.Info);
         int cachedCount = pieceLibraryCache?.Count ?? 0;
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField($"Yüklü parça sayısı: {cachedCount}", EditorStyles.miniLabel);
@@ -630,6 +638,14 @@ public class AILevelDesignerWindow : EditorWindow
             RefreshPieceLibrary();
         }
         EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space(4);
+        GUI.backgroundColor = new Color(0.25f, 0.65f, 0.95f);
+        if (GUILayout.Button("🎨  Yeni Özel Parça Tasarla (Parça Kütüphanesi)", GUILayout.Height(30)))
+        {
+            PieceDefinitionMigrationWindow.ShowWindow();
+        }
+        GUI.backgroundColor = Color.white;
         EndSectionCard();
 
         GUILayout.Space(12);
@@ -682,6 +698,12 @@ public class AILevelDesignerWindow : EditorWindow
         bool prev3D = show3D;
         show3D = GUILayout.Toolbar(show3D ? 1 : 0, new string[] { "🖥️ 2D Katman Görünümü", "🧱 3D İzometrik Görünüm" }, GUILayout.Height(24)) == 1;
         if (show3D != prev3D) Repaint();
+
+        GUILayout.Space(10);
+        if (GUILayout.Button("❄️ Buzlu Yerleri Tespit Et", stylePrimaryButton, GUILayout.Height(24), GUILayout.Width(160)))
+        {
+            DetectAndDistributeIce();
+        }
         EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.EndVertical();
@@ -1608,7 +1630,6 @@ public class AILevelDesignerWindow : EditorWindow
         // güvenlik payı (buz başına yedek parça) mekanizması kullanılıyor.
         var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
         layerCells.ExceptWith(prefilledCells);
-        layerCells.ExceptWith(frozenCells);
 
         if (layerCells.Count == 0)
         {
@@ -1700,7 +1721,6 @@ public class AILevelDesignerWindow : EditorWindow
         var library = LoadPieceLibrary();
         var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
         layerCells.ExceptWith(prefilledCells);
-        layerCells.ExceptWith(frozenCells);
 
         if (layerCells.Count > 0)
         {
@@ -1800,12 +1820,6 @@ public class AILevelDesignerWindow : EditorWindow
     // KONTROL ETMEDİĞİ tek şey, bkz. SolutionFirstBuilder.cs üstündeki açıklama) çalıştırır.
     private void FinalizeLayerByLayerGeneration()
     {
-        if (frozenCells != null && frozenCells.Count > 0)
-        {
-            for (int i = 0; i < frozenCells.Count; i++)
-                pieceSplitList.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
-        }
-
         layerGenActive = false;
 
         int gridVolume = gridSize.x * gridSize.y * gridSize.z;
@@ -1848,46 +1862,21 @@ public class AILevelDesignerWindow : EditorWindow
     // davranışı hep aynı, sadece çağrılma sıklığı bağlama göre değişiyor).
     private void DistributeObstacles(int W, int H, int D)
     {
-        // 2. AI Parametreleri: Renkli Küpler (Prefilled) ve Buzları Dağıt
+        // 2. AI Parametreleri: Renkli Küpler (Prefilled) Dağıt
+        // Otomatik üretim TAMAMEN buzsuz (ice-free) olarak çalışır.
+        // Buzlar yalnızca kullanıcı 'Buzlu Yerleri Tespit Et' butonuna bastığında eklenir.
         List<Vector3Int> finalOccupied = occupiedCells.ToList();
         int targetPrefillCount = Mathf.RoundToInt(finalOccupied.Count * prefillPercentage);
-        int targetIceCount = Mathf.RoundToInt(finalOccupied.Count * icePercentage);
 
         // Karıştır
         finalOccupied = finalOccupied.OrderBy(x => Random.value).ToList();
 
-        // Buzları dağıt (buzlar prefilled olamaz)
-        int iceDone = 0;
-        foreach (var cell in finalOccupied)
-        {
-            if (iceDone >= targetIceCount) break;
-
-            // Strateji: Buzlar genellikle daha alt katmanlarda veya kenarlarda olsun
-            bool strategicPlace = (cell.y <= H / 2) || (cell.x == 0 || cell.x == W - 1 || cell.z == 0 || cell.z == D - 1);
-            if (strategicPlace || Random.value < 0.5f)
-            {
-                frozenCells.Add(cell);
-                // Seçilen zorluk moduna (Kolay/Orta/Zor/Uzman) göre rastgele vuruş sayısı ata —
-                // AILevelDifficulty ile IceHitCountUtility.IceDifficulty AYNI sırada (bkz. tanımları).
-                frozenHitCounts.Add(IceHitCountUtility.RollHitCount((IceHitCountUtility.IceDifficulty)(int)selectedDifficulty));
-                iceDone++;
-            }
-        }
-
-        // Hazır renkli blokları dağıt (buz olanlara renk atanmaz)
-        // Önemli: Bir katman (Y) sadece tek bir renk olduğunda temizlenebiliyor
-        // (bkz. GridManager/LevelSolver: katman tamamen dolduğunda tüm hücreler aynı
-        // materyalde olmalı). Eskiden renk "(x + y) % 6" ile hücre bazında seçiliyordu;
-        // bu da aynı katmanda x'e göre farklı renkte prefilled hücreler üretip o katmanı
-        // -hiçbir parça diziliminde- çözülemez hale getirebiliyordu (özellikle Uzman
-        // modda prefill oranı yüksek olduğu için sık rastlanıyordu). Bu yüzden renk artık
-        // katman başına bir kere seçiliyor.
+        // Hazır renkli blokları dağıt
         Dictionary<int, int> layerColorIdx = new Dictionary<int, int>();
         int prefilledDone = 0;
         foreach (var cell in finalOccupied)
         {
             if (prefilledDone >= targetPrefillCount) break;
-            if (frozenCells.Contains(cell)) continue;
 
             if (!layerColorIdx.TryGetValue(cell.y, out int colorIdx))
             {
@@ -1899,6 +1888,40 @@ public class AILevelDesignerWindow : EditorWindow
             prefilledMatIdx.Add(colorIdx);
             prefilledDone++;
         }
+    }
+
+    // Buzları YALNIZCA kullanıcı 'Buzlu Yerleri Tespit Et' butonuna bastığında manuel dağıtır.
+    internal void DetectAndDistributeIce()
+    {
+        frozenCells.Clear();
+        frozenHitCounts.Clear();
+
+        List<Vector3Int> finalOccupied = occupiedCells.ToList();
+        if (finalOccupied.Count == 0) return;
+
+        float ratio = icePercentage > 0f ? icePercentage : 0.20f;
+        int targetIceCount = Mathf.Max(1, Mathf.RoundToInt(finalOccupied.Count * ratio));
+
+        finalOccupied = finalOccupied.OrderBy(x => Random.value).ToList();
+
+        int iceDone = 0;
+        int H = gridSize.y, W = gridSize.x, D = gridSize.z;
+        foreach (var cell in finalOccupied)
+        {
+            if (iceDone >= targetIceCount) break;
+            if (prefilledCells.Contains(cell)) continue;
+
+            bool strategicPlace = (cell.y <= H / 2) || (cell.x == 0 || cell.x == W - 1 || cell.z == 0 || cell.z == D - 1);
+            if (strategicPlace || Random.value < 0.5f)
+            {
+                frozenCells.Add(cell);
+                frozenHitCounts.Add(IceHitCountUtility.RollHitCount((IceHitCountUtility.IceDifficulty)(int)selectedDifficulty));
+                iceDone++;
+            }
+        }
+
+        Debug.Log($"❄️ Buz tespiti çalıştırıldı: {frozenCells.Count} dondurulmuş blok yerleştirildi.");
+        Repaint();
     }
 
     private bool EvaluateShapeFormula(Vector3Int c, int W, int H, int D)
@@ -2216,7 +2239,6 @@ public class AILevelDesignerWindow : EditorWindow
         // "buz güvenlik payı" (buz başına yedek parça) mekanizması kullanılıyor.
         var cellsToFill = new HashSet<Vector3Int>(occupiedCells);
         cellsToFill.ExceptWith(prefilledCells);
-        cellsToFill.ExceptWith(frozenCells);
 
         var pool = SampleEligiblePool(library);
 
@@ -2228,67 +2250,6 @@ public class AILevelDesignerWindow : EditorWindow
 
         Debug.Log($"  [Kütüphane/Solution-First] Deneme {attempt + 1}: havuz={pool.Count} parça tipi, " +
                    (built ? $"BAŞARILI ({resultPieces.Count} parça yerleşti)" : "döşenemedi"));
-
-        if (built && frozenCells != null && frozenCells.Count > 0)
-        {
-            int iceCount = frozenCells.Count;
-
-            // 1. Buz eritmeyi tetikleyecek parçalar:
-            // Eskiden hepsi sabit L-parçasıydı, şimdi çeşitlilik için havuzdan (pool) en az 3 blokluk parçalar seçiyoruz.
-            var validMelters = pool.Where(p => p.cells.Count >= 3).ToList();
-            for (int i = 0; i < iceCount; i++)
-            {
-                if (validMelters.Count > 0)
-                {
-                    var melter = validMelters[UnityEngine.Random.Range(0, validMelters.Count)];
-                    resultPieces.Add(new List<Vector3Int>(melter.cells));
-                }
-                else
-                {
-                    resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
-                }
-            }
-
-            // 2. Eksilen hacmi (Buz + eriyenler) telafi edecek Filler (Yedek) parçalar:
-            // Eskiden her buz için 1 adet tekli (1-hücrelik) parça ekleniyordu ve bu da 
-            // zor bölümlerde envanteri tekli parçalarla dolduruyordu.
-            // Şimdi bu toplam tekli hacmi, havuzdaki daha büyük parçalara dönüştürüyoruz.
-            int remainingFillerVolume = iceCount;
-            
-            // Hacmi büyük parçalara dağıt
-            while (remainingFillerVolume > 0)
-            {
-                // Havuzdan rastgele bir parça seç
-                var randomPiece = pool[UnityEngine.Random.Range(0, pool.Count)];
-                int pieceVol = randomPiece.cells.Count;
-
-                // Eğer parçanın hacmi kalan telafi hacminden küçük veya eşitse, doğrudan ekle
-                if (pieceVol <= remainingFillerVolume)
-                {
-                    resultPieces.Add(new List<Vector3Int>(randomPiece.cells));
-                    remainingFillerVolume -= pieceVol;
-                }
-                else
-                {
-                    // Kalan hacim havuzdaki parçalardan küçükse, standart küçük parçalarla tamamla
-                    if (remainingFillerVolume >= 3 && UnityEngine.Random.value > 0.5f)
-                    {
-                        resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0), new Vector3Int(0, 0, 1) });
-                        remainingFillerVolume -= 3;
-                    }
-                    else if (remainingFillerVolume >= 2)
-                    {
-                        resultPieces.Add(new List<Vector3Int> { Vector3Int.zero, new Vector3Int(1, 0, 0) });
-                        remainingFillerVolume -= 2;
-                    }
-                    else
-                    {
-                        resultPieces.Add(new List<Vector3Int> { Vector3Int.zero });
-                        remainingFillerVolume -= 1;
-                    }
-                }
-            }
-        }
 
         return built ? resultPieces : new List<List<Vector3Int>>();
     }

@@ -323,10 +323,6 @@ public class LevelSolver
             if (currentOccupied.Contains(worldCell))
                 return false;
 
-            // Zaten buz var
-            if (frozenCells.Contains(worldCell))
-                return false;
-
             // Hedef hücre değil
             if (!targetCells.Contains(worldCell))
                 return false;

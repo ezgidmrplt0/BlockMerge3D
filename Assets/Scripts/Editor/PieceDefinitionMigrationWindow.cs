@@ -34,10 +34,22 @@ public class PieceDefinitionMigrationWindow : EditorWindow
     private List<PieceTestResult> lastSolverTestResults = new List<PieceTestResult>();
 
     private PieceDefinition selectedDefinition;
+    private PieceDefinition editingDefinition;
     private int selectedRotationIndex;
 
     private Vector2 reportScroll;
     private Vector2 listScroll;
+
+    // Özel Parça Tasarımcısı Alanları
+    private bool showCustomPieceCreator = true;
+    private int customGridWidth = 4;
+    private int customGridHeight = 4;
+    private bool[,] customGridCells = new bool[5, 5];
+    private string customPieceName = "Özel_Parça_1";
+    private PieceRotationMode customRotationMode = PieceRotationMode.FixedAsDrawn;
+    private float customSpawnWeight = 1.0f;
+    private int customMaxCopies = -1;
+    private string customTags = "";
 
     private GUIStyle styleHeader, styleBox;
     private bool stylesBuilt;
@@ -129,6 +141,8 @@ public class PieceDefinitionMigrationWindow : EditorWindow
             EditorGUILayout.EndVertical();
         }
 
+        DrawCustomPieceCreator();
+
         if (selectedDefinition != null)
         {
             DrawSelectedPreviewPanel();
@@ -178,6 +192,13 @@ public class PieceDefinitionMigrationWindow : EditorWindow
         EditorGUILayout.EndVertical();
     }
 
+    private static readonly string[] ROTATION_MODE_LABELS = new string[]
+    {
+        "📌 Olduğu Gibi (Sabit / 0°)",
+        "🔄 Yatay Düzlemde 2D Dönüş (Y-Rotasyonu)",
+        "🎲 Tüm 3D Rotasyonlar (Takla Dahil)"
+    };
+
     private void DrawDefinitionRow(PieceDefinition def)
     {
         EditorGUILayout.BeginVertical(styleBox);
@@ -192,12 +213,24 @@ public class PieceDefinitionMigrationWindow : EditorWindow
         EditorGUILayout.EndVertical();
 
         GUILayout.FlexibleSpace();
-        if (GUILayout.Button("👁 Önizle", GUILayout.Width(80)))
+        if (GUILayout.Button("👁 Önizle", GUILayout.Width(75)))
         {
             selectedDefinition = def;
             selectedRotationIndex = 0;
         }
-        if (GUILayout.Button("Yeniden Hesapla", GUILayout.Width(120)))
+        GUI.backgroundColor = new Color(0.25f, 0.65f, 0.95f);
+        if (GUILayout.Button("✏ Düzenle", GUILayout.Width(80)))
+        {
+            LoadDefinitionForEditing(def);
+        }
+        GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+        if (GUILayout.Button("🗑 Sil", GUILayout.Width(60)))
+        {
+            DeleteDefinitionFromLibrary(def);
+        }
+        GUI.backgroundColor = Color.white;
+
+        if (GUILayout.Button("Hesapla", GUILayout.Width(70)))
         {
             def.RecomputeDerived();
             EditorUtility.SetDirty(def);
@@ -205,6 +238,7 @@ public class PieceDefinitionMigrationWindow : EditorWindow
         EditorGUILayout.EndHorizontal();
 
         EditorGUI.BeginChangeCheck();
+        def.rotationMode = (PieceRotationMode)EditorGUILayout.Popup("Rotasyon Modu", (int)def.rotationMode, ROTATION_MODE_LABELS);
         def.spawnWeight = EditorGUILayout.FloatField("Spawn Ağırlığı", def.spawnWeight);
         def.maxCopiesPerLevel = EditorGUILayout.IntField("Seviye Başına Maks. Kopya (-1=sınırsız)", def.maxCopiesPerLevel);
 
@@ -220,6 +254,7 @@ public class PieceDefinitionMigrationWindow : EditorWindow
         }
         if (EditorGUI.EndChangeCheck())
         {
+            def.RecomputeDerived();
             EditorUtility.SetDirty(def);
         }
 
@@ -450,5 +485,278 @@ public class PieceDefinitionMigrationWindow : EditorWindow
         foreach (char c in Path.GetInvalidFileNameChars())
             name = name.Replace(c, '_');
         return name.Replace(' ', '_');
+    }
+
+    private void LoadDefinitionForEditing(PieceDefinition def)
+    {
+        if (def == null) return;
+        editingDefinition = def;
+        showCustomPieceCreator = true;
+        customPieceName = def.displayName;
+        customRotationMode = def.rotationMode;
+        customSpawnWeight = def.spawnWeight;
+        customMaxCopies = def.maxCopiesPerLevel;
+        customTags = string.Join(", ", def.difficultyTags);
+
+        customGridCells = new bool[5, 5];
+        if (def.cells != null)
+        {
+            foreach (var cell in def.cells)
+            {
+                if (cell.x >= 0 && cell.x < 5 && cell.z >= 0 && cell.z < 5)
+                {
+                    customGridCells[cell.x, cell.z] = true;
+                }
+            }
+        }
+        GUI.FocusControl(null);
+    }
+
+    private void DeleteDefinitionFromLibrary(PieceDefinition def)
+    {
+        if (def == null) return;
+        string path = AssetDatabase.GetAssetPath(def);
+        bool confirmed = EditorUtility.DisplayDialog(
+            "Parçayı Kütüphaneden Sil",
+            $"'{def.displayName}' parçası kütüphaneden silinecek.\n\nDosya: {path}\n\nBu işlem geri alınamaz. Emin misiniz?",
+            "Evet, Sil", "İptal");
+
+        if (confirmed)
+        {
+            if (selectedDefinition == def) selectedDefinition = null;
+            if (editingDefinition == def) editingDefinition = null;
+
+            AssetDatabase.DeleteAsset(path);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            RefreshDefinitionList();
+        }
+    }
+
+    private void DrawCustomPieceCreator()
+    {
+        EditorGUILayout.Space(8);
+        EditorGUILayout.BeginVertical(styleBox);
+
+        EditorGUILayout.BeginHorizontal();
+        string foldoutTitle = editingDefinition != null
+            ? $"✏️ DÜZENLENİYOR: {editingDefinition.displayName} (Yeniden çizebilir veya ayarları değiştirebilirsiniz)"
+            : "🎨 YENİ ÖZEL PARÇA TASARLA VE KÜTÜPHANEYE EKLE";
+        showCustomPieceCreator = EditorGUILayout.Foldout(showCustomPieceCreator, foldoutTitle, true, EditorStyles.foldoutHeader);
+        
+        if (editingDefinition != null)
+        {
+            if (GUILayout.Button("İptal / Yeniye Dön", GUILayout.Width(130)))
+            {
+                editingDefinition = null;
+                customPieceName = "Özel_Parça_1";
+                customRotationMode = PieceRotationMode.FixedAsDrawn;
+                customGridCells = new bool[5, 5];
+            }
+        }
+        EditorGUILayout.EndHorizontal();
+
+        if (showCustomPieceCreator)
+        {
+            EditorGUILayout.HelpBox(
+                "İstediğiniz şekli aşağıdaki ızgara üzerinde tıklayarak çizebilir, isimlendirebilir ve kütüphaneye " +
+                "ekleyebilirsiniz. Eklenen parçalar seviye/katman oluşturulurken katmanı tam kaplayacak şekilde otomatik referans alınır.",
+                MessageType.Info);
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+
+            // Sol taraf: Çizim Izgarası
+            EditorGUILayout.BeginVertical(GUILayout.Width(220));
+            EditorGUILayout.LabelField("Şekil Çizim Alanı (Hücrelere Tıklayın):", EditorStyles.boldLabel);
+
+            int activeCount = 0;
+            for (int z = 0; z < customGridHeight; z++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                for (int x = 0; x < customGridWidth; x++)
+                {
+                    bool active = customGridCells[x, z];
+                    if (active) activeCount++;
+
+                    Color prevBG = GUI.backgroundColor;
+                    GUI.backgroundColor = active ? new Color(0.35f, 0.78f, 1.00f) : new Color(0.25f, 0.25f, 0.28f);
+                    
+                    if (GUILayout.Button(active ? "█" : "·", GUILayout.Width(36), GUILayout.Height(36)))
+                    {
+                        customGridCells[x, z] = !active;
+                    }
+                    GUI.backgroundColor = prevBG;
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField($"Hacim: {activeCount} Blok", EditorStyles.boldLabel);
+
+            // Hazır Şekil / Temizleme Butonları
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Temizle", GUILayout.Width(65)))
+            {
+                customGridCells = new bool[5, 5];
+            }
+            if (GUILayout.Button("L-Şekli", GUILayout.Width(65)))
+            {
+                customGridCells = new bool[5, 5];
+                customGridCells[0, 0] = true; customGridCells[0, 1] = true; customGridCells[0, 2] = true; customGridCells[1, 0] = true;
+            }
+            if (GUILayout.Button("T-Şekli", GUILayout.Width(65)))
+            {
+                customGridCells = new bool[5, 5];
+                customGridCells[0, 1] = true; customGridCells[1, 1] = true; customGridCells[2, 1] = true; customGridCells[1, 0] = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("I-Şekli", GUILayout.Width(65)))
+            {
+                customGridCells = new bool[5, 5];
+                customGridCells[0, 0] = true; customGridCells[0, 1] = true; customGridCells[0, 2] = true; customGridCells[0, 3] = true;
+            }
+            if (GUILayout.Button("O-Kare", GUILayout.Width(65)))
+            {
+                customGridCells = new bool[5, 5];
+                customGridCells[0, 0] = true; customGridCells[0, 1] = true; customGridCells[1, 0] = true; customGridCells[1, 1] = true;
+            }
+            if (GUILayout.Button("Z-Şekli", GUILayout.Width(65)))
+            {
+                customGridCells = new bool[5, 5];
+                customGridCells[0, 0] = true; customGridCells[0, 1] = true; customGridCells[1, 1] = true; customGridCells[1, 2] = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.EndVertical();
+
+            GUILayout.Space(16);
+
+            // Sağ taraf: Meta-veri ve Kayıt Ayarları
+            EditorGUILayout.BeginVertical();
+            EditorGUILayout.LabelField("Parça Özellikleri:", EditorStyles.boldLabel);
+
+            customPieceName = EditorGUILayout.TextField("Parça Adı", customPieceName);
+            customRotationMode = (PieceRotationMode)EditorGUILayout.Popup("Rotasyon Modu", (int)customRotationMode, ROTATION_MODE_LABELS);
+            customSpawnWeight = EditorGUILayout.FloatField("Spawn Ağırlığı", customSpawnWeight);
+            customMaxCopies = EditorGUILayout.IntField("Katman Başı Maks. Kopya (-1=sınırsız)", customMaxCopies);
+            customTags = EditorGUILayout.TextField("Zorluk Etiketleri (opsiyonel)", customTags);
+
+            EditorGUILayout.Space(8);
+
+            GUI.backgroundColor = editingDefinition != null ? new Color(0.25f, 0.65f, 0.95f) : new Color(0.20f, 0.75f, 0.40f);
+            string btnText = editingDefinition != null ? "💾  Değişiklikleri Kaydet & Güncelle" : "➕  Parça Kütüphanesine Kaydet ve Aktif Et";
+            if (GUILayout.Button(btnText, GUILayout.Height(38)))
+            {
+                SaveCustomPieceToLibrary();
+            }
+            GUI.backgroundColor = Color.white;
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
+        }
+
+        EditorGUILayout.EndVertical();
+    }
+
+    private void SaveCustomPieceToLibrary()
+    {
+        var rawCells = new List<Vector3Int>();
+        for (int x = 0; x < 5; x++)
+        {
+            for (int z = 0; z < 5; z++)
+            {
+                if (customGridCells[x, z])
+                {
+                    rawCells.Add(new Vector3Int(x, 0, z));
+                }
+            }
+        }
+
+        if (rawCells.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Uyarı", "Lütfen önce ızgara üzerinde en az 1 kare seçerek bir şekil çizin.", "Tamam");
+            return;
+        }
+
+        // Orijine normalize et (en küçük koordinatı 0'a çek)
+        int minX = rawCells.Min(c => c.x);
+        int minZ = rawCells.Min(c => c.z);
+        var normCells = rawCells.Select(c => new Vector3Int(c.x - minX, 0, c.z - minZ)).ToList();
+
+        if (editingDefinition != null)
+        {
+            // Var olan parçayı güncelle
+            editingDefinition.displayName = string.IsNullOrEmpty(customPieceName) ? "Özel Parça" : customPieceName;
+            editingDefinition.cells = normCells;
+            editingDefinition.rotationMode = customRotationMode;
+            editingDefinition.spawnWeight = Mathf.Max(0.1f, customSpawnWeight);
+            editingDefinition.maxCopiesPerLevel = customMaxCopies;
+
+            if (!string.IsNullOrEmpty(customTags))
+            {
+                editingDefinition.difficultyTags = customTags.Split(',').Select(t => t.Trim()).Where(t => !string.IsNullOrEmpty(t)).ToList();
+            }
+            else
+            {
+                editingDefinition.difficultyTags.Clear();
+            }
+
+            editingDefinition.RecomputeDerived();
+            EditorUtility.SetDirty(editingDefinition);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            string updatedName = editingDefinition.displayName;
+            editingDefinition = null;
+
+            RefreshDefinitionList();
+
+            EditorUtility.DisplayDialog(
+                "Güncellendi!",
+                $"✅ '{updatedName}' parçası kütüphanede başarıyla güncellendi!\n\n" +
+                "Level ve katman oluşturulurken güncellenmiş parça referans alınacaktır.",
+                "Harika!");
+        }
+        else
+        {
+            // Yeni parça oluştur
+            if (!AssetDatabase.IsValidFolder(OUTPUT_FOLDER))
+                AssetDatabase.CreateFolder("Assets", "PieceDefinitions");
+
+            string cleanName = string.IsNullOrEmpty(customPieceName) ? "Ozel_Parca" : customPieceName.Replace(" ", "_");
+            string assetPath = $"{OUTPUT_FOLDER}/{cleanName}_PD_{System.Guid.NewGuid().ToString().Substring(0, 8)}.asset";
+
+            var def = ScriptableObject.CreateInstance<PieceDefinition>();
+            def.displayName = string.IsNullOrEmpty(customPieceName) ? "Özel Parça" : customPieceName;
+            def.cells = normCells;
+            def.rotationMode = customRotationMode;
+            def.spawnWeight = Mathf.Max(0.1f, customSpawnWeight);
+            def.maxCopiesPerLevel = customMaxCopies;
+
+            if (!string.IsNullOrEmpty(customTags))
+            {
+                def.difficultyTags = customTags.Split(',').Select(t => t.Trim()).Where(t => !string.IsNullOrEmpty(t)).ToList();
+            }
+
+            def.RecomputeDerived();
+
+            AssetDatabase.CreateAsset(def, assetPath);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            RefreshDefinitionList();
+            selectedDefinition = def;
+
+            EditorUtility.DisplayDialog(
+                "Başarılı!",
+                $"✅ '{def.displayName}' parçası başarıyla Kütüphaneye eklendi!\n\n" +
+                $"Konum: {assetPath}\n\n" +
+                "Seviye ve katman oluşturulurken bu parça doğrudan referans alınacaktır.",
+                "Harika!");
+        }
     }
 }

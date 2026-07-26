@@ -11,6 +11,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         AILevelDesigner,
         ManualVoxelBuilder,
         PieceLibrary,
+        LevelTemplates,
         CanvasSetup,
         Aesthetics
     }
@@ -26,6 +27,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         "🤖 AI Seviye Tasarımcısı",
         "🧱 3D Sahne Yapıcı",
         "🧬 Parça Kütüphanesi",
+        "🏰 Level Şablonları",
         "📺 Arayüz Kurulumu",
         "🎨 Görsel & Kurulum"
     };
@@ -37,6 +39,7 @@ public class BlockMerge3DHubWindow : EditorWindow
     private AILevelDesignerWindow aiLevelDesigner;
     private ManualVoxelPieceBuilderWindow manualVoxelBuilder;
     private PieceDefinitionMigrationWindow pieceLibrary;
+    private LevelTemplateManagerWindow levelTemplates;
     private CanvasSetupWindow canvasSetup;
     private AestheticSetupTool aestheticSetup;
 
@@ -100,6 +103,11 @@ public class BlockMerge3DHubWindow : EditorWindow
             pieceLibrary = CreateInstance<PieceDefinitionMigrationWindow>();
             pieceLibrary.onRepaintRequested = Repaint;
         }
+        if (levelTemplates == null)
+        {
+            levelTemplates = CreateInstance<LevelTemplateManagerWindow>();
+            levelTemplates.onRepaintRequested = Repaint;
+        }
         if (canvasSetup == null)
         {
             canvasSetup = CreateInstance<CanvasSetupWindow>();
@@ -120,6 +128,7 @@ public class BlockMerge3DHubWindow : EditorWindow
         if (aiLevelDesigner != null) DestroyImmediate(aiLevelDesigner);
         if (manualVoxelBuilder != null) DestroyImmediate(manualVoxelBuilder);
         if (pieceLibrary != null) DestroyImmediate(pieceLibrary);
+        if (levelTemplates != null) DestroyImmediate(levelTemplates);
         if (canvasSetup != null) DestroyImmediate(canvasSetup);
         if (aestheticSetup != null) DestroyImmediate(aestheticSetup);
     }
@@ -316,6 +325,9 @@ public class BlockMerge3DHubWindow : EditorWindow
                 break;
             case Tab.PieceLibrary:
                 if (pieceLibrary != null) pieceLibrary.OnGUI();
+                break;
+            case Tab.LevelTemplates:
+                if (levelTemplates != null) levelTemplates.OnGUI();
                 break;
             case Tab.CanvasSetup:
                 if (canvasSetup != null) canvasSetup.OnGUI();

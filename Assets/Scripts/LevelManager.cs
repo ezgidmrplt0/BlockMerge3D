@@ -1977,6 +1977,9 @@ public class LevelManager : MonoBehaviour
             }
         }
 
+        int activeLayer = gridManager != null ? gridManager.ActiveLayerY : 0;
+        bool hasIceOnActiveLayer = gridManager != null && gridManager.frozenCells != null && gridManager.frozenCells.Any(c => c.y == activeLayer);
+
         bool isSmartTriggered = false;
         if (!IsEarlyTutorialLevel() && Random.value < smartSpawnProbability)
         {
@@ -2022,7 +2025,7 @@ public class LevelManager : MonoBehaviour
                 foreach (int i in availableIndices)
                 {
                     var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
-                    if (h != null && h.originLayerY == gridManager.ActiveLayerY)
+                    if (h != null && h.originLayerY == activeLayer)
                     {
                         taggedForRequiredLayer.Add(i);
                     }
@@ -2051,15 +2054,64 @@ public class LevelManager : MonoBehaviour
                     : (fitsRequiredLayer.Count > 0 ? fitsRequiredLayer : availableIndices);
 
                 nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : availableIndices[0];
+                nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
+            }
+            else if (hasIceOnActiveLayer)
+            {
+                // ═══════════════════════════════════════════════════════════════════
+                // AŞAMA 1: BUZ KIRMA AŞAMASI (Katmanda henüz eritilmemiş buzlar var)
+                // ═══════════════════════════════════════════════════════════════════
+                // Oyuncuya öncelikle buzları patlatmaya/eritmeye yönelik parçalar sunulur.
+                // Buza komşu yerleşebilen (CandidateHasIceAdjacentPlacement) ve sığan parçalar önceliklidir.
+                List<int> iceBreakerPool = new List<int>();
+                foreach (int i in availableIndices)
+                {
+                    bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
+                    if (fits)
+                    {
+                        bool isIceAdj = CandidateHasIceAdjacentPlacement(i);
+                        int weight = isIceAdj ? 10 : 3;
+                        for (int w = 0; w < weight; w++) iceBreakerPool.Add(i);
+                    }
+                }
+
+                if (iceBreakerPool.Count > 0)
+                {
+                    nextPieceIndex = iceBreakerPool[Random.Range(0, iceBreakerPool.Count)];
+                }
+                else
+                {
+                    var fitsAny = availableIndices.Where(i => CanShapeFitRequiredLayer(allPiecePrefabs[i])).ToList();
+                    if (fitsAny.Count > 0)
+                        nextPieceIndex = fitsAny[Random.Range(0, fitsAny.Count)];
+                    else
+                        nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
+                }
+
+                nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
             }
             else
             {
-                // Tetris mantigi: Çoklu küplü parçalara (2, 3, 4+ küp) agirliği yüksek tutulur.
-                // Tekli (1 küplü) parçalar havuzu domine edemez, katsayisi düşük tutulur.
-                List<int> weightedPool = new List<int>();
-                bool hasMultiCellFits = availableIndices.Any(i => GetPieceCellCount(i) > 1 && CanShapeFitRequiredLayer(allPiecePrefabs[i]));
-
+                // ═══════════════════════════════════════════════════════════════════
+                // AŞAMA 2: KATMAN ÇÖZÜM AŞAMASI (Buzsuz ortam hazırlandı)
+                // ═══════════════════════════════════════════════════════════════════
+                // Katmandaki buzlar eridi! Editörde bu katman için üretilmiş ana parçalar
+                // (originLayerY == activeLayer) oyuncunun seçimine sunulur.
+                List<int> layerSolutionIndices = new List<int>();
                 foreach (int i in availableIndices)
+                {
+                    var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+                    if (h != null && h.originLayerY == activeLayer && CanShapeFitRequiredLayer(allPiecePrefabs[i]))
+                    {
+                        layerSolutionIndices.Add(i);
+                    }
+                }
+
+                List<int> targetIndices = layerSolutionIndices.Count > 0 ? layerSolutionIndices : availableIndices;
+                List<int> weightedPool = new List<int>();
+                bool hasMultiCellFits = targetIndices.Any(i => GetPieceCellCount(i) > 1 && CanShapeFitRequiredLayer(allPiecePrefabs[i]));
+
+                foreach (int i in targetIndices)
                 {
                     int cellCount = GetPieceCellCount(i);
                     bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
@@ -2067,12 +2119,6 @@ public class LevelManager : MonoBehaviour
                     if (fits)
                     {
                         int weight = cellCount > 1 ? (cellCount * 5) : (hasMultiCellFits ? 1 : 3);
-
-                        // Garanti değil, ihtimal artışı: buza komşu düşebilecek ve/veya hold'daki
-                        // parçayla katmanı tam tamamlayacak adaylara ek "bilet" verilir — çekiliş
-                        // yine Random.Range ile yapılır, bulmaca oyuncunun elinde kalır.
-                        if (CandidateHasIceAdjacentPlacement(i))
-                            weight += cellCount * iceAdjacencyWeightBonus;
                         if (CandidateCompletesLayerWithHold(i))
                             weight += cellCount * holdCompletionWeightBonus;
 
@@ -2088,11 +2134,10 @@ public class LevelManager : MonoBehaviour
                 if (weightedPool.Count > 0)
                     nextPieceIndex = weightedPool[Random.Range(0, weightedPool.Count)];
                 else
-                    nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
-            }
+                    nextPieceIndex = targetIndices[Random.Range(0, targetIndices.Count)];
 
-            // Bu parçanın TÜRÜ ŞİMDİ, tam bu anda kararlaştırılır
-            nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
+                nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
+            }
         }
 
         nextPieceMaterial = (nextPieceSpeciesIndex >= 0 && pieceMaterials != null && nextPieceSpeciesIndex < pieceMaterials.Length) 

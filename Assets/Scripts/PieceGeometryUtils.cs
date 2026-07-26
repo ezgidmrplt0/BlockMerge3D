@@ -130,4 +130,40 @@ public static class PieceGeometryUtils
 
         return distinct;
     }
+
+    /// <summary>
+    /// SADECE Y ekseninde (2D düzlemde 0°, 90°, 180°, 270°) geometrik olarak birbirinden farklı
+    /// hücre dizilimi üreten Euler açılarını döndürür.
+    /// </summary>
+    public static List<Vector3Int> ComputeDistinctYRotations(List<Vector3Int> cells)
+    {
+        var seenKeys = new HashSet<string>();
+        var distinct = new List<Vector3Int>();
+
+        if (cells == null || cells.Count == 0) return distinct;
+
+        var yRotations = new Quaternion[]
+        {
+            Quaternion.identity,
+            Quaternion.Euler(0f, 90f, 0f),
+            Quaternion.Euler(0f, 180f, 0f),
+            Quaternion.Euler(0f, 270f, 0f)
+        };
+
+        foreach (var rot in yRotations)
+        {
+            var normalized = RotateAndNormalize(cells, rot);
+            string key = CellsToKey(normalized);
+            if (seenKeys.Add(key))
+            {
+                Vector3 euler = rot.eulerAngles;
+                distinct.Add(new Vector3Int(
+                    Mathf.RoundToInt(euler.x),
+                    Mathf.RoundToInt(euler.y),
+                    Mathf.RoundToInt(euler.z)));
+            }
+        }
+
+        return distinct;
+    }
 }

@@ -14,6 +14,13 @@ using System.Collections.Generic;
 //  PieceDefinition'ı hiç görmez.
 // ═══════════════════════════════════════════════════════════════════
 
+public enum PieceRotationMode
+{
+    FixedAsDrawn = 0,    // 📌 Olduğu Gibi (Sabit / 0°)
+    FlatYRotations = 1,  // 🔄 Sadece Düzlemde 2D Dönüş (Y-Rotasyonu)
+    Full3DRotations = 2  // 🎲 Tüm 3D Rotasyonlar (24 Açı)
+}
+
 [CreateAssetMenu(fileName = "NewPieceDefinition", menuName = "BlockMerge3D/Piece Definition")]
 public class PieceDefinition : ScriptableObject
 {
@@ -25,6 +32,9 @@ public class PieceDefinition : ScriptableObject
     public List<Vector3Int> cells = new List<Vector3Int>();
     public float cellSize = 1f;
     public float spacing = 0.1f;
+
+    [Header("Rotasyon Modu")]
+    public PieceRotationMode rotationMode = PieceRotationMode.FixedAsDrawn;
 
     [Header("Türetilmiş Veri (RecomputeDerived ile hesaplanır)")]
     public int volume;
@@ -48,7 +58,19 @@ public class PieceDefinition : ScriptableObject
     {
         volume = cells != null ? cells.Count : 0;
         canonicalSignature = PieceGeometryUtils.ComputeCanonicalSignature(cells);
-        allowedRotations = PieceGeometryUtils.ComputeDistinctRotations(cells);
+
+        if (rotationMode == PieceRotationMode.FixedAsDrawn)
+        {
+            allowedRotations = new List<Vector3Int> { Vector3Int.zero };
+        }
+        else if (rotationMode == PieceRotationMode.FlatYRotations)
+        {
+            allowedRotations = PieceGeometryUtils.ComputeDistinctYRotations(cells);
+        }
+        else
+        {
+            allowedRotations = PieceGeometryUtils.ComputeDistinctRotations(cells);
+        }
 
         if (string.IsNullOrEmpty(id))
             id = GenerateId(canonicalSignature);
