@@ -202,11 +202,13 @@ public class LayerPanelController : MonoBehaviour
         // RefreshButtonColors), bu ikinci bir güvenlik katmanı.
         if (layerY != grid.ActiveLayerY) return;
 
-        // Tutorial check: Sadece TapLayerButton veya DragPieceToBoard adımındayken ve hedeflenen katman ise geçişe izin ver
+        // Tutorial check: Sadece TapLayerButton, DragPieceToBoard veya DragPieceToHold adımındayken ve hedeflenen katman ise geçişe izin ver
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
-            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.TapLayerButton &&
-                TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
+            var tutStep = TutorialOverlay.Instance.CurrentStep;
+            if (tutStep != TutorialStepType.TapLayerButton &&
+                tutStep != TutorialStepType.DragPieceToBoard &&
+                tutStep != TutorialStepType.DragPieceToHold)
                 return;
 
             // Katmanlar artık üstten alta dolduruluyor — öğreticinin hedeflediği ilk katman

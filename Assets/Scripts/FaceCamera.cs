@@ -5,6 +5,11 @@ public class FaceCamera : MonoBehaviour
     [Tooltip("If true, all instances face in the same parallel direction (recommended for isometric). If false, they look directly at the camera position.")]
     public bool useParallel = true;
 
+    /// <summary>Kamera hizasının ÜSTÜNE, local eksende eklenen ekstra döndürme — örn.
+    /// oyuncu bir parçayı elindeyken döndürünce (bkz. DraggablePiece.RotateAroundY/X),
+    /// içindeki hayvan görseli de bu kadar dönsün diye kullanılır.</summary>
+    [HideInInspector] public Quaternion extraRotation = Quaternion.identity;
+
     private Camera mainCam;
 
     private void Start()
@@ -28,7 +33,7 @@ public class FaceCamera : MonoBehaviour
                 if (camForward.sqrMagnitude > 0.001f)
                 {
                     camForward.Normalize();
-                    transform.rotation = Quaternion.LookRotation(camForward, Vector3.up);
+                    transform.rotation = Quaternion.LookRotation(camForward, Vector3.up) * extraRotation;
                 }
             }
             else
@@ -38,7 +43,7 @@ public class FaceCamera : MonoBehaviour
                 Vector3 dir = targetPos - transform.position;
                 if (dir.sqrMagnitude > 0.001f)
                 {
-                    transform.rotation = Quaternion.LookRotation(-dir.normalized, Vector3.up);
+                    transform.rotation = Quaternion.LookRotation(-dir.normalized, Vector3.up) * extraRotation;
                 }
             }
         }

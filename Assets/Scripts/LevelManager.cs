@@ -1540,6 +1540,7 @@ public class LevelManager : MonoBehaviour
             pieceToCard[pieceGO] = holdCard;
 
             SpawnRandomPiece();
+            TutorialEvents.RaisePieceHeld();
             return true;
         }
         else
@@ -1566,6 +1567,7 @@ public class LevelManager : MonoBehaviour
             holdCard.AssignPiece(pieceGO);
             pieceToCard[pieceGO] = holdCard;
 
+            TutorialEvents.RaisePieceHeld();
             return true;
         }
     }

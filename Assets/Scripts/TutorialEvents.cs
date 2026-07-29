@@ -24,8 +24,12 @@ public static class TutorialEvents
     /// <summary>Oyuncu joker (geri al) butonunu kullandı.</summary>
     public static event Action JokerUsed;
 
+    /// <summary>Oyuncu bir parçayı HOLD (sakla) kutusuna sürükledi.</summary>
+    public static event Action PieceHeld;
+
     public static void RaiseLayerOpened()  => LayerOpened?.Invoke();
     public static void RaiseBoardRotated() => BoardRotated?.Invoke();
     public static void RaisePiecePlaced()  => PiecePlaced?.Invoke();
     public static void RaiseJokerUsed()    => JokerUsed?.Invoke();
+    public static void RaisePieceHeld()    => PieceHeld?.Invoke();
 }

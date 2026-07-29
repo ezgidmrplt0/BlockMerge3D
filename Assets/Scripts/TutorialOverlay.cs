@@ -18,6 +18,9 @@ public enum TutorialStepType
     /// <summary>Joker (geri al) butonuna bas — parmak kırmızı arcade butonunun üzerinde
     /// nabız atar. Bu adımın kullanımı jokeri TÜKETMEZ (bkz. LevelManager.RestoreJoker).</summary>
     UseJoker,
+
+    /// <summary>Parçayı saklama kutusuna (Hold) sürükle — parmak karttan saklama kutusuna doğru hareket eder.</summary>
+    DragPieceToHold,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -119,6 +122,7 @@ public class TutorialOverlay : MonoBehaviour
         TutorialEvents.BoardRotated += OnBoardRotated;
         TutorialEvents.PiecePlaced  += OnPiecePlaced;
         TutorialEvents.JokerUsed    += OnJokerUsed;
+        TutorialEvents.PieceHeld    += OnPieceHeld;
     }
 
     private void OnDestroy()
@@ -127,6 +131,7 @@ public class TutorialOverlay : MonoBehaviour
         TutorialEvents.BoardRotated -= OnBoardRotated;
         TutorialEvents.PiecePlaced  -= OnPiecePlaced;
         TutorialEvents.JokerUsed    -= OnJokerUsed;
+        TutorialEvents.PieceHeld    -= OnPieceHeld;
         if (Instance == this) Instance = null;
         KillLoop();
     }
@@ -177,8 +182,9 @@ public class TutorialOverlay : MonoBehaviour
         }
         else if (IsLevel3)
         {
-            // Level 3 (Katman Öğreticisi): Katmana gir -> Parçaları sırayla yerleştir
+            // Level 3 (Katman + Hold Öğreticisi): Katmana gir -> Parçayı Hold'a koy -> Parçaları yerleştir
             steps.Add(TutorialStepType.TapLayerButton);
+            steps.Add(TutorialStepType.DragPieceToHold);
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
@@ -277,6 +283,8 @@ public class TutorialOverlay : MonoBehaviour
         CompleteIfCurrent(TutorialStepType.UseJoker);
     }
 
+    private void OnPieceHeld() => CompleteIfCurrent(TutorialStepType.DragPieceToHold);
+
     private void GiveJokerBack() => LevelManager.Instance?.RestoreJoker();
 
     private void CompleteIfCurrent(TutorialStepType type)
@@ -356,8 +364,8 @@ public class TutorialOverlay : MonoBehaviour
 
         if (active && steps != null && stepIndex >= 0 && stepIndex < steps.Count)
         {
-            // Joker basma adımında (UseJoker) sarı parlamayı TAMAMEN KAPA, normal grid renginde kalsın!
-            if (steps[stepIndex] == TutorialStepType.UseJoker)
+            // Joker basma veya Hold adımında sarı parlamayı TAMAMEN KAPA, normal grid renginde kalsın!
+            if (steps[stepIndex] == TutorialStepType.UseJoker || steps[stepIndex] == TutorialStepType.DragPieceToHold)
             {
                 GridManager.Instance.RefreshLayerVisibility();
                 return;
@@ -452,10 +460,11 @@ public class TutorialOverlay : MonoBehaviour
 
         switch (type)
         {
-            case TutorialStepType.TapLayerButton:  PlayTap();   break;
-            case TutorialStepType.SwipeToRotate:   PlaySwipe(); break;
-            case TutorialStepType.DragPieceToBoard: PlayDrag();  break;
-            case TutorialStepType.UseJoker:        PlayJoker(); break;
+            case TutorialStepType.TapLayerButton:   PlayTap();        break;
+            case TutorialStepType.SwipeToRotate:    PlaySwipe();      break;
+            case TutorialStepType.DragPieceToBoard: PlayDrag();       break;
+            case TutorialStepType.UseJoker:         PlayJoker();      break;
+            case TutorialStepType.DragPieceToHold:  PlayDragToHold();  break;
         }
 
         ApplySpotlightFor(type);
@@ -515,6 +524,16 @@ public class TutorialOverlay : MonoBehaviour
                 ShowStepText(TextFor(type), WorldObjectToCanvas(jw), -1);
                 break;
             }
+            case TutorialStepType.DragPieceToHold:
+            {
+                var cardsPanel = canvasRect.Find("BottomPiecePanel");
+                var holdPanel = LevelManager.Instance != null ? LevelManager.Instance.HoldSlotPanel : null;
+                ShowSpotlight(Vector2.zero, 0f, cardsPanel, holdPanel != null ? holdPanel.transform : null);
+                float cardsY = cardsPanel != null
+                    ? (cardsPanel as RectTransform).anchoredPosition.y : -H * 0.28f;
+                ShowStepText(TextFor(type), new Vector2(0f, cardsY + 200f), 0);
+                break;
+            }
         }
     }
 
@@ -546,6 +565,37 @@ public class TutorialOverlay : MonoBehaviour
             .Join(iconGroup.DOFade(1f, loopDuration * 0.35f))
             .Append(icon.DOScale(1f, loopDuration * 0.4f).SetEase(Ease.OutBack))
             .AppendInterval(loopDuration * 0.25f);
+    }
+
+    private void PlayDragToHold()
+    {
+        int targetSlot = GetTargetCardIndex();
+        Vector2 from = new Vector2(0f, -Screen.height * 0.28f);
+        var cards = LevelManager.Instance != null ? LevelManager.Instance.pieceCards : null;
+        if (cards != null && targetSlot < cards.Count && cards[targetSlot] != null)
+        {
+            var rt = cards[targetSlot].transform as RectTransform;
+            if (rt != null) { from = WorldToCanvas(rt.position) + tipOffset; }
+        }
+
+        Vector2 to = new Vector2(-Screen.width * 0.35f, -Screen.height * 0.35f);
+        var holdPanel = LevelManager.Instance != null ? LevelManager.Instance.HoldSlotPanel : null;
+        if (holdPanel != null)
+        {
+            var holdRT = holdPanel.transform as RectTransform;
+            if (holdRT != null)
+            {
+                to = WorldToCanvas(holdRT.position) + tipOffset;
+            }
+        }
+
+        PlaceIcon(from);
+        loop = DOTween.Sequence().SetLink(icon.gameObject).SetLoops(-1)
+            .Append(iconGroup.DOFade(1f, loopDuration * 0.15f))
+            .Append(icon.DOAnchorPos(to, loopDuration * 0.6f).SetEase(Ease.InOutQuad))
+            .Append(iconGroup.DOFade(0f, loopDuration * 0.2f))
+            .AppendCallback(() => icon.anchoredPosition = from)
+            .AppendInterval(loopDuration * 0.10f);
     }
 
     private void PlayTap()
@@ -681,6 +731,7 @@ public class TutorialOverlay : MonoBehaviour
                     return "MELT THE ICE";
                 return "DRAG A PIECE";
             case TutorialStepType.UseJoker:         return "TAP TO UNDO";
+            case TutorialStepType.DragPieceToHold:  return "DRAG TO HOLD";
             default:                                return "";
         }
     }

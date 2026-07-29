@@ -455,7 +455,8 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         // Tutorial check
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
-            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
+            var step = TutorialOverlay.Instance.CurrentStep;
+            if (step != TutorialStepType.DragPieceToBoard && step != TutorialStepType.DragPieceToHold)
                 return; // Blokla
 
             // Sadece hedeflenen (ilk geçerli) kartın sürüklenmesine izin ver

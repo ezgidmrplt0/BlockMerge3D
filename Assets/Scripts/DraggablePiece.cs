@@ -103,6 +103,7 @@ public class DraggablePiece : MonoBehaviour
         }
         transform.localScale = Vector3.one * dragStartScale;
         UpdateChildPositions();
+        ApplySpeciesRotation();
 
         DOTween.Kill(transform);
         transform.DOPunchScale(new Vector3(-0.08f, 0.15f, -0.08f), 0.22f, 8, 0.5f);
@@ -134,6 +135,7 @@ public class DraggablePiece : MonoBehaviour
         currentCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
 
         UpdateChildPositions();
+        ApplySpeciesRotation();
     }
 
     private void Start()
@@ -216,7 +218,8 @@ public class DraggablePiece : MonoBehaviour
         // Tutorial check
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
-            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.DragPieceToBoard)
+            var step = TutorialOverlay.Instance.CurrentStep;
+            if (step != TutorialStepType.DragPieceToBoard && step != TutorialStepType.DragPieceToHold)
                 return;
         }
 
@@ -413,6 +416,13 @@ public class DraggablePiece : MonoBehaviour
             }
         }
 
+        // Hold öğreticisi sırasında parçanın tahtaya yerleşmesine izin verme — Hold kutusuna bırakılmadıysa karta geri dönsün
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning && TutorialOverlay.Instance.CurrentStep == TutorialStepType.DragPieceToHold)
+        {
+            CancelDrag();
+            return;
+        }
+
         bool releasedInCancelZone = Input.mousePosition.y < Screen.height * 0.22f;
 
         if (isSnapped && !releasedInCancelZone)
@@ -588,6 +598,17 @@ public class DraggablePiece : MonoBehaviour
         visualCells = RotateCellsNoShift(holder.occupiedCells, currentRotation);
         UpdateChildPositions();
         UpdateBoardCells();
+        ApplySpeciesRotation();
+    }
+
+    /// <summary>Oyuncunun parçaya uyguladığı döndürmeyi (InitialRotation'a göre FARK) içindeki
+    /// her hayvan görseline de yansıtır — aksi halde FaceCamera her zaman kameraya baktığı için
+    /// parça döndürülünce sadece dizilim değişir, hayvanların kendisi dönmüyormuş gibi görünürdü.</summary>
+    private void ApplySpeciesRotation()
+    {
+        Quaternion delta = currentRotation * Quaternion.Inverse(InitialRotation);
+        foreach (var fc in GetComponentsInChildren<FaceCamera>(true))
+            fc.extraRotation = delta;
     }
 
     public void UpdateBoardCells()

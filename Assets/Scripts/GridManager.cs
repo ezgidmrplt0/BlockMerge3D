@@ -162,7 +162,11 @@ public class GridManager : MonoBehaviour
                     || (LevelManager.Instance != null && LevelManager.Instance.currentLevel != null && 
                        (LevelManager.Instance.currentLevel.levelName.StartsWith("Tutorial_3") || LevelManager.Instance.currentLevel.levelName == "LEVEL 3"));
 
-                if (tut != null && tut.RestrictDragHighlights && tut.DragHighlightCells.Count > 0)
+                if (tut != null && tut.IsRunning && tut.CurrentStep == TutorialStepType.DragPieceToHold)
+                {
+                    highlightedCells.Clear();
+                }
+                else if (tut != null && tut.RestrictDragHighlights && tut.DragHighlightCells.Count > 0)
                 {
                     foreach (var c in tut.DragHighlightCells)
                     {
@@ -1798,7 +1802,7 @@ public class GridManager : MonoBehaviour
             clusterRadius = Mathf.Max(clusterRadius, 0.18f);
             float clusterYHalfRange = clusterRadius * 0.6f;
 
-            const float ballDuration = 0.45f;
+            const float ballDuration = 0.27f;
             bool advanced = false;
             Tween descendTween = null;
 
@@ -1860,7 +1864,7 @@ public class GridManager : MonoBehaviour
                 }
 
                 // Toplanma animasyonunun bitmesini bekle, sonra hayvanları (artık top haldeyken) kancaya bağla
-                seq2.AppendInterval(ballDuration + 0.15f);
+                seq2.AppendInterval(ballDuration + 0.13f);
                 seq2.AppendCallback(() =>
                 {
                     foreach (var block in blocks)
@@ -1873,28 +1877,28 @@ public class GridManager : MonoBehaviour
                     }
                 });
 
-                // Kancayı yavaşça yukarı (aboveTargetPos) geri çek (1.2 saniye) — hayvanlar
+                // Kancayı yavaşça yukarı (aboveTargetPos) geri çek (0.68 saniye) — hayvanlar
                 // küçülüp solmadan, kancaya SABİTLENMİŞ haldeyken olduğu gibi taşınır.
                 // Bu hareket de üst katmanların içinden geçer, saydamlık iniş boyunca sürer.
-                seq2.Append(claw.transform.DOMove(aboveTargetPos, 1.2f).SetEase(Ease.InOutQuad));
+                seq2.Append(claw.transform.DOMove(aboveTargetPos, 0.68f).SetEase(Ease.InOutQuad));
 
                 // Kanca artık üst katmanların üstünde/dışında (aboveTargetPos) — saydamlığı geri al.
                 seq2.AppendCallback(() => DOVirtual.Float(1f, 0f, passFadeDuration, SetPassFade).SetEase(Ease.InQuad));
 
-                // Kancayı başlangıç konumuna (clawStartPos) geri götür (0.5 saniye)
-                seq2.Append(claw.transform.DOMove(clawStartPos, 0.5f).SetEase(Ease.InOutQuad));
+                // Kancayı başlangıç konumuna (clawStartPos) geri götür (0.3 saniye)
+                seq2.Append(claw.transform.DOMove(clawStartPos, 0.3f).SetEase(Ease.InOutQuad));
 
-                // Evine ulaştı: pençeleri AÇIP yükünü bıraksın (0.4 saniye) ve hayvanları küçülterek delikten düşme efekti ver
-                seq2.Append(DOVirtual.Float(1f, 0f, 0.4f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
-                seq2.Join(DOVirtual.Float(1.2f, 0f, 0.35f, scale => {
+                // Evine ulaştı: pençeleri AÇIP yükünü bıraksın (0.24 saniye) ve hayvanları küçülterek delikten düşme efekti ver
+                seq2.Append(DOVirtual.Float(1f, 0f, 0.24f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
+                seq2.Join(DOVirtual.Float(1.2f, 0f, 0.21f, scale => {
                     foreach (var block in blocks)
                     {
                         if (block != null) block.transform.localScale = Vector3.one * scale;
                     }
                 }).SetEase(Ease.InQuad));
 
-                // Bir sonraki tur için pençeleri tekrar kapatıp dinlenme moduna geçsin (0.3 saniye)
-                seq2.Append(DOVirtual.Float(0f, 1f, 0.3f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
+                // Bir sonraki tur için pençeleri tekrar kapatıp dinlenme moduna geçsin (0.17 saniye)
+                seq2.Append(DOVirtual.Float(0f, 1f, 0.17f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
 
                 // Temizlik
                 seq2.OnComplete(() =>
@@ -1942,9 +1946,9 @@ public class GridManager : MonoBehaviour
             SetClawGrip(claw, 1f);
 
             // Kanca hareket ederken pençeleri AÇILIR (1'den 0'a).
-            AnimateClawGrip(claw, 1f, 0f, 0.5f);
+            AnimateClawGrip(claw, 1f, 0f, 0.3f);
 
-            claw.transform.DOMove(aboveTargetPos, 0.5f).SetEase(Ease.InOutQuad).OnComplete(() =>
+            claw.transform.DOMove(aboveTargetPos, 0.3f).SetEase(Ease.InOutQuad).OnComplete(() =>
             {
                 // 2. İniş: kancanın ucundaki Collider bloklara GERÇEKTEN değene kadar aşağı in.
                 // Değme anında (OnTouchOrTimeout) tween erken kesilir ve kanca olduğu yerde durur.
@@ -1960,7 +1964,7 @@ public class GridManager : MonoBehaviour
                 // hassasiyeti, parçaya tıklama, joystick ayrımı) serbest kalıyor.
                 //
                 // sensor BİLEREK Arm edilmiyor; erken kesme yok.
-                descendTween = claw.transform.DOMove(overshootTargetPos, 1.2f)
+                descendTween = claw.transform.DOMove(overshootTargetPos, 0.66f)
                     .SetEase(Ease.InOutQuad)
                     .OnComplete(OnTouchOrTimeout);
             });
