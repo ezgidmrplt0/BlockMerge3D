@@ -126,9 +126,12 @@ public class ControlButton : MonoBehaviour
                 {
                     Press();
                 }
-                else if (!tutorial && jokerSpent && !adRefillUsedThisLevel && RewardedAds.IsReady)
+                else if (!tutorial && jokerSpent && !adRefillUsedThisLevel)
                 {
                     // Joker tükendi ama reklamla +1 alınabilir → önce onay diyaloğu.
+                    // NOT: anlık RewardedAds.IsReady'e BAKMIYORUZ — cihazda reklam biraz geç
+                    // yüklenebiliyor. Onay verilince Show, gerekiyorsa yükleyip hazır olunca
+                    // gösterir; hiç gelmezse OnAdFailed ile nazikçe kapanır.
                     ShowAdConfirm();
                 }
             }
@@ -278,7 +281,11 @@ public class ControlButton : MonoBehaviour
 
     private bool CanOfferAdRefill()
     {
-        return jokerSpent && !adRefillUsedThisLevel && RewardedAds.IsReady;
+        // "+1" davetini anlık reklam hazırlığına BAĞLAMIYORUZ: cihazda reklam geç
+        // yüklenebiliyor (editörde dummy anında hazır → hep "+1", cihazda "0" görünüyordu).
+        // Teklif seviye başına 1 reklam hakkı varken gösterilir; hazırlık/yükleme tıklamada
+        // (RewardedAds.Show) hallolur.
+        return jokerSpent && !adRefillUsedThisLevel;
     }
 
     private void SetBadgeVisual(string text, Color bg, Color fg, bool invite)

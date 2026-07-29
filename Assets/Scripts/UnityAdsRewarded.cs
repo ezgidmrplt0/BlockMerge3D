@@ -45,7 +45,11 @@ public class UnityAdsRewarded : MonoBehaviour
 
 #if UNITY_ADS_ENABLED
     private string adUnitId;
+    private bool initialized;
     private bool loaded;
+    private bool loading;
+    private bool showQueued;      // Show çağrıldı ama reklam henüz yüklü değil → yüklenince göster
+    private float showDeadline;   // showQueued için zaman aşımı (unscaled)
     private System.Action pendingReward;
     private System.Action pendingFailed;
 
@@ -58,7 +62,8 @@ public class UnityAdsRewarded : MonoBehaviour
 #else
         string gameId = androidGameId; adUnitId = androidAdUnitId;
 #endif
-        // Stub yerine gerçek sağlayıcı olarak kendini tak.
+        // Stub yerine gerçek sağlayıcı olarak kendini tak. (SetProvider erken Load() çağırır
+        // ama init bitmeden Load no-op'tur; asıl yükleme OnInitializationComplete'te olur.)
         RewardedAds.SetProvider(this);
 
         if (string.IsNullOrEmpty(gameId))
@@ -66,8 +71,19 @@ public class UnityAdsRewarded : MonoBehaviour
             Debug.LogWarning("[UnityAds] Game ID boş — Dashboard'dan alıp Inspector'a gir.");
             return;
         }
-        if (!Advertisement.isInitialized && Advertisement.isSupported)
-            Advertisement.Initialize(gameId, testMode, this);
+        if (Advertisement.isInitialized) { initialized = true; Load(); }
+        else if (Advertisement.isSupported) Advertisement.Initialize(gameId, testMode, this);
+    }
+
+    private void Update()
+    {
+        // Yüklenmesini beklediğimiz bir Show varsa ve süre dolduysa nazikçe başarısız ol
+        // (onay paneli sonsuza dek "yükleniyor" durumunda asılı kalmasın).
+        if (showQueued && Time.unscaledTime > showDeadline)
+        {
+            showQueued = false;
+            FailPending();
+        }
     }
 
     // ── IRewardedAd ──────────────────────────────────────────────────
@@ -75,33 +91,64 @@ public class UnityAdsRewarded : MonoBehaviour
 
     public void Load()
     {
-        loaded = false;
-        if (!string.IsNullOrEmpty(adUnitId))
-            Advertisement.Load(adUnitId, this);
+        // Init bitmeden yükleme yapılamaz (OnInitializationComplete tekrar çağırır).
+        // Zaten yüklü/yükleniyorsa tekrar tetikleme.
+        if (!initialized || loading || loaded || string.IsNullOrEmpty(adUnitId)) return;
+        loading = true;
+        Advertisement.Load(adUnitId, this);
     }
 
     public void Show(System.Action onReward, System.Action onFailed)
     {
-        if (!loaded) { onFailed?.Invoke(); return; }
         pendingReward = onReward;
         pendingFailed = onFailed;
-        Advertisement.Show(adUnitId, this);
+
+        if (loaded)
+        {
+            Advertisement.Show(adUnitId, this);
+        }
+        else
+        {
+            // Cihazda açılış yüklemesi geç kaldıysa/başarısızsa: burada YENİDEN yüklemeyi
+            // tetikle ve reklam hazır olur olmaz göster (kısa zaman aşımıyla). Böylece
+            // "hazır değil" durumu teklifi kalıcı olarak kilitlemez.
+            showQueued = true;
+            showDeadline = Time.unscaledTime + 12f;
+            Load();
+        }
+    }
+
+    private void FailPending()
+    {
+        var f = pendingFailed;
+        pendingReward = null; pendingFailed = null;
+        f?.Invoke();
     }
 
     // ── Initialization listener ──────────────────────────────────────
-    public void OnInitializationComplete() => Load();
+    public void OnInitializationComplete() { initialized = true; Load(); }
     public void OnInitializationFailed(UnityAdsInitializationError error, string message)
-        => Debug.LogWarning($"[UnityAds] init başarısız: {error} — {message}");
+    {
+        Debug.LogWarning($"[UnityAds] init başarısız: {error} — {message}");
+        if (showQueued) { showQueued = false; FailPending(); }
+    }
 
     // ── Load listener ────────────────────────────────────────────────
     public void OnUnityAdsAdLoaded(string placementId)
     {
-        if (placementId == adUnitId) loaded = true;
+        if (placementId != adUnitId) return;
+        loaded = true; loading = false;
+        if (showQueued)
+        {
+            showQueued = false;
+            Advertisement.Show(adUnitId, this);
+        }
     }
     public void OnUnityAdsFailedToLoad(string placementId, UnityAdsLoadError error, string message)
     {
         Debug.LogWarning($"[UnityAds] load başarısız: {error} — {message}");
-        loaded = false;
+        loaded = false; loading = false;
+        if (showQueued) { showQueued = false; FailPending(); }
     }
 
     // ── Show listener ────────────────────────────────────────────────
@@ -111,13 +158,16 @@ public class UnityAdsRewarded : MonoBehaviour
         if (state == UnityAdsShowCompletionState.COMPLETED) pendingReward?.Invoke();
         else pendingFailed?.Invoke();      // atlandı / erken kapatıldı
         pendingReward = null; pendingFailed = null;
+        loaded = false;                     // gösterilen reklam tüketildi
         Load();                             // sonraki gösterim için yeniden yükle
     }
     public void OnUnityAdsShowFailure(string placementId, UnityAdsShowError error, string message)
     {
         Debug.LogWarning($"[UnityAds] show başarısız: {error} — {message}");
-        pendingFailed?.Invoke();
+        var f = pendingFailed;
         pendingReward = null; pendingFailed = null;
+        f?.Invoke();
+        loaded = false;
         Load();
     }
     public void OnUnityAdsShowStart(string placementId) { }
