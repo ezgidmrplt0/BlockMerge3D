@@ -27,6 +27,11 @@ public class LevelData : ScriptableObject
              "sığar' senaryosu, parça rastgele zaten doğru yönde gelirse çöker.")]
     public bool randomizeSpawnRotation = true;
 
+    [Header("Buz")]
+    [Tooltip("Açıksa bu seviyede buz TEK nitelikli vuruşta erir — çoklu-vuruş sayacı ve " +
+             "dinamik zorluk rolü devre dışı kalır (hitCount=1). Tutorial (ör. LEVEL 4) için.")]
+    public bool forceSingleHitIce = false;
+
     [Header("Win Conditions")]
     public float timeLimit   = 60f;   // saniye; 0 = süresiz
     public int   targetScore = 100;   // 0 = eski grid-tamamlama mantığı

@@ -26,14 +26,20 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI loseFinalScoreText;
 
     [Header("Settings Panel")]
-    public GameObject      settingsPanel;
-    public RectTransform   settingsCard;
-    public Button          settingsToggleBtn;
-    public Button          retryBtn;
-    public Button          vibrationBtn;
-    public Button          audioBtn;
-    public GameObject[]    vibrationOffVisuals;
-    public GameObject[]    audioOffVisuals;
+    // Düz (flat) yapı: "Settings" paneli container; çark/titreşim/ses/retry butonları hepsi bunun
+    // DOĞRUDAN çocuğu (kardeş, hiçbiri diğerinin çocuğu değil). Başlangıçta sadece çark görünür;
+    // çarka basınca diğer 3 buton açılır/kapanır. Titreşim/ses açık-kapalı durumu SPRITE-SWAP ile.
+    public GameObject settingsPanel;   // "Settings" container
+    public Button     gearBtn;         // çark — her zaman görünür, aç/kapa toggle'ı
+    public Button     vibrationBtn;    // titreşim
+    public Button     audioBtn;        // ses
+    public Button     retryBtn;        // yeniden başlat
+    [Space(4)]
+    // Titreşim: buton = telefon; çizgiler AYRI child image'lardır. Açık→çizgi child'ları görünür,
+    // kapalı→SADECE çizgi child'ları gizli (telefon kalır).
+    // Ses: ikon hep kalır; kapalıyken AudioBtn'in child'ı olan kırmızı çapraz çizgi (audioOffSlash) görünür.
+    public GameObject audioOffSlash;
+    private bool settingsOpen;
 
     private int   displayedScore;
     private Tween scoreTween;
@@ -909,147 +915,41 @@ public class UIManager : MonoBehaviour
 
     private void SetupSettingsPanel()
     {
-        Debug.Log("[UIManager] SetupSettingsPanel: Initializing Settings panel configuration...");
-        var canvas = GameObject.Find("UICanvas");
-        if (canvas != null)
+        // Düz yapı: hepsi "Settings" panelinin DOĞRUDAN çocuğu (GearBtn/VibrationBtn/AudioBtn/RetryBtn).
+        // İnspector'da elle atanmamışsa isimle bulunur.
+        if (settingsPanel == null)
         {
-            if (settingsPanel == null)
-            {
-                var settingsTr = canvas.transform.Find("Settings");
-                if (settingsTr != null) settingsPanel = settingsTr.gameObject;
-            }
-
-            if (settingsToggleBtn == null)
-            {
-                var toggleTr = canvas.transform.Find("Button");
-                if (toggleTr != null)
-                {
-                    settingsToggleBtn = toggleTr.GetComponent<Button>();
-                    if (settingsToggleBtn == null)
-                    {
-                        settingsToggleBtn = toggleTr.gameObject.AddComponent<Button>();
-                        Debug.Log("[UIManager] SetupSettingsPanel: Dynamically added Button component to settingsToggleBtn (Button).");
-                    }
-                }
-                else if (settingsPanel != null)
-                {
-                    // Eğer ayrı bir Button nesnesi yoksa, Settings kök nesnesini (dişli ikonunu içeren) buton yapıyoruz
-                    settingsToggleBtn = settingsPanel.GetComponent<Button>();
-                    if (settingsToggleBtn == null)
-                    {
-                        settingsToggleBtn = settingsPanel.AddComponent<Button>();
-                        Debug.Log("[UIManager] SetupSettingsPanel: Dynamically added Button component to settingsPanel root.");
-                    }
-                }
-            }
+            var canvas = GameObject.Find("UICanvas");
+            var p = canvas != null ? canvas.transform.Find("Settings") : null;
+            if (p != null) settingsPanel = p.gameObject;
         }
-
         if (settingsPanel != null)
         {
-            // Settings kök objesini her zaman aktif tutuyoruz ki dişli çark butonu ekranda kalsın
             settingsPanel.SetActive(true);
-
-            var settingsTr = settingsPanel.transform;
-
-            if (settingsCard == null)
-            {
-                var cardTr = settingsTr.Find("background");
-                if (cardTr != null) settingsCard = cardTr.GetComponent<RectTransform>();
-            }
-
-            if (settingsCard != null)
-            {
-                var cardTr = settingsCard.transform;
-                if (retryBtn == null)
-                {
-                    var rTr = cardTr.Find("RetryBtn");
-                    if (rTr != null)
-                    {
-                        retryBtn = rTr.GetComponent<Button>();
-                        if (retryBtn == null)
-                        {
-                            retryBtn = rTr.gameObject.AddComponent<Button>();
-                            Debug.Log("[UIManager] SetupSettingsPanel: Dynamically added Button component to retryBtn.");
-                        }
-                    }
-                }
-                if (vibrationBtn == null)
-                {
-                    var vTr = cardTr.Find("VibrationBtn");
-                    if (vTr != null)
-                    {
-                        vibrationBtn = vTr.GetComponent<Button>();
-                        if (vibrationBtn == null)
-                        {
-                            vibrationBtn = vTr.gameObject.AddComponent<Button>();
-                            Debug.Log("[UIManager] SetupSettingsPanel: Dynamically added Button component to vibrationBtn.");
-                        }
-                    }
-                }
-                if (audioBtn == null)
-                {
-                    var aTr = cardTr.Find("AudioBtn");
-                    if (aTr != null)
-                    {
-                        audioBtn = aTr.GetComponent<Button>();
-                        if (audioBtn == null)
-                        {
-                            audioBtn = aTr.gameObject.AddComponent<Button>();
-                            Debug.Log("[UIManager] SetupSettingsPanel: Dynamically added Button component to audioBtn.");
-                        }
-                    }
-                }
-
-                if (vibrationOffVisuals == null || vibrationOffVisuals.Length == 0)
-                {
-                    var vTr = cardTr.Find("VibrationBtn");
-                    if (vTr != null)
-                    {
-                        var list = new System.Collections.Generic.List<GameObject>();
-                        foreach (Transform child in vTr)
-                        {
-                            if (child.name.Contains("Close"))
-                            {
-                                list.Add(child.gameObject);
-                            }
-                        }
-                        vibrationOffVisuals = list.ToArray();
-                    }
-                }
-
-                if (audioOffVisuals == null || audioOffVisuals.Length == 0)
-                {
-                    var aTr = cardTr.Find("AudioBtn");
-                    if (aTr != null)
-                    {
-                        var list = new System.Collections.Generic.List<GameObject>();
-                        foreach (Transform child in aTr)
-                        {
-                            if (child.name.Contains("Close"))
-                            {
-                                list.Add(child.gameObject);
-                            }
-                        }
-                        audioOffVisuals = list.ToArray();
-                    }
-                }
-            }
+            var t = settingsPanel.transform;
+            if (gearBtn == null)      gearBtn      = FindSettingsBtn(t, "GearBtn");
+            if (vibrationBtn == null) vibrationBtn = FindSettingsBtn(t, "VibrationBtn");
+            if (audioBtn == null)     audioBtn     = FindSettingsBtn(t, "AudioBtn");
+            if (retryBtn == null)     retryBtn     = FindSettingsBtn(t, "RetryBtn");
         }
 
-        if (settingsToggleBtn != null)
+        if (gearBtn != null)
         {
-            settingsToggleBtn.onClick = new Button.ButtonClickedEvent();
-            settingsToggleBtn.onClick.AddListener(ToggleSettingsPanel);
-            Debug.Log("[UIManager] SetupSettingsPanel: settingsToggleBtn listener attached successfully.");
+            gearBtn.onClick = new Button.ButtonClickedEvent();
+            gearBtn.onClick.AddListener(ToggleSettingsPanel);
         }
-        else
+        if (vibrationBtn != null)
         {
-            Debug.LogWarning("[UIManager] SetupSettingsPanel: settingsToggleBtn is NULL! Click interaction won't work.");
+            vibrationBtn.onClick = new Button.ButtonClickedEvent();
+            vibrationBtn.onClick.AddListener(() => { GameManager.Instance?.ToggleVibration(); UpdateSettingsUI(); });
         }
-
+        if (audioBtn != null)
+        {
+            audioBtn.onClick = new Button.ButtonClickedEvent();
+            audioBtn.onClick.AddListener(() => { GameManager.Instance?.ToggleAudio(); UpdateSettingsUI(); });
+        }
         if (retryBtn != null)
         {
-            LogButtonListeners(retryBtn, "retryBtn");
             retryBtn.onClick = new Button.ButtonClickedEvent();
             retryBtn.onClick.AddListener(() => {
                 AudioManager.Instance?.PlayButtonClickSound();
@@ -1058,160 +958,75 @@ public class UIManager : MonoBehaviour
             });
         }
 
-        if (vibrationBtn != null)
-        {
-            LogButtonListeners(vibrationBtn, "vibrationBtn");
-            vibrationBtn.onClick = new Button.ButtonClickedEvent();
-            vibrationBtn.onClick.AddListener(() => {
-                GameManager.Instance?.ToggleVibration();
-                UpdateSettingsUI();
-            });
-        }
-
-        if (audioBtn != null)
-        {
-            LogButtonListeners(audioBtn, "audioBtn");
-            audioBtn.onClick = new Button.ButtonClickedEvent();
-            audioBtn.onClick.AddListener(() => {
-                GameManager.Instance?.ToggleAudio();
-                UpdateSettingsUI();
-            });
-        }
-
+        settingsOpen = false;
+        SetActionButtonsVisible(false); // başlangıçta YALNIZCA çark görünür
         UpdateSettingsUI();
-
-        if (settingsCard != null)
-        {
-            settingsCard.gameObject.SetActive(false);
-            Debug.Log("[UIManager] SetupSettingsPanel: settingsCard (background) initialized and hidden.");
-        }
     }
 
-    private void LogButtonListeners(Button button, string buttonName)
+    // "Settings" panelinin doğrudan çocuğu olan butonu isimle bulur (yoksa Button ekler).
+    private Button FindSettingsBtn(Transform panel, string name)
     {
-        if (button == null) return;
-        int count = button.onClick.GetPersistentEventCount();
-        Debug.Log($"[UIManager] LogButtonListeners: {buttonName} (GameObject: {button.gameObject.name}) has {count} Inspector click events.");
-        for (int i = 0; i < count; i++)
-        {
-            var target = button.onClick.GetPersistentTarget(i);
-            var methodName = button.onClick.GetPersistentMethodName(i);
-            Debug.Log($"   -> Event {i}: Target = {(target != null ? target.name : "null")}, Method = {methodName}");
-        }
+        var tr = panel.Find(name);
+        if (tr == null) return null;
+        var b = tr.GetComponent<Button>();
+        if (b == null) b = tr.gameObject.AddComponent<Button>();
+        return b;
     }
 
     public void ToggleSettingsPanel()
     {
-        if (settingsCard == null) return;
-
         AudioManager.Instance?.PlayButtonClickSound();
-
-        bool willOpen = !settingsCard.gameObject.activeSelf;
-        if (willOpen)
-        {
-            settingsCard.gameObject.SetActive(true);
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.IsSettingsOpen = true;
-            }
-
-            UpdateSettingsUI();
-
-            settingsCard.DOKill();
-            settingsCard.localScale = Vector3.zero;
-            settingsCard.DOScale(1f, 0.35f).SetEase(Ease.OutBack).SetUpdate(true);
-        }
-        else
-        {
-            CloseSettingsAnimated();
-        }
+        settingsOpen = !settingsOpen;
+        if (GameManager.Instance != null) GameManager.Instance.IsSettingsOpen = settingsOpen;
+        if (settingsOpen) UpdateSettingsUI();
+        SetActionButtonsVisible(settingsOpen);
     }
 
-    private void CloseSettingsAnimated()
+    // Çark HARİÇ 3 butonu (titreşim/ses/retry) göster/gizle — pop animasyonuyla.
+    private void SetActionButtonsVisible(bool visible)
     {
-        if (settingsCard == null) return;
-
-        if (GameManager.Instance != null)
+        foreach (var b in new[] { vibrationBtn, audioBtn, retryBtn })
         {
-            GameManager.Instance.IsSettingsOpen = false;
+            if (b == null) continue;
+            var tr = b.transform;
+            if (visible)
+            {
+                b.gameObject.SetActive(true);
+                tr.DOKill();
+                tr.localScale = Vector3.zero;
+                tr.DOScale(1f, 0.3f).SetEase(Ease.OutBack).SetUpdate(true);
+            }
+            else
+            {
+                tr.DOKill();
+                tr.localScale = Vector3.one;
+                b.gameObject.SetActive(false);
+            }
         }
-
-        settingsCard.DOKill();
-        settingsCard.DOScale(Vector3.zero, 0.25f).SetEase(Ease.InBack).SetUpdate(true).OnComplete(() => {
-            settingsCard.gameObject.SetActive(false);
-        });
     }
 
     private void CloseSettingsImmediate()
     {
-        if (settingsCard != null)
-        {
-            settingsCard.gameObject.SetActive(false);
-            settingsCard.localScale = Vector3.one;
-        }
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.IsSettingsOpen = false;
-        }
+        settingsOpen = false;
+        if (GameManager.Instance != null) GameManager.Instance.IsSettingsOpen = false;
+        SetActionButtonsVisible(false);
     }
 
     public void UpdateSettingsUI()
     {
         if (GameManager.Instance == null) return;
 
-        bool vibEnabled = GameManager.Instance.IsVibrationEnabled;
-        bool audioEnabled = GameManager.Instance.IsAudioEnabled;
-
-        if (vibrationOffVisuals != null)
+        // TİTREŞİM: buton telefon; çizgiler ayrı CHILD image'lar. Açıkken çizgiler görünür,
+        // kapalıyken SADECE o child'lar (çizgiler) gizlenir; telefon (butonun kendi image'ı) kalır.
+        if (vibrationBtn != null)
         {
-            foreach (var go in vibrationOffVisuals)
-            {
-                if (go != null) go.SetActive(!vibEnabled);
-            }
+            bool vibOn = GameManager.Instance.IsVibrationEnabled;
+            foreach (Transform ch in vibrationBtn.transform)
+                ch.gameObject.SetActive(vibOn);
         }
 
-        if (audioBtn != null)
-        {
-            GameObject audioOnChild = null;
-            GameObject audioOffChild = null;
-
-            foreach (Transform child in audioBtn.transform)
-            {
-                if (child.name.Contains("Close") || child.name.Contains("Off"))
-                {
-                    audioOffChild = child.gameObject;
-                }
-                else if (child.name.Contains("Open") || child.name.Contains("On") || child.name.Contains("Active"))
-                {
-                    audioOnChild = child.gameObject;
-                }
-            }
-
-            if (audioOnChild != null && audioOffChild != null)
-            {
-                audioOnChild.SetActive(audioEnabled);
-                audioOffChild.SetActive(!audioEnabled);
-            }
-            else
-            {
-                var parentImage = audioBtn.GetComponent<Image>();
-                if (parentImage != null)
-                {
-                    // Butonun tıklama özelliğinin (Raycast) kaybolmaması için Image bileşenini kapatmak yerine
-                    // rengini şeffaf (Alpha = 0) yapıyoruz.
-                    Color c = parentImage.color;
-                    c.a = audioEnabled ? 1f : 0f;
-                    parentImage.color = c;
-                }
-
-                if (audioOffVisuals != null)
-                {
-                    foreach (var go in audioOffVisuals)
-                    {
-                        if (go != null) go.SetActive(!audioEnabled);
-                    }
-                }
-            }
-        }
+        // SES: ses ikonu hep kalır; kapalıyken üstüne kırmızı çapraz çizgi (audioOffSlash child) çıkar.
+        if (audioOffSlash != null)
+            audioOffSlash.SetActive(!GameManager.Instance.IsAudioEnabled);
     }
 }

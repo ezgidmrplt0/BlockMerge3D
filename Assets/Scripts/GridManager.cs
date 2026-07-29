@@ -434,9 +434,19 @@ public class GridManager : MonoBehaviour
                 frozenCells.Add(cell);
                 int hitCount = shapeHolder.GetFrozenHitCount(cell);
 
+                // Bu seviye tek-vuruşluk buz istiyorsa (tutorial, ör. LEVEL 4): dinamik zorluk
+                // rolü / çoklu-vuruş atlanır, buz TEK temasta erir.
+                bool forceSingleHit = LevelManager.Instance != null
+                    && LevelManager.Instance.currentLevel != null
+                    && LevelManager.Instance.currentLevel.forceSingleHitIce;
+
                 // Eğer özel vuruş verisi pişirilmemişse (veya <= 1 ise) ve LevelManager üzerinden dinamik zorluk aktifse:
                 bool useDynamic = LevelManager.Instance == null || LevelManager.Instance.autoAssignIceHitsByDifficulty;
-                if (useDynamic && hitCount <= 1)
+                if (forceSingleHit)
+                {
+                    hitCount = 1;
+                }
+                else if (useDynamic && hitCount <= 1)
                 {
                     if (LevelManager.Instance != null && LevelManager.Instance.overrideHitCountPerLevel)
                     {
