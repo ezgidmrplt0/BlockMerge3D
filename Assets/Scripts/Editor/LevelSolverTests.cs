@@ -233,7 +233,7 @@ public class LevelSolverTests
             GameObject p = new GameObject("Piece" + i);
             var ph = p.AddComponent<CubeShapeDataHolder>();
             ph.gridSize = holder.gridSize; ph.cellSize = holder.cellSize; ph.spacing = holder.spacing;
-            ph.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0) };
+            ph.occupiedCells = new List<Vector3Int> { new Vector3Int(0, 0, 0), new Vector3Int(0, 0, 1) };
             pieces.Add(p);
         }
 

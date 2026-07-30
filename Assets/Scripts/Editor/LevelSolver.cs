@@ -366,19 +366,19 @@ public class LevelSolver
         var lastStep = currentSolution[currentSolution.Count - 1];
         currentSolution.RemoveAt(currentSolution.Count - 1);
 
-        // 1. Restore thawed cells back to frozen. Sayaç her zaman TAM 1'den 0'a inerek erimiş
-        // olur (ResolveFrozenCellsInSolver her nitelikli temasta yalnızca 1 azaltır), bu yüzden
-        // geri yüklenirken totalHits ne olursa olsun 1'e döner.
+        int hitsApplied = lastStep != null && lastStep.cells != null ? lastStep.cells.Count / 2 : 1;
+
+        // 1. Restore thawed cells back to frozen.
         foreach (var cell in lastStep.thawedCells)
         {
             frozenCells.Add(cell);
-            frozenRemainingHits[cell] = 1;
+            frozenRemainingHits[cell] = (frozenRemainingHits.TryGetValue(cell, out int r) ? r : 0) + hitsApplied;
         }
 
-        // 1b. Tamamen erimeyip sadece sayacı azalan (chip) hücrelerin sayacını geri +1 et.
+        // 1b. Tamamen erimeyip sadece sayacı azalan (chip) hücrelerin sayacını geri +hitsApplied et.
         foreach (var cell in lastStep.chippedCells)
         {
-            frozenRemainingHits[cell] = (frozenRemainingHits.TryGetValue(cell, out int r) ? r : 0) + 1;
+            frozenRemainingHits[cell] = (frozenRemainingHits.TryGetValue(cell, out int r) ? r : 0) + hitsApplied;
         }
 
         // 2. Restore cells that were destroyed as a side effect of this step's thaw (bkz.
@@ -400,21 +400,14 @@ public class LevelSolver
     }
 
     // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
-    // buza değen hücreden başlayan AYNI RENKTEKİ bağlantılı (flood-fill) grup ≥2 üyeliyse TAMAMI
-    // patlar (bkz. FloodFillSameColorInSolver / GridManager.FloodFillSameSpecies). TÜM buzlu
-    // hücreler taranır (sadece bu adımda yerleşen parçaya değil) — aksi halde buza ÖNCEDEN değen
-    // bir hücrenin yanına şimdi ikinci bir hücre yerleşmesiyle tamamlanan erime kaçırılır.
-    // [Düzeltme] Bu metod önceden buza değen hücre + rastgele bulunan İLK komşusunu (renk kontrolü
-    // OLMADAN) yok ediyordu — yorumların ve gerçek oyunun (GridManager.CheckAndResolveFrozenCells +
-    // FloodFillSameSpecies) tanımladığı "buza değen hücreden başlayan AYNI RENKTEKİ bağlantılı grup
-    // ≥2 üyeliyse TAMAMI patlar" kuralını UYGULAMIYORDU (rengi hiç okumuyordu, grubu flood-fill
-    // etmiyordu, sadece 2 hücre siliyordu). Bu, hem bu dosyanın kendi test beklentileriyle
-    // (LevelSolverTests.CreateIceGroupExplosionLevel: totalDestroyed==3, minMoveCount==5) hem de
-    // gerçek oyun mekaniğiyle çelişiyordu — aşağıdaki flood-fill, GridManager.FloodFillSameSpecies
-    // ile birebir aynı kuralı (currentOccupied/currentMatIndex üzerinden) uygular.
+    // en az 2 obje koyulduğunda 1 erime yapılır. 2'nin katlarında (2, 4, 6...) yerleştirilen obje / 2
+    // oranında daha fazla erime yapılır.
     private void ResolveFrozenCellsInSolver(PlacementStep step)
     {
-        if (frozenCells.Count == 0) return;
+        if (frozenCells.Count == 0 || step == null || step.cells == null) return;
+
+        int hitsToApply = step.cells.Count / 2;
+        if (hitsToApply <= 0) return;
 
         var horizontalNeighbors = new Vector3Int[]
         {
@@ -443,14 +436,11 @@ public class LevelSolver
             }
         }
 
-        // Buz kaç vuruşa dayanıyorsa (bkz. frozenRemainingHits / CubeShapeDataHolder.GetFrozenHitCount),
-        // bu adımdaki her nitelikli temas sayacı 1 azaltır; 0'a inince gerçekten erir (frozenCells'ten
-        // çıkar). Aksi halde donuk kalır ama undo edilebilmesi için step.chippedCells'e kaydedilir
-        // (bkz. UndoPlacement — GridManager.CheckAndResolveFrozenCells ile aynı mantık).
+        // Buz kaç vuruşa dayanıyorsa, bu adımdaki hitsToApply (obje sayısı / 2) kadar azaltılır.
         foreach (var cell in qualifiedFrozen)
         {
             int remaining = frozenRemainingHits.TryGetValue(cell, out int r) ? r : 1;
-            remaining = Mathf.Max(0, remaining - 1);
+            remaining = Mathf.Max(0, remaining - hitsToApply);
             frozenRemainingHits[cell] = remaining;
 
             if (remaining <= 0)

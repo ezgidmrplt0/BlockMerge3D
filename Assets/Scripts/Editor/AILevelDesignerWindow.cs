@@ -650,6 +650,16 @@ public class AILevelDesignerWindow : EditorWindow
         if (GUILayout.Button("🎨  Yeni Özel Parça Tasarla (Parça Kütüphanesi)", GUILayout.Height(30)))
         {
             PieceDefinitionMigrationWindow.ShowWindow();
+            GUIUtility.ExitGUI();
+        }
+        GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.Space(4);
+        GUI.backgroundColor = new Color(0.95f, 0.60f, 0.20f);
+        if (GUILayout.Button("🔁  Seviye Parçalarını Yeniden Böl (Re-Bake Level Pieces)", GUILayout.Height(30)))
+        {
+            LevelRebakeWindow.Open();
+            GUIUtility.ExitGUI();
         }
         GUI.backgroundColor = Color.white;
         EndSectionCard();

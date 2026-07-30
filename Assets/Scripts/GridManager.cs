@@ -1301,10 +1301,10 @@ public class GridManager : MonoBehaviour
         {
             ActiveLayerY = gridMaxY + 1;
 
-            // Win paneli, katmanın görsel çökme/kanca animasyonu (collapseDelay + 0.45s hareket)
-            // bitmeden açılmasın — önceden burada anında tetikleniyordu ve 3.65s'lik kanca
-            // animasyonunun üzerine hemen biniyordu.
-            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => {
+            // Win paneli kancanın blokları kavrayıp havaya tamamen kaldırdığı an (~2.2 sn)
+            // dengeli ve tatmin edici bir zamanlamayla açılsın.
+            float winDelay = (claw != null) ? 2.2f : 0.6f;
+            DOVirtual.DelayedCall(winDelay, () => {
                 IsExplodingLayer = false;
                 onLevelComplete?.Invoke();
             }).SetId(LEVEL_ANIM_ID);
@@ -2729,6 +2729,15 @@ public class GridManager : MonoBehaviour
             return false;
         }
 
+        // En az 2 obje yerleştirildiğinde 1 erime vuruşu yapılır. 2'nin katları oldukça (2, 4, 6, 8...)
+        // vuruş miktarı (yerleştirilen obje sayısı / 2) oranında katlanarak artar. 1 obje eritmeye sebep olmaz.
+        int hitsToApply = newlyPlacedCells.Count / 2;
+        if (hitsToApply <= 0)
+        {
+            onComplete?.Invoke(false);
+            return false;
+        }
+
         Vector3Int[] horizontalNeighbors = {
             Vector3Int.left, Vector3Int.right,
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
@@ -2762,9 +2771,6 @@ public class GridManager : MonoBehaviour
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
         HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
 
-        // İSTEK ÜZERİNE: aynı-tür şartı yok (buza yatay komşu HERHANGİ bir parça buzu vurur) VE
-        // buza DEĞEN hücreler (hayvanlar) PATLAR — cellsToDestroy'a eklenir. Çok-vuruşlu buz
-        // sayacı korunuyor: her buz aynı hamlede yalnızca bir kez vurulur (hitFrozenThisCall).
         foreach (var touchCell in touchingCells)
         {
             bool touchesIce = false;
@@ -2775,10 +2781,10 @@ public class GridManager : MonoBehaviour
                 touchesIce = true;
                 if (!hitFrozenThisCall.Add(neighbor)) continue;
 
-                // Buz kaç vuruşa dayanıyorsa (bkz. CubeShapeDataHolder.GetFrozenHitCount), her temas
-                // bu sayacı 1 azaltır; 0'a inince erir.
+                // Buz kaç vuruşa dayanıyorsa (bkz. CubeShapeDataHolder.GetFrozenHitCount),
+                // hamledeki obje sayısının 2'ye bölümü (hitsToApply) kadar vuruş alır.
                 int remaining = iceRemainingHits.TryGetValue(neighbor, out int r) ? r : 1;
-                remaining = Mathf.Max(0, remaining - 1);
+                remaining = Mathf.Max(0, remaining - hitsToApply);
                 iceRemainingHits[neighbor] = remaining;
 
                 if (remaining <= 0) cellsToThaw.Add(neighbor);
