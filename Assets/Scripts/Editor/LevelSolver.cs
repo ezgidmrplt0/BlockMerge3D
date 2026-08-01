@@ -406,9 +406,6 @@ public class LevelSolver
     {
         if (frozenCells.Count == 0 || step == null || step.cells == null) return;
 
-        int hitsToApply = step.cells.Count / 2;
-        if (hitsToApply <= 0) return;
-
         var horizontalNeighbors = new Vector3Int[]
         {
             Vector3Int.right,
@@ -426,43 +423,53 @@ public class LevelSolver
             {
                 Vector3Int touchCell = frozenCell + offset;
                 if (!currentOccupied.Contains(touchCell)) continue;
-                if (!currentMatIndex.TryGetValue(touchCell, out int touchColor)) continue;
 
-                var group = FloodFillSameColorInSolver(touchCell, touchColor, horizontalNeighbors);
-                if (group.Count < 2) continue;
+                var group = FloodFillOccupiedInSolver(touchCell, horizontalNeighbors);
+                int hitsToApply = group.Count / 2;
+                if (hitsToApply <= 0) continue;
 
-                qualifiedFrozen.Add(frozenCell);
-                cellsToDestroy.UnionWith(group);
+                int remaining = frozenRemainingHits.TryGetValue(frozenCell, out int r) ? r : 1;
+                remaining = Mathf.Max(0, remaining - hitsToApply);
+                frozenRemainingHits[frozenCell] = remaining;
+
+                if (remaining <= 0)
+                {
+                    step.thawedCells.Add(frozenCell);
+                }
+                else
+                {
+                    step.chippedCells.Add(frozenCell);
+                }
             }
         }
 
-        // Buz kaç vuruşa dayanıyorsa, bu adımdaki hitsToApply (obje sayısı / 2) kadar azaltılır.
-        foreach (var cell in qualifiedFrozen)
+        foreach (var cell in step.thawedCells)
         {
-            int remaining = frozenRemainingHits.TryGetValue(cell, out int r) ? r : 1;
-            remaining = Mathf.Max(0, remaining - hitsToApply);
-            frozenRemainingHits[cell] = remaining;
-
-            if (remaining <= 0)
-            {
-                frozenCells.Remove(cell);
-                step.thawedCells.Add(cell);
-            }
-            else
-            {
-                step.chippedCells.Add(cell);
-            }
+            frozenCells.Remove(cell);
         }
+    }
 
-        foreach (var cell in cellsToDestroy)
+    private HashSet<Vector3Int> FloodFillOccupiedInSolver(Vector3Int start, Vector3Int[] horizontalNeighbors)
+    {
+        var visited = new HashSet<Vector3Int> { start };
+        var stack = new Stack<Vector3Int>();
+        stack.Push(start);
+
+        while (stack.Count > 0)
         {
-            if (currentMatIndex.TryGetValue(cell, out int prevMatIdx))
+            var cur = stack.Pop();
+            foreach (var offset in horizontalNeighbors)
             {
-                step.destroyedCells.Add(new DestroyedCellInfo { cell = cell, matIndex = prevMatIdx });
+                Vector3Int neighbor = cur + offset;
+                if (visited.Contains(neighbor)) continue;
+                if (!currentOccupied.Contains(neighbor)) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
             }
-            currentOccupied.Remove(cell);
-            currentMatIndex.Remove(cell);
         }
+
+        return visited;
     }
 
     // GridManager.FloodFillSameSpecies ile birebir aynı: start'tan başlayıp SADECE aynı renkteki

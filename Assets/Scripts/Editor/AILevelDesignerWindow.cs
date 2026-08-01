@@ -146,6 +146,7 @@ public class AILevelDesignerWindow : EditorWindow
     private Vector2 pmManualPiecesScroll;
     private int pmRightTab = 0; // 0: AI Üretilenler, 1: Manuel Tasarımlar
     private int pmSelectedManualIndex = -1;
+    [SerializeField] internal List<LevelData> customTrainingLevels = new List<LevelData>();
 
 
     // ── Stil ─────────────────────────────────────────────────────
@@ -1360,6 +1361,64 @@ public class AILevelDesignerWindow : EditorWindow
         GUILayout.Space(10);
 
         EditorGUILayout.BeginVertical(styleInstructionBox);
+        GUILayout.Label("📂 ÖZEL SEVİYE LİSTESİ İLE YAPAY ZEKA EĞİTİMİ (SEÇMELİ MOD)", styleHeader);
+        GUILayout.Label("Aşağıdaki listeye kendi tasarladığınız LevelData (.asset) seviyelerini sürükleyip bırakın veya listeden seçin. Yapay zeka sadece bu seçtiğiniz seviyelerin mimarisini ve parça çözümlerini öğrenecektir.", EditorStyles.wordWrappedLabel);
+        
+        GUILayout.Space(8);
+
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("➕ Yeni Seviye Slotu Ekle", EditorStyles.miniButtonLeft, GUILayout.Height(24)))
+        {
+            customTrainingLevels.Add(null);
+        }
+        if (GUILayout.Button("📂 Projedeki Tüm Seviyeleri Listeye Doldur", EditorStyles.miniButtonMid, GUILayout.Height(24)))
+        {
+            PopulateAllLevelsToTrainingList();
+        }
+        if (GUILayout.Button("🗑 Listeyi Temizle", EditorStyles.miniButtonRight, GUILayout.Height(24)))
+        {
+            customTrainingLevels.Clear();
+        }
+        EditorGUILayout.EndHorizontal();
+
+        GUILayout.Space(6);
+
+        if (customTrainingLevels == null || customTrainingLevels.Count == 0)
+        {
+            EditorGUILayout.HelpBox("Henüz listeye seviye eklenmedi. 'Yeni Seviye Slotu Ekle' butonuna basarak slot oluşturabilir veya proje penceresinden LevelData asset'lerini buraya sürükleyebilirsiniz.", MessageType.Info);
+        }
+        else
+        {
+            int indexToRemove = -1;
+            for (int i = 0; i < customTrainingLevels.Count; i++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                customTrainingLevels[i] = (LevelData)EditorGUILayout.ObjectField($"Seviye Slotu {i + 1}", customTrainingLevels[i], typeof(LevelData), false);
+                if (GUILayout.Button("❌", GUILayout.Width(26), GUILayout.Height(18)))
+                {
+                    indexToRemove = i;
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+
+            if (indexToRemove >= 0 && indexToRemove < customTrainingLevels.Count)
+            {
+                customTrainingLevels.RemoveAt(indexToRemove);
+            }
+        }
+
+        GUILayout.Space(10);
+        GUI.backgroundColor = new Color(0.25f, 0.78f, 1f, 1f); // AI Cyan / Blue
+        if (GUILayout.Button("🎯 SEÇİLİ SEVİYELERİ YAPAY ZEKAYA ÖĞRET & EĞİTİM VERİSETİNİ YAZ", GUILayout.Height(42)))
+        {
+            TrainAIFromSelectedLevels();
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndVertical();
+
+        GUILayout.Space(10);
+
+        EditorGUILayout.BeginVertical(styleInstructionBox);
         GUILayout.Label("1. SEVİYE VERİ YAPISI NASIL ÇALIŞIR?", EditorStyles.boldLabel);
         GUILayout.Label("BlockMerge3D projesinde seviyeler 3 bileşenden oluşur:\n" +
                       " • LevelData (ScriptableObject): Seviyenin süre sınırı, hedef puanı, ana şekil prefabı ve parçalarını yönetir.\n" +
@@ -1915,8 +1974,10 @@ public class AILevelDesignerWindow : EditorWindow
         List<Vector3Int> finalOccupied = occupiedCells.ToList();
         if (finalOccupied.Count == 0) return;
 
-        float ratio = icePercentage > 0f ? icePercentage : 0.20f;
-        int targetIceCount = Mathf.Max(1, Mathf.RoundToInt(finalOccupied.Count * ratio));
+        // KURAL: 1-2 taneyi geçmesin, zor/uzman seviyelerde maks 3 olabilir.
+        bool isHard = (selectedDifficulty == AILevelDifficulty.Zor || selectedDifficulty == AILevelDifficulty.Uzman);
+        int maxIceAllowed = isHard ? 3 : 2;
+        int targetIceCount = Mathf.Min(maxIceAllowed, Mathf.Max(1, isHard ? 3 : (Random.value < 0.5f ? 1 : 2)));
 
         finalOccupied = finalOccupied.OrderBy(x => Random.value).ToList();
 
@@ -1936,7 +1997,7 @@ public class AILevelDesignerWindow : EditorWindow
             }
         }
 
-        Debug.Log($"❄️ Buz tespiti çalıştırıldı: {frozenCells.Count} dondurulmuş blok yerleştirildi.");
+        Debug.Log($"❄️ Buz tespiti çalıştırıldı: {frozenCells.Count} dondurulmuş blok yerleştirildi (Limit: {maxIceAllowed}).");
         Repaint();
     }
 
@@ -4651,6 +4712,147 @@ public class AILevelDesignerWindow : EditorWindow
             $"✅ {pmTaughtPieces.Count} Adet Manuel Parça Verisi Kaydedildi!\n\n" +
             $"Dosya Konumu:\n{jsonPath}\n\n" +
             $"Bu JSON dosyası, yapay zekanın sizin elinizle çizdiğiniz özel tasarımları, prompt etiketleriyle birlikte birebir öğrenmesi için eğitim verisi olarak kullanılacaktır.", "Harika!");
+    }
+
+    private void PopulateAllLevelsToTrainingList()
+    {
+        string[] guids = AssetDatabase.FindAssets("t:LevelData", new[] { LEVELS_PATH });
+        if (guids == null || guids.Length == 0)
+        {
+            EditorUtility.DisplayDialog("Bilgi", "Assets/Levels klasöründe LevelData bulunamadı.", "Tamam");
+            return;
+        }
+
+        if (customTrainingLevels == null) customTrainingLevels = new List<LevelData>();
+        customTrainingLevels.Clear();
+
+        foreach (var g in guids)
+        {
+            string path = AssetDatabase.GUIDToAssetPath(g);
+            LevelData ld = AssetDatabase.LoadAssetAtPath<LevelData>(path);
+            if (ld != null && !customTrainingLevels.Contains(ld))
+            {
+                customTrainingLevels.Add(ld);
+            }
+        }
+        Repaint();
+    }
+
+    private void TrainAIFromSelectedLevels()
+    {
+        if (customTrainingLevels == null || customTrainingLevels.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Lütfen eğitmek istediğiniz seviye (.asset) dosyalarını listeye ekleyin.", "Tamam");
+            return;
+        }
+
+        List<LevelData> validLevels = customTrainingLevels.Where(l => l != null).ToList();
+        if (validLevels.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Hata", "Listede geçerli (null olmayan) bir LevelData asset'i bulunamadı.", "Tamam");
+            return;
+        }
+
+        AIDatasetWrapper datasetWrapper = new AIDatasetWrapper();
+        int importedCount = 0;
+
+        for (int i = 0; i < validLevels.Count; i++)
+        {
+            LevelData ld = validLevels[i];
+            if (ld == null || ld.mainShapePrefab == null) continue;
+
+            EditorUtility.DisplayProgressBar("Seviyeler Eğitime Aktarılıyor", $"{ld.levelName} taranıyor... ({i + 1}/{validLevels.Count})", (i + 1) / (float)validLevels.Count);
+
+            CubeShapeDataHolder mainHolder = ld.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
+            List<Vector3Int> occupied = mainHolder != null && mainHolder.occupiedCells != null && mainHolder.occupiedCells.Count > 0
+                ? new List<Vector3Int>(mainHolder.occupiedCells)
+                : GetOccupiedFromPrefabChildren(ld.mainShapePrefab);
+
+            List<Vector3Int> prefilled = mainHolder != null && mainHolder.prefilledCells != null ? new List<Vector3Int>(mainHolder.prefilledCells) : new List<Vector3Int>();
+            List<int> prefilledMats = mainHolder != null && mainHolder.prefilledMaterialIndices != null ? new List<int>(mainHolder.prefilledMaterialIndices) : new List<int>();
+            List<Vector3Int> frozen = mainHolder != null && mainHolder.frozenCells != null ? new List<Vector3Int>(mainHolder.frozenCells) : new List<Vector3Int>();
+
+            List<AIPieceEntry> piecesEntries = new List<AIPieceEntry>();
+            if (ld.complementaryPieces != null)
+            {
+                for (int pIdx = 0; pIdx < ld.complementaryPieces.Count; pIdx++)
+                {
+                    var pGo = ld.complementaryPieces[pIdx];
+                    if (pGo == null) continue;
+                    CubeShapeDataHolder pHolder = pGo.GetComponent<CubeShapeDataHolder>();
+                    List<Vector3Int> pCells = pHolder != null && pHolder.occupiedCells != null && pHolder.occupiedCells.Count > 0
+                        ? new List<Vector3Int>(pHolder.occupiedCells)
+                        : GetOccupiedFromPrefabChildren(pGo);
+
+                    piecesEntries.Add(new AIPieceEntry
+                    {
+                        pieceIndex = pIdx,
+                        localCells = pCells.Select(c => new SerializableCell(c)).ToList()
+                    });
+                }
+            }
+
+            Vector3Int maxCell = occupied.Count > 0 
+                ? new Vector3Int(occupied.Max(c => c.x) + 1, occupied.Max(c => c.y) + 1, occupied.Max(c => c.z) + 1)
+                : new Vector3Int(5, 5, 5);
+
+            AIDatasetEntry entry = new AIDatasetEntry
+            {
+                levelName = string.IsNullOrEmpty(ld.levelName) ? ld.name : ld.levelName,
+                difficultyIndex = 1,
+                shapeType = "Custom_Designed",
+                gridSize = new SerializableCell(maxCell),
+                occupiedCells = occupied.Select(c => new SerializableCell(c)).ToList(),
+                prefilledCells = prefilled.Select(c => new SerializableCell(c)).ToList(),
+                prefilledMaterialIndices = prefilledMats,
+                frozenCells = frozen.Select(c => new SerializableCell(c)).ToList(),
+                pieces = piecesEntries,
+                pieceCount = piecesEntries.Count,
+                frozenRatio = occupied.Count > 0 ? (float)frozen.Count / occupied.Count : 0f,
+                isSolvable = true,
+                minMoveCount = piecesEntries.Count,
+                difficultyScore = 0.5f,
+                difficultyLabel = "Manuel Tasarım"
+            };
+
+            datasetWrapper.dataset.Add(entry);
+            importedCount++;
+        }
+
+        EditorUtility.ClearProgressBar();
+
+        string jsonPath = $"{LEVELS_PATH}/ai_custom_levels_training_dataset.json";
+        string jsonContent = JsonUtility.ToJson(datasetWrapper, true);
+        File.WriteAllText(jsonPath, jsonContent);
+
+        AssetDatabase.Refresh();
+
+        EditorUtility.DisplayDialog("Seçili Seviyeler Eğitime Yüklendi! 🎓",
+            $"✅ Yapay Zekaya Seçili Seviye Eğitimi Tamamlandı:\n\n" +
+            $"📊 {importedCount} Adet Seçtiğiniz Seviye Taranarak Hafızaya Alındı\n" +
+            $"💾 Veriseti Kaydedildi:\n\t{jsonPath}\n\n" +
+            $"Yapay Zeka (AI Level Designer) artık yeni seviye üretirken sizin bizzat seçip öğrettiğiniz bu seviyelerin mimarisini ve parçalarını esas alacaktır!", "Harika! 🚀");
+    }
+
+    private List<Vector3Int> GetOccupiedFromPrefabChildren(GameObject prefab)
+    {
+        List<Vector3Int> result = new List<Vector3Int>();
+        if (prefab == null) return result;
+
+        var renderers = prefab.GetComponentsInChildren<Renderer>();
+        float step = cellSize + spacing > 0.0001f ? cellSize + spacing : 1f;
+
+        foreach (var r in renderers)
+        {
+            Vector3 localPos = prefab.transform.InverseTransformPoint(r.bounds.center);
+            Vector3Int cell = new Vector3Int(
+                Mathf.RoundToInt(localPos.x / step),
+                Mathf.RoundToInt(localPos.y / step),
+                Mathf.RoundToInt(localPos.z / step)
+            );
+            if (!result.Contains(cell)) result.Add(cell);
+        }
+        return result;
     }
 
     private void LoadManualPieceDataset()

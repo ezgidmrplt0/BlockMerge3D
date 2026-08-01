@@ -2729,15 +2729,6 @@ public class GridManager : MonoBehaviour
             return false;
         }
 
-        // En az 2 obje yerleştirildiğinde 1 erime vuruşu yapılır. 2'nin katları oldukça (2, 4, 6, 8...)
-        // vuruş miktarı (yerleştirilen obje sayısı / 2) oranında katlanarak artar. 1 obje eritmeye sebep olmaz.
-        int hitsToApply = newlyPlacedCells.Count / 2;
-        if (hitsToApply <= 0)
-        {
-            onComplete?.Invoke(false);
-            return false;
-        }
-
         Vector3Int[] horizontalNeighbors = {
             Vector3Int.left, Vector3Int.right,
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
@@ -2768,46 +2759,24 @@ public class GridManager : MonoBehaviour
 
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();   // kalan vuruş 0'a indi -> tam erime
         HashSet<Vector3Int> cellsToChip = new HashSet<Vector3Int>();   // hâlâ donuk, sadece sayaç azaldı
-        HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>(); // buzu kıran yerleştirilmiş bloklar
         HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
 
         foreach (var touchCell in touchingCells)
         {
-            bool touchesIce = false;
             foreach (var offset in horizontalNeighbors)
             {
                 Vector3Int neighbor = touchCell + offset;
                 if (!frozenCells.Contains(neighbor)) continue;
-                touchesIce = true;
                 if (!hitFrozenThisCall.Add(neighbor)) continue;
 
-                // Buz kaç vuruşa dayanıyorsa (bkz. CubeShapeDataHolder.GetFrozenHitCount),
-                // hamledeki obje sayısının 2'ye bölümü (hitsToApply) kadar vuruş alır.
-                int remaining = iceRemainingHits.TryGetValue(neighbor, out int r) ? r : 1;
-                remaining = Mathf.Max(0, remaining - hitsToApply);
-                iceRemainingHits[neighbor] = remaining;
+                // Bu buza temas eden yatay bağlantılı TÜM dolu hücrelerin grubunu al
+                var group = GetConnectedOccupiedGroup(touchCell, horizontalNeighbors);
 
-                if (remaining <= 0) cellsToThaw.Add(neighbor);
-                else cellsToChip.Add(neighbor);
-            }
-
-            // Buza değen hücre VE ona YATAY bağlı TÜM dolu hücreler patlar — TÜR fark etmez
-            // ("ne değiyorsa patlasın"). Aynı-tür kısıtı yok; bağlı olan her hayvan patlar.
-            if (touchesIce)
-            {
-                var grp = new HashSet<Vector3Int> { touchCell };
-                var stack = new Stack<Vector3Int>();
-                stack.Push(touchCell);
-                while (stack.Count > 0)
-                {
-                    var cur = stack.Pop();
-                    foreach (var off in horizontalNeighbors)
-                    {
-                        var nb = cur + off;
-                        if (occupiedCells.Contains(nb) && grp.Add(nb)) stack.Push(nb);
-                    }
-                }
-                cellsToDestroy.UnionWith(grp);
+                // Tek bir temas bile olsa buz kırılır/erir ve buzu kıran obje de yok edilir
+                iceRemainingHits[neighbor] = 0;
+                cellsToThaw.Add(neighbor);
+                foreach (var c in group) cellsToDestroy.Add(c);
             }
         }
 
@@ -2819,6 +2788,29 @@ public class GridManager : MonoBehaviour
 
         StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToChip, cellsToDestroy, () => onComplete?.Invoke(true)));
         return true;
+    }
+
+    private HashSet<Vector3Int> GetConnectedOccupiedGroup(Vector3Int start, Vector3Int[] horizontalNeighbors)
+    {
+        var visited = new HashSet<Vector3Int> { start };
+        var stack = new Stack<Vector3Int>();
+        stack.Push(start);
+
+        while (stack.Count > 0)
+        {
+            var cur = stack.Pop();
+            foreach (var offset in horizontalNeighbors)
+            {
+                Vector3Int neighbor = cur + offset;
+                if (visited.Contains(neighbor)) continue;
+                if (!occupiedCells.Contains(neighbor)) continue;
+
+                visited.Add(neighbor);
+                stack.Push(neighbor);
+            }
+        }
+
+        return visited;
     }
 
     // start hücresinden başlayarak, occupiedCells içinde 'speciesIndex' ile aynı türde olan ve
