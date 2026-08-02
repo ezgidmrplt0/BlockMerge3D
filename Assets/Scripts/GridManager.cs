@@ -1254,11 +1254,14 @@ public class GridManager : MonoBehaviour
         if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
         if (claw != null)
         {
-            collapseDelay = 3.65f;
-            // Kanca zaman çizelgesi: yatay(0.5)+iniş(1.2)+toplanma(0.6)=2.3s'te YUKARI KALDIRMA
-            // başlar. Kilit açılması kaldırma boyunca oynasın ki kanca "bir yere yöneldiği" anda
-            // (≈3.5s) kilit açılmış ve düşmeye başlamış olsun.
-            unlockDelay = 2.3f;
+            // Kanca zaman çizelgesi (HIZLANDIRILMIŞ): yatay(0.3)+iniş(0.66)+toplanma(0.40)=~1.36s'te
+            // YUKARI KALDIRMA başlar; kaldırma(0.68)+eve dönüş(0.3)+bırakma(0.24)+kapanış(0.17) →
+            // toplam ~2.75s. Eskiden yatay(0.5)/iniş(1.2)/toplanma(0.6)=2.3s idi; kanca hızlanınca
+            // aşağıdaki gecikmeler de küçültüldü, yoksa kilit ve çökme kancanın çok gerisinde kalıyordu.
+            collapseDelay = 2.75f;
+            // Kilit, kanca layer'ı KALDIRMAYA başladığı an (~1.36s) açılıp düşmeye geçsin ki
+            // kancayla senkron olsun (eskiden 2.3s'ti → kanca gidiyor, kilit hâlâ duruyordu).
+            unlockDelay = 1.35f;
         }
 
         if (claw == null)
