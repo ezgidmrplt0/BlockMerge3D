@@ -1252,17 +1252,9 @@ public class GridManager : MonoBehaviour
         float unlockDelay = 0.1f; // kanca yoksa neredeyse hemen aç+düşür
         GameObject claw = GameObject.Find("Claw");
         if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
-        if (claw != null)
-        {
-            // Kanca zaman çizelgesi (HIZLANDIRILMIŞ): yatay(0.3)+iniş(0.66)+toplanma(0.40)=~1.36s'te
-            // YUKARI KALDIRMA başlar; kaldırma(0.68)+eve dönüş(0.3)+bırakma(0.24)+kapanış(0.17) →
-            // toplam ~2.75s. Eskiden yatay(0.5)/iniş(1.2)/toplanma(0.6)=2.3s idi; kanca hızlanınca
-            // aşağıdaki gecikmeler de küçültüldü, yoksa kilit ve çökme kancanın çok gerisinde kalıyordu.
-            collapseDelay = 2.75f;
-            // Kilit, kanca layer'ı KALDIRMAYA başladığı an (~1.36s) açılıp düşmeye geçsin ki
-            // kancayla senkron olsun (eskiden 2.3s'ti → kanca gidiyor, kilit hâlâ duruyordu).
-            unlockDelay = 1.35f;
-        }
+        // Kanca VARSA: tamamlanma (girdiyi geri açma + kilit) sabit süreyle DEĞİL, kancanın
+        // KAMERADAN ÇIKTIĞI an tetiklenir (bkz. FinishWhenClawOffScreen) ve kilit kancayla AYNI
+        // ANDA açılmaya başlar. collapseDelay/unlockDelay yalnızca kanca YOKKEN kullanılır.
 
         if (claw == null)
         {
@@ -1304,13 +1296,13 @@ public class GridManager : MonoBehaviour
         {
             ActiveLayerY = gridMaxY + 1;
 
-            // Win paneli kancanın blokları kavrayıp havaya tamamen kaldırdığı an (~2.2 sn)
-            // dengeli ve tatmin edici bir zamanlamayla açılsın.
-            float winDelay = (claw != null) ? 2.2f : 0.6f;
-            DOVirtual.DelayedCall(winDelay, () => {
-                IsExplodingLayer = false;
-                onLevelComplete?.Invoke();
-            }).SetId(LEVEL_ANIM_ID);
+            // Win paneli: kanca varsa kanca (ve son katman) EKRANDAN ÇIKINCA açılsın; kanca
+            // yoksa kısa sabit gecikmeyle.
+            System.Action winFinish = () => { IsExplodingLayer = false; onLevelComplete?.Invoke(); };
+            if (claw != null)
+                StartCoroutine(FinishWhenClawOffScreen(claw, winFinish));
+            else
+                DOVirtual.DelayedCall(0.6f, () => winFinish()).SetId(LEVEL_ANIM_ID);
         }
         else
         {
@@ -1325,12 +1317,14 @@ public class GridManager : MonoBehaviour
                 if (TryFindNextRequiredLayer(out int nextLayer))
                 {
                     ActiveLayerY = nextLayer;
-                    // Bir üst katman claw ile alındı → kilidi KAVRAMA anında değil, kanca
-                    // layer'ı KALDIRIP GÖTÜRDÜKTEN SONRA (collapseDelay: kanca varsa 3.65s,
-                    // yoksa 0.45s) aç + düşür. SetId ile Retry/NextLevel'da iptal edilir.
                     int nl = nextLayer;
-                    DOVirtual.DelayedCall(unlockDelay,
-                        () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
+                    // Kilit KANCAYLA AYNI ANDA açılıp düşmeye başlasın (gecikme yok) → kanca
+                    // ekrandan çıkana kadar kilit de açılıp gitmiş olur. Kanca yoksa küçük gecikme.
+                    if (claw != null)
+                        LayerLockManager.Instance?.UnlockLayer(nl);
+                    else
+                        DOVirtual.DelayedCall(unlockDelay,
+                            () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
                 }
                 else
                     ActiveLayerY = gridMaxY;
@@ -1342,11 +1336,13 @@ public class GridManager : MonoBehaviour
             // ActiveLayerY < clearedY: değişmez.
 
             RefreshLayerVisibility();
-            
-            DOVirtual.DelayedCall(collapseDelay + 0.45f, () => {
-                IsExplodingLayer = false;
-                onLayerComplete?.Invoke();
-            }).SetId(LEVEL_ANIM_ID);
+
+            // Girdiyi geri aç (oynamaya devam) — kanca varsa EKRANDAN ÇIKINCA, yoksa kısa gecikmeyle.
+            System.Action layerFinish = () => { IsExplodingLayer = false; onLayerComplete?.Invoke(); };
+            if (claw != null)
+                StartCoroutine(FinishWhenClawOffScreen(claw, layerFinish));
+            else
+                DOVirtual.DelayedCall(collapseDelay + 0.45f, () => layerFinish()).SetId(LEVEL_ANIM_ID);
         }
     }
 
@@ -1671,6 +1667,41 @@ public class GridManager : MonoBehaviour
                 onDone?.Invoke();
             });
         }
+    }
+
+    /// <summary>Kanca (ve taşıdığı katman) ekranın ÜST kenarını tamamen geçtiği (KAMERADAN
+    /// ÇIKTIĞI) an onFinish'i çağırır — "kanca gitti, oynamaya devam edilebilir" anı. Önce
+    /// kancanın görüş alanına indiğini bekler (dinlenme konumu ekran dışında olabilir), sonra
+    /// tekrar üstten çıkışını yakalar. Algılama gerçekleşmezse ~3 sn güvenlik zaman aşımıyla yine
+    /// de tetikler (asılı kalmaz). Retry/NextLevel'da CancelLevelAnimations → StopAllCoroutines
+    /// ile durur, bu yüzden yeni seviyeye stale tetikleme sızmaz.</summary>
+    private IEnumerator FinishWhenClawOffScreen(GameObject claw, System.Action onFinish)
+    {
+        var cam = Camera.main;
+        const float safetyTimeout = 3f;
+        float t = 0f;
+        bool cameIntoView = false;
+        while (t < safetyTimeout)
+        {
+            if (claw == null) break;
+            if (cam != null)
+            {
+                var rends = claw.GetComponentsInChildren<Renderer>();
+                if (rends != null && rends.Length > 0)
+                {
+                    Bounds b = rends[0].bounds;
+                    for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                    // Yükün EN ALT noktası viewport üst kenarını (y>1) geçtiyse kanca tamamen çıktı.
+                    Vector3 vp = cam.WorldToViewportPoint(new Vector3(b.center.x, b.min.y, b.center.z));
+                    bool offTop = vp.z > 0f && vp.y > 1f;
+                    if (!offTop) cameIntoView = true;   // kanca ekrana indi (görüş alanında)
+                    else if (cameIntoView) break;       // indikten SONRA üstten çıktı → bitti
+                }
+            }
+            t += Time.deltaTime;
+            yield return null;
+        }
+        onFinish?.Invoke();
     }
 
     private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset, List<Renderer> renderersToFadeDuringPass = null, int clearedY = -1)
