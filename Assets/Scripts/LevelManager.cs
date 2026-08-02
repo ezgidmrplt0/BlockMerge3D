@@ -1982,6 +1982,28 @@ public class LevelManager : MonoBehaviour
         int activeLayer = gridManager != null ? gridManager.ActiveLayerY : 0;
         bool hasIceOnActiveLayer = gridManager != null && gridManager.frozenCells != null && gridManager.frozenCells.Any(c => c.y == activeLayer);
 
+        // Sıralı katman parçası seçimi (1 -> 2 -> 3 -> 4): Oyuncuya parçalar kesinlikle katman sırasıyla sunulur.
+        // originLayerY <= activeLayer olan parçalar filtrelenir; böylece alt katmanlar dolmadan üst katman
+        // parçaları kart yuvalarını tıkamaz ve seviye 1-2-3-4 sırasıyla çözülebilir kalır.
+        int GetPieceOriginLayer(int pieceIndex)
+        {
+            if (pieceIndex < 0 || pieceIndex >= allPiecePrefabs.Count || allPiecePrefabs[pieceIndex] == null) return 0;
+            var h = allPiecePrefabs[pieceIndex].GetComponent<CubeShapeDataHolder>();
+            return (h != null && h.originLayerY >= 0) ? h.originLayerY : pieceIndex;
+        }
+
+        List<int> currentLayerAvailable = availableIndices.Where(i => GetPieceOriginLayer(i) <= activeLayer).ToList();
+        if (currentLayerAvailable.Count == 0 && availableIndices.Count > 0)
+        {
+            int minLayer = availableIndices.Min(i => GetPieceOriginLayer(i));
+            currentLayerAvailable = availableIndices.Where(i => GetPieceOriginLayer(i) == minLayer).ToList();
+        }
+
+        if (currentLayerAvailable.Count > 0)
+        {
+            availableIndices = currentLayerAvailable;
+        }
+
         bool isSmartTriggered = false;
         if (!IsEarlyTutorialLevel() && Random.value < smartSpawnProbability)
         {

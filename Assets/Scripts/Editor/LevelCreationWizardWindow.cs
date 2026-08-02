@@ -312,9 +312,7 @@ public class LevelCreationWizardWindow : EditorWindow
     {
         GUILayout.Label("ADIM 3 — KATMAN KATMAN ÜRETİM VE SOLVER TESTİ", styleHeader);
         EditorGUILayout.HelpBox(
-            "Seviye Y ekseninde katman katman üretilir: her katmanın parçalarını inceleyip onaylayın " +
-            "ya da beğenmediyseniz sadece o katmanı yeniden üretin. Tüm katmanlar onaylandıktan sonra " +
-            "bütünsel solver testi otomatik çalışır.", MessageType.Info);
+            "Seviye Y ekseninde katman katman üretilir: parçalar katmanlarda buz yokmuşçasına tam katman geometrisine göre üretilir (böylece buz kırıldıktan sonra parçalar tam oturur ve leveller son derece çözülebilir kalır). Her katmanı onaylayıp ilerleyebilirsiniz.", MessageType.Info);
         EditorGUILayout.Space(6);
 
         if (aiDesigner.IsLayerGenSignatureStale())
@@ -386,6 +384,13 @@ public class LevelCreationWizardWindow : EditorWindow
             if (GUILayout.Button("❄️  Buzlu Yerleri Tespit Et", stylePrimaryButton, GUILayout.Height(32)))
             {
                 aiDesigner.DetectAndDistributeIce();
+            }
+
+            GUILayout.Space(8);
+
+            if (GUILayout.Button("🎨  Hazır Küpleri Dağıt", stylePrimaryButton, GUILayout.Height(32)))
+            {
+                aiDesigner.DetectAndDistributePrefilledCubes();
             }
 
             GUILayout.Space(8);

@@ -1615,7 +1615,10 @@ public class AILevelDesignerWindow : EditorWindow
 
         if (!ValidateAndLoadSourceShape(out int W, out int H, out int D)) return;
 
-        DistributeObstacles(W, H, D);
+        prefilledCells.Clear();
+        prefilledMatIdx.Clear();
+        frozenCells.Clear();
+        frozenHitCounts.Clear();
 
         genCurrentLayerY = occupiedCells.Count > 0 ? occupiedCells.Min(c => c.y) : 0;
         pendingLayerPieceCount = 0;
@@ -1696,24 +1699,18 @@ public class AILevelDesignerWindow : EditorWindow
 
         activeLayer = genCurrentLayerY;
 
-        // Buz hücreleri prefilled gibi döşeme hedefinden ÇIKARILIR — aksi halde SolutionFirstBuilder
-        // buza dokunan bir parça üretebilir ve o parça buz erimeden ASLA yerleştirilemez (gerçek
-        // CanPlace buzlu hücreye izin vermiyor). Bu, açık hücreleri buzla birlikte
-        // "tek parça" olarak yutup açık bölgeyi parçasız bırakabiliyordu (bkz. oyun-içi teşhis
-        // logu: iki bağlantısız 2'lik açık ada, elde sadece 3-4 hücrelik parçalar). Buz hücreleri
-        // hâlâ toplam hedefin bir parçası — onlar için FinalizeLayerByLayerGeneration'daki ayrı
-        // güvenlik payı (buz başına yedek parça) mekanizması kullanılıyor.
+        // Parça üretimi (SolutionFirstBuilder) katmanlarda buz yokmuşçasına (ice-free) çalışır.
+        // Katmandaki tüm dolu hücreler (prefilled hariç, buzlar dahil) tam katman geometrisini
+        // döşemek üzere parça döşeme hefinde tutulur. Böylece kütüphaneden kaliteli 3D parçalar üretilir,
+        // açık hücrelerdeki parçalarla buz eridikten sonra oyuncu kalan parçaları tam oturtabilir.
         var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
         layerCells.ExceptWith(prefilledCells);
 
         if (layerCells.Count == 0)
         {
-            // Bu katmanda prefilled olmayan TÜM hücreler buzlu — hiçbir parça bu katmana asla
-            // yerleştirilemez (buz komşu bir yerleşimle erimeden), üretim tekrar denemekle
-            // düzelmez. Kullanıcının katmanı/oturumu yeniden başlatması gerekir.
-            layerGenError = $"⚠️ Katman Y={genCurrentLayerY}'deki tüm boş hücreler buzlu — bu katmana hiçbir parça " +
-                             "yerleştirilemez. Buz oranını düşürüp 'Katmanları Baştan Üret' ile tekrar deneyin.";
-            Repaint();
+            // Bu katmandaki tüm hücreler prefilled (renkli hazır blok) — parça yerleştirme gerekmiyor
+            genCurrentLayerY++;
+            GenerateCurrentLayerPieces();
             return;
         }
 
@@ -1998,6 +1995,42 @@ public class AILevelDesignerWindow : EditorWindow
         }
 
         Debug.Log($"❄️ Buz tespiti çalıştırıldı: {frozenCells.Count} dondurulmuş blok yerleştirildi (Limit: {maxIceAllowed}).");
+        Repaint();
+    }
+
+    // Hazır renkli küpleri YALNIZCA kullanıcı 'Hazır Küpleri Dağıt' butonuna bastığında manuel dağıtır.
+    internal void DetectAndDistributePrefilledCubes()
+    {
+        prefilledCells.Clear();
+        prefilledMatIdx.Clear();
+
+        List<Vector3Int> finalOccupied = occupiedCells.ToList();
+        if (finalOccupied.Count == 0) return;
+
+        float targetRatio = prefillPercentage > 0 ? prefillPercentage : 0.15f;
+        int targetPrefillCount = Mathf.Max(1, Mathf.RoundToInt(finalOccupied.Count * targetRatio));
+
+        finalOccupied = finalOccupied.OrderBy(x => Random.value).ToList();
+
+        Dictionary<int, int> layerColorIdx = new Dictionary<int, int>();
+        int prefilledDone = 0;
+        foreach (var cell in finalOccupied)
+        {
+            if (prefilledDone >= targetPrefillCount) break;
+            if (frozenCells.Contains(cell)) continue;
+
+            if (!layerColorIdx.TryGetValue(cell.y, out int colorIdx))
+            {
+                colorIdx = Random.Range(0, 6);
+                layerColorIdx[cell.y] = colorIdx;
+            }
+
+            prefilledCells.Add(cell);
+            prefilledMatIdx.Add(colorIdx);
+            prefilledDone++;
+        }
+
+        Debug.Log($"🎨 Hazır renkli küpler yerleştirildi: {prefilledCells.Count} hazır küp eklendi.");
         Repaint();
     }
 
@@ -2305,15 +2338,9 @@ public class AILevelDesignerWindow : EditorWindow
             return new List<List<Vector3Int>>();
         }
 
-        // Doldurulması gereken hücreler: prefilled VE frozen hariç. [DÜZELTİLDİ, oyun-içi
-        // teşhis: buz hücreleri eskiden dahil ediliyordu ("erime sırası sonradan LevelSolver'da
-        // doğrulanır" varsayımıyla) — ama bu, SolutionFirstBuilder'ın açık bir hücreyle bitişik
-        // bir buz hücresini TEK bir parçaya birlikte atamasına izin veriyordu. Öyle bir parça
-        // gerçek oyunda ASLA yerleştirilemez (CanPlace buzlu hücreyi reddeder),
-        // bu da açık hücreleri parçasız/döşenmemiş bırakıp (özellikle küçük, birbirinden kopuk
-        // açık adacıklar oluştuğunda) oyunun daha ilk katmanda "hamle yok" diye kilitlenmesine
-        // yol açabiliyordu. Buz hücreleri hâlâ toplam hedefin bir parçası — onlar için aşağıdaki
-        // "buz güvenlik payı" (buz başına yedek parça) mekanizması kullanılıyor.
+        // Doldurulması gereken hücreler: katmanlarda buz yokmuşçasına (ice-free) tüm şekil hücreleri (prefilled hariç).
+        // SolutionFirstBuilder tüm 3D geometrik şekle parça döşer. Oyuncu buza komşu açık hücrelere
+        // parçaları yerleştirip buzu eritir, buz eridikten sonra kalan parçaları freed hücrelere koyar.
         var cellsToFill = new HashSet<Vector3Int>(occupiedCells);
         cellsToFill.ExceptWith(prefilledCells);
 
@@ -2689,6 +2716,14 @@ public class AILevelDesignerWindow : EditorWindow
         // o yüzden çözüm-yönünü prefab'a gömmek anlamsızdı ("aynı parçanın dönmüş kopyaları").
         // Katman (originLayerY) KORUNUR — sıralı katman seçimi buna bağlı (LevelManager:2028/2104),
         // bu yüzden dedup anahtarı şekil + katman.
+        // Parçaları kesin olarak katman Y sırasına göre (Katman 1, Katman 2, Katman 3, Katman 4...) sırala
+        if (pieceSplitList != null && pieceSplitList.Count > 0)
+        {
+            pieceSplitList = pieceSplitList
+                .OrderBy(p => p != null && p.Count > 0 ? p.Min(c => c.y) : 0)
+                .ToList();
+        }
+
         var canonCache = new Dictionary<string, GameObject>();
         int bakedCount = 0;
         for (int i = 0; i < pieceSplitList.Count; i++)

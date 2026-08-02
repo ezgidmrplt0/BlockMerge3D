@@ -348,7 +348,7 @@ public class LevelBuilderWindow : EditorWindow
         
         for (int y = 0; y < gridSize.y; y++)
         {
-            int shapeCount = occupiedCells.Count(c => c.y == y && !prefilledCells.Contains(c) && !frozenCells.Contains(c));
+            int shapeCount = occupiedCells.Count(c => c.y == y && !prefilledCells.Contains(c));
             int prefilledCount = prefilledCells.Count(c => c.y == y);
             int iceCount = frozenCells.Count(c => c.y == y);
             
