@@ -83,20 +83,9 @@ crashlytics-build.properties
 keystore.properties
 
 # ─── Firebase Unity SDK ─────────────────────────────────────────────
-# SDK bir bağımlılıktır: yüzlerce MB native binary (bazı dosyalar 100MB+,
-# GitHub reddediyor) ve yeniden import edilebilir. Repoya KOYMUYORUZ.
-# Başka makinede: Firebase Unity SDK 12.10.0'ı import et + Force Resolve.
-# (FirebaseManager.cs / FirestoreAnalytics.cs Assets/Scripts'te, commit'lenir.)
-/[Aa]ssets/Firebase/
-/[Aa]ssets/Firebase.meta
-/[Aa]ssets/GeneratedLocalRepo/
-/[Aa]ssets/GeneratedLocalRepo.meta
-/[Aa]ssets/ExternalDependencyManager/
-/[Aa]ssets/ExternalDependencyManager.meta
-/[Aa]ssets/[Ee]ditor Default Resources/Firebase/
-/[Aa]ssets/Plugins/Android/FirebaseApp.androidlib/
-/[Aa]ssets/Plugins/Android/FirebaseApp.androidlib.meta
-/[Aa]ssets/Plugins/Android/FirebaseCrashlytics.androidlib/
-/[Aa]ssets/Plugins/Android/FirebaseCrashlytics.androidlib.meta
-/[Aa]ssets/Plugins/iOS/Firebase/
-/[Aa]ssets/Plugins/tvOS/Firebase/
+# Firebase SDK ARTIK repoda tutuluyor (Git LFS ile — büyük native binary'ler;
+# en büyüğü FirebaseCppApp .bundle ~107MB, LFS'siz GitHub reddeder). Bkz.
+# .gitattributes'teki LFS filtreleri (*.bundle, *.so, *.dll, *.aar, *.srcaar, *.exe, *.pdb).
+# ÖNEMLİ: Klonlayan HERKESTE git-lfs kurulu olmalı (Ezgi/CI dahil), yoksa gerçek
+# dosya yerine pointer iner ve Unity bozulur:  sudo pacman -S git-lfs && git lfs install
+# (Eskiden gitignore'daydı + yeniden import ediliyordu; artık commit'leniyor.)
