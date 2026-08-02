@@ -2751,10 +2751,10 @@ public class GridManager : MonoBehaviour
 
     // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
 
-    // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreden başlayarak BAĞLANTILI aynı
-    // TÜRDEKİ (cellMatIndex) TÜM grup (flood-fill) hesaplanır; grup ≥2 ise grubun TAMAMI buzla
-    // birlikte yok olur (o hücreler yeniden doldurulmalı). Tutorial/level tasarımının dayandığı
-    // asıl kural budur (bkz. İndirilenler/GridManager.cs — buz mekaniği oraya göre geri alındı).
+    // Buza değen (yeni yerleşip bir buz hücresine komşu olan ya da komşu bloğa bağlanan)
+    // BAĞLANTILI TÜM grup (flood-fill) hesaplanır; grup ≥2 ise buz erir/kırılır ve grubun
+    // TAMAMI buzla birlikte yok olur. Tek yerleştirilen 1'lik parçalar 1 1 yan yana gelip
+    // grup boyutu ≥2 olunca buzu eritir.
     public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
     {
         if (newlyPlacedCells == null || newlyPlacedCells.Count == 0 || frozenCells.Count == 0)
@@ -2768,48 +2768,51 @@ public class GridManager : MonoBehaviour
             new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
         };
 
-        // Buza değen (yeni yerleşip bir buz hücresine komşu olan) hücreleri ve etkilenen
-        // buz hücrelerini bul.
-        var touchingCells = new HashSet<Vector3Int>();
-        var candidateFrozenCells = new HashSet<Vector3Int>();
-        foreach (var cell in newlyPlacedCells)
-        {
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int neighbor = cell + offset;
-                if (frozenCells.Contains(neighbor))
-                {
-                    touchingCells.Add(cell);
-                    candidateFrozenCells.Add(neighbor);
-                }
-            }
-        }
-
-        if (candidateFrozenCells.Count == 0)
-        {
-            onComplete?.Invoke(false);
-            return false;
-        }
-
         HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();   // kalan vuruş 0'a indi -> tam erime
         HashSet<Vector3Int> cellsToChip = new HashSet<Vector3Int>();   // hâlâ donuk, sadece sayaç azaldı
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>(); // buzu kıran yerleştirilmiş bloklar
         HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
 
-        foreach (var touchCell in touchingCells)
+        HashSet<Vector3Int> evaluatedCells = new HashSet<Vector3Int>();
+
+        foreach (var startCell in newlyPlacedCells)
         {
-            foreach (var offset in horizontalNeighbors)
+            if (evaluatedCells.Contains(startCell)) continue;
+
+            var group = GetConnectedOccupiedGroup(startCell, horizontalNeighbors);
+            foreach (var c in group) evaluatedCells.Add(c);
+
+            // KURAL: Buz eritmek için yan yana en az 2 parça (küp) olması gerekir.
+            // Yerleştirilen parça 1'likse, 1 1 yan yana olunca (grup boyutu >= 2 olunca) buzu eritmeye yetsin.
+            if (group.Count < 2) continue;
+
+            bool groupHitAnyIce = false;
+            foreach (var cell in group)
             {
-                Vector3Int neighbor = touchCell + offset;
-                if (!frozenCells.Contains(neighbor)) continue;
-                if (!hitFrozenThisCall.Add(neighbor)) continue;
+                foreach (var offset in horizontalNeighbors)
+                {
+                    Vector3Int neighbor = cell + offset;
+                    if (!frozenCells.Contains(neighbor)) continue;
+                    if (!hitFrozenThisCall.Add(neighbor)) continue;
 
-                // Bu buza temas eden yatay bağlantılı TÜM dolu hücrelerin grubunu al
-                var group = GetConnectedOccupiedGroup(touchCell, horizontalNeighbors);
+                    int currentHits = iceRemainingHits.TryGetValue(neighbor, out int h) ? h : 1;
+                    currentHits--;
+                    iceRemainingHits[neighbor] = currentHits;
 
-                // Tek bir temas bile olsa buz kırılır/erir ve buzu kıran obje de yok edilir
-                iceRemainingHits[neighbor] = 0;
-                cellsToThaw.Add(neighbor);
+                    if (currentHits <= 0)
+                    {
+                        cellsToThaw.Add(neighbor);
+                    }
+                    else
+                    {
+                        cellsToChip.Add(neighbor);
+                    }
+                    groupHitAnyIce = true;
+                }
+            }
+
+            if (groupHitAnyIce)
+            {
                 foreach (var c in group) cellsToDestroy.Add(c);
             }
         }
