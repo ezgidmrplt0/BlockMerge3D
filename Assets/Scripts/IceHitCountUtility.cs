@@ -12,10 +12,11 @@ public static class IceHitCountUtility
 
     public static readonly (int min, int max)[] RangeByDifficulty =
     {
+        // Tüm oyun boyu buz MAX 2 vuruşta erisin (üst kademeler 2'ye sınırlandı).
         (1, 1), // Kolay  — 1 vuruş
         (1, 2), // Orta   — 1-2 vuruş
-        (2, 3), // Zor    — 2-3 vuruş
-        (3, 4), // Uzman  — 3-4 vuruş
+        (2, 2), // Zor    — 2 vuruş
+        (2, 2), // Uzman  — 2 vuruş
     };
 
     public static (int min, int max) GetRange(IceDifficulty difficulty)

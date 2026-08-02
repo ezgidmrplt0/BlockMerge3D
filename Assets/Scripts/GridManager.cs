@@ -2751,10 +2751,10 @@ public class GridManager : MonoBehaviour
 
     // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
 
-    // Buza değen (yeni yerleşip bir buz hücresine komşu olan ya da komşu bloğa bağlanan)
-    // BAĞLANTILI TÜM grup (flood-fill) hesaplanır; grup ≥2 ise buz erir/kırılır ve grubun
-    // TAMAMI buzla birlikte yok olur. Tek yerleştirilen 1'lik parçalar 1 1 yan yana gelip
-    // grup boyutu ≥2 olunca buzu eritir.
+    // Sürüklenen parçanın bağlı grubu ≥2 ise (tek 1'lik küp tek başına eritemez; 1+1 ≥2 olunca
+    // eritir) ve parça buza DOĞRUDAN değiyorsa buz erir/kırılır. Yok olan yalnızca O AN SÜRÜKLENEN
+    // parçanın TAMAMI (ör. L ise L'nin hepsi) — prefilled ve önceden yerleştirilmiş parçalar
+    // (buza bağlı olsalar bile) KALIR; aksi halde katman boşalıp "hazır küp" mekaniği bozuluyordu.
     public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
     {
         if (newlyPlacedCells == null || newlyPlacedCells.Count == 0 || frozenCells.Count == 0)
@@ -2773,21 +2773,16 @@ public class GridManager : MonoBehaviour
         HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>(); // buzu kıran yerleştirilmiş bloklar
         HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
 
-        HashSet<Vector3Int> evaluatedCells = new HashSet<Vector3Int>();
+        // Min-2: buzu eritmek için buza değen küp YALNIZ olmamalı — sürüklenen parçanın bağlı
+        // grubu (kendisi + yatay bağlı diğer dolular) en az 2 küp olmalı. Tek başına 1'lik küp
+        // eritemez; 1+1 yan yana olunca (grup ≥2) eritir.
+        var draggedGroup = GetConnectedOccupiedGroup(newlyPlacedCells[0], horizontalNeighbors);
 
-        foreach (var startCell in newlyPlacedCells)
+        if (draggedGroup.Count >= 2)
         {
-            if (evaluatedCells.Contains(startCell)) continue;
-
-            var group = GetConnectedOccupiedGroup(startCell, horizontalNeighbors);
-            foreach (var c in group) evaluatedCells.Add(c);
-
-            // KURAL: Buz eritmek için yan yana en az 2 parça (küp) olması gerekir.
-            // Yerleştirilen parça 1'likse, 1 1 yan yana olunca (grup boyutu >= 2 olunca) buzu eritmeye yetsin.
-            if (group.Count < 2) continue;
-
-            bool groupHitAnyIce = false;
-            foreach (var cell in group)
+            // Yalnızca O AN SÜRÜKLENEN parçanın (newlyPlacedCells) buza DOĞRUDAN değen hücreleri
+            // buzu vurur ("buza değen parça" = sürüklenen parça).
+            foreach (var cell in newlyPlacedCells)
             {
                 foreach (var offset in horizontalNeighbors)
                 {
@@ -2807,13 +2802,7 @@ public class GridManager : MonoBehaviour
                     {
                         cellsToChip.Add(neighbor);
                     }
-                    groupHitAnyIce = true;
                 }
-            }
-
-            if (groupHitAnyIce)
-            {
-                foreach (var c in group) cellsToDestroy.Add(c);
             }
         }
 
@@ -2822,6 +2811,12 @@ public class GridManager : MonoBehaviour
             onComplete?.Invoke(false);
             return false;
         }
+
+        // Yok olan: SADECE bu hamlede SÜRÜKLENEN parçanın TAMAMI (ör. L ise L'nin hepsi patlar).
+        // Prefilled ve daha önce yerleştirilen parçalar newlyPlacedCells'te OLMADIĞI için asla
+        // yok olmaz — buzu eriten/kıran yalnızca şu an sürüklenen parça gider.
+        foreach (var c in newlyPlacedCells)
+            if (occupiedCells.Contains(c)) cellsToDestroy.Add(c);
 
         StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToChip, cellsToDestroy, () => onComplete?.Invoke(true)));
         return true;
