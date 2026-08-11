@@ -256,7 +256,18 @@ public class GameManager : MonoBehaviour
 
         PlayerPrefs.SetInt(PREF_LEVEL, currentLevelIndex);
         PlayerPrefs.Save();
-        LoadCurrentLevel();
+        
+        int levelToPlay = currentLevelIndex + 1; // 1-based level index for player
+        int justFinishedLevel = levelToPlay - 1; // 1-based level index of the level that was just completed
+        
+        if (justFinishedLevel >= 5 && justFinishedLevel % 5 == 0)
+        {
+            InterstitialAds.Show(() => LoadCurrentLevel());
+        }
+        else
+        {
+            LoadCurrentLevel();
+        }
     }
 
     public void RetryLevel()
