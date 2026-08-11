@@ -472,7 +472,10 @@ function buildUser(uid, d) {
   return {
     device_id:          uid,
     short_id:           uid.slice(0, 8) + '…',
-    farthest_level:     d.farthest_level     || 0,
+    // farthest_level Firestore'da 0-TABANLI index olarak yazılıyor (GameManager currentLevelIndex).
+    // İnsan level numarası = index + 1 (index 0 = Level 1). Tablo/stats/CSV hepsi buradan okuduğu
+    // için burada +1 yapınca her yerde gerçek level numarası görünür ("Level 0" yok olur).
+    farthest_level:     (d.farthest_level     || 0) + 1,
     total_play_minutes: +(d.total_play_minutes || 0).toFixed(1),
     total_sessions:     d.total_sessions     || 0,
     total_fails:        d.total_fails        || 0,
