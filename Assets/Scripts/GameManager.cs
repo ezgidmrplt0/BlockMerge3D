@@ -168,7 +168,7 @@ public class GameManager : MonoBehaviour
         }
         else
         {
-            UIManager.Instance?.ShowWinPanel(Score);
+            TriggerWinPanel();
         }
     }
 
@@ -187,6 +187,18 @@ public class GameManager : MonoBehaviour
         if (blockingAnimations == 0 && pendingWin)
         {
             pendingWin = false;
+            TriggerWinPanel();
+        }
+    }
+
+    private void TriggerWinPanel()
+    {
+        if (CurrentLevelNumber >= 2 && CurrentLevelNumber % 2 == 0)
+        {
+            InterstitialAds.Show(() => UIManager.Instance?.ShowWinPanel(Score));
+        }
+        else
+        {
             UIManager.Instance?.ShowWinPanel(Score);
         }
     }
@@ -257,17 +269,7 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.SetInt(PREF_LEVEL, currentLevelIndex);
         PlayerPrefs.Save();
         
-        int levelToPlay = currentLevelIndex + 1; // 1-based level index for player
-        int justFinishedLevel = levelToPlay - 1; // 1-based level index of the level that was just completed
-        
-        if (justFinishedLevel >= 5 && justFinishedLevel % 5 == 0)
-        {
-            InterstitialAds.Show(() => LoadCurrentLevel());
-        }
-        else
-        {
-            LoadCurrentLevel();
-        }
+        LoadCurrentLevel();
     }
 
     public void RetryLevel()
