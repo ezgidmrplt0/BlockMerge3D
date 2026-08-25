@@ -191,7 +191,14 @@ public class LevelManager : MonoBehaviour
         FitCameraToScene();
 
         var lpc = FindObjectOfType<LayerPanelController>();
-        if (lpc != null) lpc.ResetPanel();
+        if (lpc != null)
+        {
+            lpc.ResetPanel();
+            if (GridManager.Instance != null)
+            {
+                lpc.OpenPanel(GridManager.Instance.ActiveLayerY);
+            }
+        }
 
         // Öğretici adımları (varsa) burada başlar — kartlar spawn edilip panel
         // sıfırlandıktan SONRA, çünkü gösterge kart/buton konumlarını okuyor.
@@ -577,121 +584,14 @@ public class LevelManager : MonoBehaviour
     // eskisi gibi düz renkli küp olarak kalır.
     private void ApplySpeciesVisual(GameObject piece, int speciesIndex)
     {
-        if (pieceSpeciesPrefabs == null || speciesIndex < 0 || speciesIndex >= pieceSpeciesPrefabs.Length) return;
-        GameObject speciesPrefab = pieceSpeciesPrefabs[speciesIndex];
-        if (speciesPrefab == null) return;
-
-        foreach (Transform child in piece.transform)
-        {
-            if (!child.name.StartsWith("Cube_")) continue;
-            AttachSpeciesVisual(child, speciesPrefab);
-        }
+        // Hayvan assetleri yerine dümdüz renkli 3D küpler kullanılıyor
+        return;
     }
 
-    /// <summary>Bir küp hücresinin kendi görselinin yerine belirtilen türün 3D modelini ekler ve
-    /// hücrenin ortasına hizalar (bkz. ApplySpeciesVisual, ApplyTargetGhost). Küp (normal parça da,
-    /// prefilled hedef hücresi de) tamamen görünmez yapılır — hücrede sadece hayvan görünür.
-    /// targetCell verilirse (prefilled hedef hücreleri): hayvan, GridManager.CellToWorld ile
-    /// GERÇEK grid hücresinin merkezine yerleştirilir — parçalar yerleştirilirken kullanılan
-    /// AYNI (kanıtlanmış doğru) konumlandırma. Küpün kendi mesh bounds'undan/rotasyonundan
-    /// türetilen ortalama denemeleri (şekil aracının Cube_/Prefilled_ örneklerine bastığı rastgele
-    /// rotasyon yüzünden) hayvanı hücrenin dışına fırlatıyordu — bkz. eski AttachSpeciesVisual.
-    /// targetCell verilmezse (elde/tahtada olan normal parça): küpün kendi mesh bounds'una göre
-    /// ortalanır (bu obje henüz sabit bir grid hücresine bağlı değil, serbestçe sürükleniyor).</summary>
     private void AttachSpeciesVisual(Transform cubeTransform, GameObject speciesPrefab, Vector3Int? targetCell = null)
     {
-        if (speciesPrefab == null) return;
-
-        // Küpün kendi renderer'ının .enabled durumu GridManager.RefreshLayerVisibility tarafından
-        // sürekli yönetiliyor (katman gizle/göster, panel reset vb.) — SpeciesVisual da AYNI
-        // renderer'ın enabled durumunu her karede takip ediyor (RendererVisibilityMirror), böylece
-        // katman gizlenince hayvan da gizlenir.
-        var cubeRenderers = cubeTransform.GetComponentsInChildren<Renderer>();
-
-        // Hayvan modelinin kendi pivot-taban mesafesini (pivotu ayakta mı, gövde merkezinde mi —
-        // türden türe değişir), HERHANGİ bir parent/rotasyon etkisi olmadan, ayrı/temiz bir
-        // "probe" örnek üzerinde ölçüyoruz. Bu ölçüm parent'tan tamamen bağımsız olduğu için
-        // targetCell verilmeyen (elde/tahtada sürüklenen) parçalarda LOCAL bir ofset olarak
-        // uygulanabilir — bkz. aşağıdaki else dalı.
-        float pivotToBottom = 0f;
-        {
-            GameObject probe = Instantiate(speciesPrefab);
-            probe.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            probe.transform.localScale = Vector3.one;
-            var probeRenderers = probe.GetComponentsInChildren<Renderer>();
-            if (probeRenderers != null && probeRenderers.Length > 0)
-            {
-                Bounds probeBounds = probeRenderers[0].bounds;
-                for (int j = 1; j < probeRenderers.Length; j++) probeBounds.Encapsulate(probeRenderers[j].bounds);
-                pivotToBottom = -probeBounds.min.y;
-            }
-            Destroy(probe);
-        }
-
-        foreach (var rend in cubeRenderers)
-        {
-            var mf = rend.GetComponent<MeshFilter>();
-            if (mf == null) continue;
-
-            // targetCell varsa (prefilled hücre) mesh'i null'lamadan ÖNCE sakla — buz erirken bu
-            // hücre grup halinde yok edilirse (bkz. GridManager.RestoreAsGhostTarget), kutuyu
-            // tekrar bir ghost hedef olarak göstermek için orijinal mesh'e geri ihtiyacımız var.
-            if (targetCell.HasValue && mf.sharedMesh != null)
-                GridManager.Instance?.CacheOriginalPrefilledMesh(targetCell.Value, mf.sharedMesh);
-
-            mf.sharedMesh = null;
-        }
-
-        GameObject speciesVisual = Instantiate(speciesPrefab, cubeTransform);
-        speciesVisual.name = "SpeciesVisual";
-        speciesVisual.transform.localPosition = Vector3.zero;
-        speciesVisual.transform.localRotation = Quaternion.identity;
-        speciesVisual.transform.localScale = Vector3.one;
-        foreach (var col in speciesVisual.GetComponentsInChildren<Collider>()) col.enabled = false;
-        speciesVisual.AddComponent<FaceCamera>();
-
-        if (cubeRenderers.Length > 0)
-        {
-            var mirror = speciesVisual.AddComponent<RendererVisibilityMirror>();
-            mirror.source = cubeRenderers[0];
-        }
-
-        // FaceCamera bir sonraki LateUpdate'te WORLD rotasyonunu kameraya bakacak şekilde EZECEK —
-        // ölçüm/konumlandırmayı, küpün rastgele rotasyonundan değil, nihai (dik) rotasyondan
-        // bağımsız şekilde yapalım diye burada da sıfırlıyoruz.
-        speciesVisual.transform.rotation = Quaternion.identity;
-
-        if (targetCell.HasValue && GridManager.Instance != null)
-        {
-            // Prefilled hedef hücreleri: küp bir daha ASLA dönmeyecek (statik level parçası),
-            // bu yüzden dünya-uzayında, GridManager.CellToWorld ile (parçalar yerleştirilirken
-            // kullanılan AYNI, kanıtlanmış metod) bir kerelik konumlandırma yeterli ve doğru.
-            Vector3 cellCenter = GridManager.Instance.CellToWorld(targetCell.Value);
-            float cellFloorY = cellCenter.y - GridManager.Instance.CellSize * 0.5f;
-            speciesVisual.transform.position = cellCenter;
-
-            var animalRenderers = speciesVisual.GetComponentsInChildren<Renderer>();
-            if (animalRenderers != null && animalRenderers.Length > 0)
-            {
-                Bounds animalBounds = animalRenderers[0].bounds;
-                for (int j = 1; j < animalRenderers.Length; j++) animalBounds.Encapsulate(animalRenderers[j].bounds);
-                speciesVisual.transform.position += Vector3.up * (cellFloorY - animalBounds.min.y);
-            }
-        }
-        else
-        {
-            // Elde/tahtada sürüklenen normal parça: küp, yerleştirme anında (bkz.
-            // DraggablePiece.EndDrag) DORotateQuaternion ile YENİDEN döndürülüyor — dünya-uzayı
-            // bir ofset ölçüp bir kerelik uygulasak, küp o dönüşten SONRA hayvanı yanlış yöne
-            // taşımış olurdu (sürüklerken doğru, bıraktığında yanlış görünmesinin sebebi buydu).
-            // Bunun yerine SAF bir LOCAL ofset kullanıyoruz: küpün pivotu bir hücrenin merkezinde
-            // kabul edilip (CellSize/2 aşağısı taban), hayvanın kendi pivot-taban mesafesi
-            // (yukarıda temiz bir probe ile ölçüldü) buna göre telafi ediliyor. LOCAL uzayda
-            // tanımlandığı için küp SONRADAN dönse/taşınsa bile hayvan onunla birlikte doğru
-            // şekilde hareket eder.
-            float halfCell = GridManager.Instance != null ? GridManager.Instance.CellSize * 0.5f : 0.5f;
-            speciesVisual.transform.localPosition = new Vector3(0f, -halfCell + pivotToBottom, 0f);
-        }
+        // Hayvan assetleri yerine dümdüz renkli 3D küpler kullanılıyor
+        return;
     }
 
     // "Cube_" filtresi: parçaya bir tür görseli (bkz. ApplySpeciesVisual) eklendiğinde, o türün
@@ -771,33 +671,19 @@ public class LevelManager : MonoBehaviour
             if (gridManager.IsLayerComplete(placedLayerY))
             {
                 gridManager.IsExplodingLayer = true;
-                if (lpc != null)
-                {
-                    lpc.ClosePanel(() =>
-                    {
-                        lpc.SetButtonsVisible(false);
-                        gridManager.ExplodeLayer(placedLayerY,
-                            onLayerComplete: () => {
-                                lpc.BuildLayerButtons();
-                                HandlePostPiecePlaced(placedLayerY);
-                            },
-                            onLevelComplete: () => {
-                                GameManager.Instance?.CheckWin();
-                            }
-                        );
-                    });
-                }
-                else
-                {
-                    gridManager.ExplodeLayer(placedLayerY,
-                        onLayerComplete: () => {
-                            HandlePostPiecePlaced(placedLayerY);
-                        },
-                        onLevelComplete: () => {
-                            GameManager.Instance?.CheckWin();
+                gridManager.ExplodeLayer(placedLayerY,
+                    onLayerComplete: () => {
+                        if (lpc != null && gridManager != null)
+                        {
+                            lpc.BuildLayerButtons();
+                            lpc.OpenPanel(gridManager.ActiveLayerY);
                         }
-                    );
-                }
+                        HandlePostPiecePlaced(placedLayerY);
+                    },
+                    onLevelComplete: () => {
+                        GameManager.Instance?.CheckWin();
+                    }
+                );
             }
             else if (iceResolved)
             {
@@ -1989,7 +1875,7 @@ public class LevelManager : MonoBehaviour
         {
             if (pieceIndex < 0 || pieceIndex >= allPiecePrefabs.Count || allPiecePrefabs[pieceIndex] == null) return 0;
             var h = allPiecePrefabs[pieceIndex].GetComponent<CubeShapeDataHolder>();
-            return (h != null && h.originLayerY >= 0) ? h.originLayerY : pieceIndex;
+            return (h != null && h.originLayerY >= 0) ? h.originLayerY : 0;
         }
 
         List<int> currentLayerAvailable = availableIndices.Where(i => GetPieceOriginLayer(i) <= activeLayer).ToList();

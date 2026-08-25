@@ -12,10 +12,9 @@ public class LayerPanelController : MonoBehaviour
 
     [Header("Button Style")]
     public Color buttonNormalColor   = new Color(0.9f, 0.9f, 1f, 0.85f);
-    public Color buttonActiveColor   = new Color(0.4f, 0.8f, 1f, 1f);
-    // Katmanlar artık sırayla (alttan üste) doldurulmak zorunda — sırası gelmemiş katmanların
-    // butonu bu renkle "kilitli" gösterilir ve tıklanamaz (bkz. BuildLayerButtons/OpenPanel).
-    public Color buttonLockedColor   = new Color(0.5f, 0.5f, 0.55f, 0.5f);
+    public Color buttonActiveColor   = new Color(1.0f, 0.85f, 0.25f, 1f);
+    public Color buttonLockedColor   = new Color(0.35f, 0.35f, 0.4f, 0.4f);
+    public Color buttonCompletedColor = new Color(0.22f, 0.78f, 0.42f, 1f);
     public Sprite buttonSprite;
 
     [Header("Button Typography & Layout")]
@@ -32,18 +31,15 @@ public class LayerPanelController : MonoBehaviour
     private CameraOrbit   cam;
     private List<Button>  layerButtons = new List<Button>();
     private bool          isTransitioning;
+    private int           initialTotalLayers = 0;
 
     private void Awake() { Instance = this; }
 
     /// <summary>Öğretici göstergesinin (bkz. TutorialOverlay) parmağı hangi butonun
-    /// üzerine koyacağını bilmesi için: doldurulması gereken İLK katmanın (artık üstten alta,
-    /// y=GridMaxY) butonu. Butonlar çalışma zamanında BuildLayerButtons içinde üretildiği için
-    /// sahneden referanslanamıyor. Liste alttan üste sıralı (index 0 = en alt katman = ekranın
-    /// en altındaki buton, bkz. anchoredPosition hesabı) — bu yüzden İLK açılacak (en üstteki)
-    /// buton listenin SON elemanıdır.</summary>
+    /// üzerine koyacağını bilmesi için: doldurulması gereken İLK katmanın butonu.</summary>
     public RectTransform FirstLayerButton =>
-        layerButtons.Count > 0 && layerButtons[layerButtons.Count - 1] != null
-            ? layerButtons[layerButtons.Count - 1].transform as RectTransform
+        layerButtons.Count > 0 && layerButtons[0] != null
+            ? layerButtons[0].transform as RectTransform
             : null;
 
     private void Start()
@@ -74,56 +70,36 @@ public class LayerPanelController : MonoBehaviour
             if (b != null) Destroy(b.gameObject);
         layerButtons.Clear();
 
-        int minY = grid.GridMinY;
-        int maxY = grid.GridMaxY;
-        
-        List<int> activeLayers = new List<int>();
-        for (int y = minY; y <= maxY; y++)
+        int currentRemainingLayers = (grid.GridMaxY - grid.GridMinY + 1);
+        if (initialTotalLayers <= 0 || currentRemainingLayers > initialTotalLayers)
         {
-            // Only count layers that have at least one shape/target cell or occupied cell
-            bool hasCells = false;
-            foreach (var cell in grid.TargetCells)
-            {
-                if (cell.y == y) { hasCells = true; break; }
-            }
-            if (!hasCells)
-            {
-                foreach (var cell in grid.occupiedCells)
-                {
-                    if (cell.y == y) { hasCells = true; break; }
-                }
-            }
-
-            if (hasCells && !grid.IsLayerCleared(y))
-            {
-                activeLayers.Add(y);
-            }
+            initialTotalLayers = currentRemainingLayers;
         }
 
-        int layerCount = activeLayers.Count;
-        if (layerCount <= 0) return;
+        int completedLayersCount = Mathf.Max(0, initialTotalLayers - currentRemainingLayers);
+        int totalButtonsToCreate = initialTotalLayers;
+        if (totalButtonsToCreate <= 0) return;
 
         float spacing = buttonSpacing;
         float btnHeight = buttonSize.y;
-        float totalHeight = (layerCount * btnHeight) + ((layerCount - 1) * spacing);
+        float totalHeight = (totalButtonsToCreate * btnHeight) + ((totalButtonsToCreate - 1) * spacing);
         float startY = (totalHeight / 2f) - (btnHeight / 2f);
 
-        for (int i = 0; i < layerCount; i++)
+        for (int i = 0; i < totalButtonsToCreate; i++)
         {
-            int layerY = activeLayers[i];
+            int layerY = grid.GridMaxY - (i - completedLayersCount);
             
-            GameObject btnObj = new GameObject($"Btn_Layer_{layerY}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+            GameObject btnObj = new GameObject($"Btn_Layer_Idx_{i}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             btnObj.transform.SetParent(uiCanvas.transform, false);
 
             RectTransform rt = btnObj.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(1, 0.5f);
             rt.anchorMax = new Vector2(1, 0.5f);
             rt.pivot = new Vector2(1, 0.5f);
-            rt.anchoredPosition = new Vector2(-50, startY - ((layerCount - 1 - i) * (btnHeight + spacing)));
+            rt.anchoredPosition = new Vector2(-50, startY - (i * (btnHeight + spacing)));
             rt.sizeDelta = buttonSize;
 
             Image img = btnObj.GetComponent<Image>();
-            img.color = buttonNormalColor;
             if (buttonSprite != null)
             {
                 img.sprite = buttonSprite;
@@ -139,52 +115,49 @@ public class LayerPanelController : MonoBehaviour
             txtRt.sizeDelta = Vector2.zero;
 
             UnityEngine.UI.Text tmp = textObj.GetComponent<UnityEngine.UI.Text>();
-            // activeLayers alttan üste sıralı (index 0 = en alt/ekranın en altı), ama doldurma
-            // sırası artık ÜSTTEN ALTA — bu yüzden en üstteki katman "1" etiketini alır.
-            tmp.text = (layerCount - i).ToString();
             tmp.alignment = TextAnchor.MiddleCenter;
-            tmp.color = buttonTextColor;
             tmp.font = buttonFont != null ? buttonFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             tmp.fontSize = buttonFontSize;
 
             Button btn = btnObj.GetComponent<Button>();
-            btn.onClick.AddListener(() => {
-                AudioManager.Instance?.PlayLayerButtonSound();
-                OpenPanel(layerY);
-            });
-            // Sıralı katman kuralı: şu an doldurulması gereken katman (grid.ActiveLayerY)
-            // dışındaki tüm katmanlar kilitli — tıklanamaz.
-            btn.interactable = (layerY == grid.ActiveLayerY);
+
+            if (i < completedLayersCount)
+            {
+                // Tamamlanan katman: Tik işareti (✓) ve yeşil renk
+                tmp.text = "✓";
+                tmp.color = Color.white;
+                img.color = buttonCompletedColor;
+                btn.interactable = false;
+            }
+            else if (i == completedLayersCount)
+            {
+                // Aktif katman: Katman numarası ve aktif altın renk
+                tmp.text = (i + 1).ToString();
+                tmp.color = buttonTextColor;
+                img.color = buttonActiveColor;
+                btn.interactable = true;
+                int targetY = layerY;
+                btn.onClick.AddListener(() => {
+                    AudioManager.Instance?.PlayLayerButtonSound();
+                    OpenPanel(targetY);
+                });
+            }
+            else
+            {
+                // Kilitli / Gelecek katman: Karartılmış renk
+                tmp.text = (i + 1).ToString();
+                tmp.color = new Color(buttonTextColor.r, buttonTextColor.g, buttonTextColor.b, 0.5f);
+                img.color = buttonLockedColor;
+                btn.interactable = false;
+            }
+
             layerButtons.Add(btn);
         }
-
-        RefreshButtonColors();
-
-        SetBottomPanelVisible(false);
     }
 
     public void RefreshButtonColors()
     {
-        if (grid == null) return;
-
-        for (int i = 0; i < layerButtons.Count; i++)
-        {
-            if (layerButtons[i] == null) continue;
-            
-            string name = layerButtons[i].name;
-            if (name.StartsWith("Btn_Layer_") && int.TryParse(name.Substring(10), out int layerY))
-            {
-                bool isRequiredLayer = layerY == grid.ActiveLayerY;
-
-                layerButtons[i].interactable = isRequiredLayer;
-
-                Image img = layerButtons[i].GetComponent<Image>();
-                if (img != null)
-                {
-                    img.color = isRequiredLayer ? buttonActiveColor : buttonLockedColor;
-                }
-            }
-        }
+        BuildLayerButtons();
     }
 
     public void OpenPanel(int layerY)
@@ -193,7 +166,11 @@ public class LayerPanelController : MonoBehaviour
         // reklamı açan/kapatan tık arkadaki butonlara sızıyordu.
         if (ControlButton.AdInputBlocked) return;
         if (isTransitioning || cam == null || grid == null) return;
-        if (cam.IsInPanelMode && grid.ActiveLayerY == layerY) return;
+        if (cam.IsInPanelMode && grid.ActiveLayerY == layerY)
+        {
+            SetBottomPanelVisible(true);
+            return;
+        }
         if (grid.IsExplodingLayer) return;
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
@@ -218,6 +195,7 @@ public class LayerPanelController : MonoBehaviour
         }
 
         isTransitioning = true;
+        CancelInvoke(nameof(BuildLayerButtons));
         TutorialEvents.RaiseLayerOpened();
 
         float step = grid.Step;
@@ -231,7 +209,26 @@ public class LayerPanelController : MonoBehaviour
                 count++;
             }
         }
-        if (count > 0) layerCenter /= count;
+        if (count == 0)
+        {
+            foreach (var cell in grid.occupiedCells)
+            {
+                if (cell.y == layerY)
+                {
+                    layerCenter += grid.CellToWorld(cell);
+                    count++;
+                }
+            }
+        }
+
+        if (count > 0)
+        {
+            layerCenter /= count;
+        }
+        else
+        {
+            layerCenter = grid.CellToWorld(new Vector3Int(0, layerY, 0));
+        }
 
         cam.ZoomToLayer(layerCenter, () => isTransitioning = false);
 
@@ -239,7 +236,7 @@ public class LayerPanelController : MonoBehaviour
         RefreshButtonColors();
 
         SetButtonsVisible(true);
-        if (backButton != null) backButton.gameObject.SetActive(true);
+        if (backButton != null) backButton.gameObject.SetActive(false);
         SetBottomPanelVisible(true);
     }
 
@@ -281,6 +278,7 @@ public class LayerPanelController : MonoBehaviour
 
     public void ResetPanel()
     {
+        CancelInvoke(nameof(BuildLayerButtons));
         isTransitioning = false;
         if (backButton != null) backButton.gameObject.SetActive(false);
         SetButtonsVisible(true);

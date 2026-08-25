@@ -642,13 +642,7 @@ public class GridManager : MonoBehaviour
                     {
                         r.enabled = true;
                         if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                        
-                        r.GetPropertyBlock(PropBlock);
-                        Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
-                        c.a = 1.0f;
-                        PropBlock.SetColor("_BaseColor", c);
-                        PropBlock.SetColor("_Color", c);
-                        r.SetPropertyBlock(PropBlock);
+                        r.SetPropertyBlock(null); // Prefilled küp kendi orijinal renk/materyalini korur
                     }
                     else if (cell.y < ActiveLayerY)
                     {
@@ -671,13 +665,7 @@ public class GridManager : MonoBehaviour
                 {
                     r.enabled = true; // 3D modunda hepsi görünür
                     if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                    
-                    r.GetPropertyBlock(PropBlock);
-                    Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
-                    c.a = 1.0f;
-                    PropBlock.SetColor("_BaseColor", c);
-                    PropBlock.SetColor("_Color", c);
-                    r.SetPropertyBlock(PropBlock);
+                    r.SetPropertyBlock(null); // Prefilled küp kendi orijinal renk/materyalini korur
                 }
             }
         }
@@ -698,12 +686,7 @@ public class GridManager : MonoBehaviour
                         Renderer r = cube.GetComponentInChildren<Renderer>();
                         if (r != null)
                         {
-                            r.GetPropertyBlock(PropBlock);
-                            Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
-                            c.a = 1.0f;
-                            PropBlock.SetColor("_BaseColor", c);
-                            PropBlock.SetColor("_Color", c);
-                            r.SetPropertyBlock(PropBlock);
+                            r.SetPropertyBlock(null); // Küp kendi orijinal renk/materyalini korur
                         }
                     }
                     else if (cell.y < ActiveLayerY)
@@ -735,12 +718,7 @@ public class GridManager : MonoBehaviour
                     Renderer r = cube.GetComponentInChildren<Renderer>();
                     if (r != null)
                     {
-                        r.GetPropertyBlock(PropBlock);
-                        Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
-                        c.a = 1.0f;
-                        PropBlock.SetColor("_BaseColor", c);
-                        PropBlock.SetColor("_Color", c);
-                        r.SetPropertyBlock(PropBlock);
+                        r.SetPropertyBlock(null); // Küp kendi orijinal renk/materyalini korur
                     }
                 }
             }
@@ -759,6 +737,7 @@ public class GridManager : MonoBehaviour
         bool changed = dark ? darkenedLayers.Add(y) : darkenedLayers.Remove(y);
         if (!changed) return;
         if (!dark) ClearLayerTint(y);
+        else LayerLockManager.Instance?.SetRigDarkened(y, true);
         RefreshLayerVisibility();
     }
 
@@ -786,12 +765,15 @@ public class GridManager : MonoBehaviour
                 foreach (var cr in ice.GetComponentsInChildren<Renderer>())
                     DimRenderer(cr, dim, false);
         }
+
+        foreach (var y in darkenedLayers)
+        {
+            LayerLockManager.Instance?.SetRigDarkened(y, true);
+        }
     }
 
-    /// <summary>Bir renderer'ı koyulaştırır. baseFromPropBlock=true ise baz renk
-    /// RefreshLayerVisibility'nin bu çağrıda yazdığı PropBlock renginden alınır (her çağrıda
-    /// sıfırdan yazıldığı için katlanarak koyulaşmaz); false ise materyal renginden (sabit) —
-    /// bu, RefreshLayerVisibility'nin dokunmadığı çocuk renderer'lar (hayvan, buz) için gerekir.</summary>
+    /// <summary>Bir renderer'ı koyulaştırır ve yarı saydam yapar. baseFromPropBlock=true ise baz renk
+    /// RefreshLayerVisibility'nin bu çağrıda yazdığı PropBlock renginden alınır; false ise materyal renginden.</summary>
     private void DimRenderer(Renderer r, float dim, bool baseFromPropBlock)
     {
         if (r == null || !r.enabled) return;
@@ -811,15 +793,13 @@ public class GridManager : MonoBehaviour
             PropBlock.Clear();
             r.GetPropertyBlock(PropBlock);
         }
-        Color dc = new Color(baseC.r * dim, baseC.g * dim, baseC.b * dim, baseC.a);
+        Color dc = new Color(baseC.r * dim, baseC.g * dim, baseC.b * dim, baseC.a * 0.35f);
         PropBlock.SetColor("_BaseColor", dc);
         PropBlock.SetColor("_Color", dc);
         r.SetPropertyBlock(PropBlock);
     }
 
-    /// <summary>Bir katmanın koyulaştırma tint'ini temizler (materyal rengine döner). Sözlükteki
-    /// renderer'lar zaten RefreshLayerVisibility tarafından yeniden yazılır; asıl gereken,
-    /// onun dokunmadığı çocuk (hayvan) ve buz renderer'larının PropBlock'unu sıfırlamak.</summary>
+    /// <summary>Bir katmanın koyulaştırma tint'ini temizler (materyal rengine döner).</summary>
     private void ClearLayerTint(int y)
     {
         foreach (var cell in allShapeCells)
@@ -832,6 +812,7 @@ public class GridManager : MonoBehaviour
             if (iceVisuals.TryGetValue(cell, out var ice) && ice != null)
                 foreach (var cr in ice.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
         }
+        LayerLockManager.Instance?.SetRigDarkened(y, false);
     }
 
     // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden bir katmanın tamamlanması için tüm hücrelerin
@@ -1006,6 +987,9 @@ public class GridManager : MonoBehaviour
     public void ExplodeLayer(int layerY, System.Action onLayerComplete, System.Action onLevelComplete)
     {
         IsExplodingLayer = true;
+
+        // Katman patlarken ve kilit/zincir düşerken geniş 3D açıya uzaklaş
+        CameraOrbit.Instance?.ReturnTo3D();
         // Bu patlama seviyedeki SON katmanı mı temizliyor? (Şekilde bu katmandan başka
         // hücre kalmamışsa evet.) Öyleyse süreyi HEMEN durdur: kanca + çökme animasyonu
         // ~3.65 sn sürüyor ve bu süre içinde sayaç dolarsa kazanılmış seviyede fail
@@ -1115,6 +1099,14 @@ public class GridManager : MonoBehaviour
                     blocksToAnimate.Add(prefilledGo);
                 }
             }
+
+            // Ice görsellerini de kontrol et ve animasyona ekle (böylece tüm katman nesneleri birlikte kayar)
+            if (iceVisuals.TryGetValue(cell, out var iceGO) && iceGO != null)
+            {
+                iceVisuals.Remove(cell);
+                iceGO.transform.SetParent(layerContainer.transform, true);
+                blocksToAnimate.Add(iceGO);
+            }
         }
 
         // Patlatılan katman en üstteki dolu katman değilse (oyuncu katmanları sırasıyla
@@ -1143,11 +1135,12 @@ public class GridManager : MonoBehaviour
                 renderersAboveClearedLayer.Add(kvp.Value);
         }
 
-        // Katman tamamlandığı o an tebrik yazısını fırlat (ekrana fırlatma efektiyle) ve ekranı sars
+        // Katman tamamlandığı o an tebrik yazısını fırlat (ekrana fırlatma efektiyle)
         UIManager.Instance?.PlayFloatingPraise(center);
-        CameraOrbit.Instance?.Shake(0.22f, 0.1f);
 
-        AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset, renderersAboveClearedLayer, clearedY);
+        float layerSlideDelay = 0.45f; // Katmanın tamamlandığı anlaşılsın ve yerleşen son parça otursun diye bekleme süresi
+
+        AnimateLayerDisappear(layerContainer, blocksToAnimate, moveOffset, renderersAboveClearedLayer, clearedY, layerSlideDelay);
 
         // --- MANTIKSAL ÇÖKME (LOGICAL COLLAPSE) ---
         var newAllShapeCells = new HashSet<Vector3Int>();
@@ -1212,7 +1205,6 @@ public class GridManager : MonoBehaviour
         foreach (var kvp in iceVisuals)
         {
             if (kvp.Value == null) continue;
-            if (kvp.Key.y == clearedY) { Destroy(kvp.Value); continue; }   // patlayan katmanin buzu gider
             newIce[kvp.Key.y > clearedY ? new Vector3Int(kvp.Key.x, kvp.Key.y - 1, kvp.Key.z) : kvp.Key] = kvp.Value;
         }
         iceVisuals.Clear();
@@ -1248,83 +1240,57 @@ public class GridManager : MonoBehaviour
         if (gridMaxY > gridMinY) gridMaxY--;
 
         // --- GÖRSEL ÇÖKME (VISUAL COLLAPSE) ---
-        float collapseDelay = 0.45f;
-        float unlockDelay = 0.1f; // kanca yoksa neredeyse hemen aç+düşür
-        GameObject claw = GameObject.Find("Claw");
-        if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
-        // Kanca VARSA: tamamlanma (girdiyi geri açma + kilit) sabit süreyle DEĞİL, kancanın
-        // KAMERADAN ÇIKTIĞI an tetiklenir (bkz. FinishWhenClawOffScreen) ve kilit kancayla AYNI
-        // ANDA açılmaya başlar. collapseDelay/unlockDelay yalnızca kanca YOKKEN kullanılır.
+        float collapseDelay = layerSlideDelay + 0.35f;
+        float unlockDelay = 0.05f;
 
-        if (claw == null)
+        foreach (var kvp in cellObjects)
         {
-            foreach (var kvp in cellObjects)
+            if (kvp.Key.y >= clearedY)
             {
-                if (kvp.Key.y >= clearedY) // Önceden > clearedY idi, artık 1 azaldıkları için >= clearedY oldu
-                {
-                    var t = kvp.Value.transform;
-                    t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
-                }
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.35f).SetEase(Ease.OutQuad).SetDelay(collapseDelay).SetId(LEVEL_ANIM_ID);
             }
+        }
 
-            foreach (var kvp in targetRenderers)
+        foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Key.y >= clearedY)
             {
-                if (kvp.Key.y >= clearedY)
-                {
-                    var t = kvp.Value.transform;
-                    t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
-                }
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.35f).SetEase(Ease.OutQuad).SetDelay(collapseDelay).SetId(LEVEL_ANIM_ID);
             }
+        }
 
-            // Prefilled blokları da görsel olarak aşağı kaydır
-            foreach (var kvp in prefilledRenderers)
+        foreach (var kvp in prefilledRenderers)
+        {
+            if (kvp.Key.y >= clearedY)
             {
-                if (kvp.Key.y >= clearedY)
-                {
-                    var t = kvp.Value.transform;
-                    t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad).SetDelay(collapseDelay);
-                }
+                var t = kvp.Value.transform;
+                t.DOLocalMoveY(t.localPosition.y - Step, 0.35f).SetEase(Ease.OutQuad).SetDelay(collapseDelay).SetId(LEVEL_ANIM_ID);
             }
         }
 
         RefreshLayerVisibility();
         RefreshSpeciesSparkle();
 
-        // Level yalnızca gerçekten hiçbir katman/hücre kalmadığında tamamlanır.
-        // Sadece targetCells.Count kontrolü gizli üst katmanları yok sayabiliyordu.
+        float totalAnimDuration = layerSlideDelay + 0.85f;
+
         if (allShapeCells.Count == 0)
         {
             ActiveLayerY = gridMaxY + 1;
-
-            // Win paneli: kanca varsa kanca (ve son katman) EKRANDAN ÇIKINCA açılsın; kanca
-            // yoksa kısa sabit gecikmeyle.
             System.Action winFinish = () => { IsExplodingLayer = false; onLevelComplete?.Invoke(); };
-            if (claw != null)
-                StartCoroutine(FinishWhenClawOffScreen(claw, winFinish));
-            else
-                DOVirtual.DelayedCall(0.6f, () => winFinish()).SetId(LEVEL_ANIM_ID);
+            DOVirtual.DelayedCall(totalAnimDuration, () => winFinish()).SetId(LEVEL_ANIM_ID);
         }
         else
         {
-            // ActiveLayerY artık "hangi katman patladı" değil, "kamera/panel şu an hangi
-            // katmana odaklanmış" anlamına geliyor — patlayan katman (clearedY) bunun ÜSTÜNDEYSE
-            // kamera odağı hiç etkilenmez; AYNISIYSA kamera izlediği katman az önce yok oldu,
-            // eski davranışla aynı şekilde bir sonraki tamamlanmamış katmana düşülür; ALTINDAYSA
-            // (kamera daha alçak/farklı bir katmana bakıyorken başka bir katman patladıysa) sadece
-            // üstündeki her şeyin 1 aşağı kaydığı çökmeye göre indeks 1 azaltılır.
             if (ActiveLayerY == clearedY)
             {
                 if (TryFindNextRequiredLayer(out int nextLayer))
                 {
                     ActiveLayerY = nextLayer;
                     int nl = nextLayer;
-                    // Kilit KANCAYLA AYNI ANDA açılıp düşmeye başlasın (gecikme yok) → kanca
-                    // ekrandan çıkana kadar kilit de açılıp gitmiş olur. Kanca yoksa küçük gecikme.
-                    if (claw != null)
-                        LayerLockManager.Instance?.UnlockLayer(nl);
-                    else
-                        DOVirtual.DelayedCall(unlockDelay,
-                            () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
+                    DOVirtual.DelayedCall(layerSlideDelay + unlockDelay,
+                        () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
                 }
                 else
                     ActiveLayerY = gridMaxY;
@@ -1333,16 +1299,11 @@ public class GridManager : MonoBehaviour
             {
                 ActiveLayerY--;
             }
-            // ActiveLayerY < clearedY: değişmez.
 
             RefreshLayerVisibility();
 
-            // Girdiyi geri aç (oynamaya devam) — kanca varsa EKRANDAN ÇIKINCA, yoksa kısa gecikmeyle.
             System.Action layerFinish = () => { IsExplodingLayer = false; onLayerComplete?.Invoke(); };
-            if (claw != null)
-                StartCoroutine(FinishWhenClawOffScreen(claw, layerFinish));
-            else
-                DOVirtual.DelayedCall(collapseDelay + 0.45f, () => layerFinish()).SetId(LEVEL_ANIM_ID);
+            DOVirtual.DelayedCall(totalAnimDuration, () => layerFinish()).SetId(LEVEL_ANIM_ID);
         }
     }
 
@@ -1675,378 +1636,47 @@ public class GridManager : MonoBehaviour
     /// tekrar üstten çıkışını yakalar. Algılama gerçekleşmezse ~3 sn güvenlik zaman aşımıyla yine
     /// de tetikler (asılı kalmaz). Retry/NextLevel'da CancelLevelAnimations → StopAllCoroutines
     /// ile durur, bu yüzden yeni seviyeye stale tetikleme sızmaz.</summary>
-    private IEnumerator FinishWhenClawOffScreen(GameObject claw, System.Action onFinish)
-    {
-        var cam = Camera.main;
-        const float safetyTimeout = 3f;
-        float t = 0f;
-        bool cameIntoView = false;
-        while (t < safetyTimeout)
-        {
-            if (claw == null) break;
-            if (cam != null)
-            {
-                var rends = claw.GetComponentsInChildren<Renderer>();
-                if (rends != null && rends.Length > 0)
-                {
-                    Bounds b = rends[0].bounds;
-                    for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
-                    // Yükün EN ALT noktası viewport üst kenarını (y>1) geçtiyse kanca tamamen çıktı.
-                    Vector3 vp = cam.WorldToViewportPoint(new Vector3(b.center.x, b.min.y, b.center.z));
-                    bool offTop = vp.z > 0f && vp.y > 1f;
-                    if (!offTop) cameIntoView = true;   // kanca ekrana indi (görüş alanında)
-                    else if (cameIntoView) break;       // indikten SONRA üstten çıktı → bitti
-                }
-            }
-            t += Time.deltaTime;
-            yield return null;
-        }
-        onFinish?.Invoke();
-    }
-
-    private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset, List<Renderer> renderersToFadeDuringPass = null, int clearedY = -1)
+    private static void AnimateLayerDisappear(GameObject container, List<GameObject> blocks, Vector3 moveOffset, List<Renderer> renderersToFadeDuringPass = null, int clearedY = -1, float startDelay = 0f)
     {
         if (container == null) return;
 
-        // Kancayı sahneden bulmaya çalış
-        GameObject claw = GameObject.Find("Claw");
-        if (claw == null) claw = GameObject.Find("ToyMachine/Claw");
-
-        // EĞER KANCA VARSA: Kanca ile yukarı çekme animasyonu
-        if (claw != null)
+        if (blocks != null)
         {
-            Vector3 clawStartPos = claw.transform.position;
-            Quaternion clawStartRot = claw.transform.rotation;
-
-            // Kancanın dinlenme konumunu bir kez saklıyoruz: seviye yeniden
-            // yüklendiğinde animasyon yarıda kesilirse buraya döndürülecek
-            // (bkz. CancelLevelAnimations).
-            if (!clawHomeCaptured)
-            {
-                clawHomePos = clawStartPos;
-                clawHomeRot = clawStartRot;
-                clawHomeCaptured = true;
-            }
-            // layerCenter artık ExplodeLayer'da sınırlayıcı kutu (bounding box) ortası olarak
-            // kusursuz/grid-kesin hesaplanıyor (bkz. ExplodeLayer) — kanca her zaman katmanın
-            // TAM geometrik merkezine iner, ortalamadan kaynaklanan kaymalar olmaz.
-            Vector3 layerCenter = container.transform.position;
-
-            // Kancanın ucundaki Collider'dan gerçek DEĞME anını yakalamak için sensör.
-            // Bloklar yerleştirilirken Colliderları DraggablePiece tarafından kapatıldığı için
-            // (bkz. DraggablePiece.cs), temas algılanabilsin diye burada geçici olarak açıyoruz.
-            var sensor = claw.GetComponent<ClawTouchSensor>();
-            if (sensor == null) sensor = claw.AddComponent<ClawTouchSensor>();
-            var clawCollider = claw.GetComponent<Collider>();
-            if (clawCollider != null) clawCollider.isTrigger = true;
-
-            // Kancanın iniş/çıkış sırasında içinden geçeceği üst katman blokları için
-            // geçici gizleme durumu (bkz. ExplodeLayer çağrı noktası). Blok materyalleri
-            // Opaque (_Surface: 0, One/Zero blend) olduğundan _BaseColor/_Color alfası
-            // GPU tarafından tamamen yok sayılıyor — property block ile saydamlaştırma
-            // hiçbir görsel etki yapmıyordu. Bunun yerine, materyalden bağımsız kesin
-            // çalışan bir yöntem olan transform scale ile küçültüp gizliyoruz.
-            List<(Transform t, Vector3 originalScale)> passFadeState = null;
-            if (renderersToFadeDuringPass != null && renderersToFadeDuringPass.Count > 0)
-            {
-                passFadeState = new List<(Transform, Vector3)>();
-                foreach (var fr in renderersToFadeDuringPass)
-                {
-                    if (fr == null) continue;
-                    passFadeState.Add((fr.transform, fr.transform.localScale));
-                }
-            }
-
-            const float passFadeDuration = 0.18f;
-
-            void SetPassFade(float t) // t: 0 = orijinal boyut, 1 = tamamen küçülmüş/gizli
-            {
-                if (passFadeState == null) return;
-                foreach (var (tr, originalScale) in passFadeState)
-                {
-                    if (tr == null) continue;
-                    tr.localScale = Vector3.Lerp(originalScale, Vector3.zero, t);
-                }
-            }
-
-            // Kancanın pivot kaymasını otomatik hesapla — GERÇEK yakalama noktası (Collider'ın
-            // merkezi, kancanın ucuna göre konumlandırılmıştır) referans alınır. Önceden tüm
-            // mesh'in bounding box'ının merkezi kullanılıyordu; bu, kancanın şaftı uzunsa hayvanların
-            // ucun değil, kancanın ORTASINA doğru toplanmasına sebep oluyordu (bkz. kanca küçültme).
-            float clawVisualYOffset = 0f;
-            if (clawCollider != null)
-            {
-                clawVisualYOffset = clawCollider.bounds.center.y - clawStartPos.y;
-            }
-            else
-            {
-                var clawRenderers = claw.GetComponentsInChildren<Renderer>();
-                if (clawRenderers != null && clawRenderers.Length > 0)
-                {
-                    Bounds clawBounds = clawRenderers[0].bounds;
-                    for (int j = 1; j < clawRenderers.Length; j++)
-                    {
-                        clawBounds.Encapsulate(clawRenderers[j].bounds);
-                    }
-                    clawVisualYOffset = clawBounds.center.y - clawStartPos.y;
-                }
-            }
-
-            // Yakalanacak blokların gerçek üst sınırını hesapla (sadece güvenlik/hedef mesafesi
-            // için kullanılır — GERÇEK duruş noktasını artık aşağıdaki Collider teması belirler).
-            bool hasBlockTop = false;
-            float blocksTopY = layerCenter.y;
-            foreach (var block in blocks)
-            {
-                if (block == null) continue;
-                var r = block.GetComponentInChildren<Renderer>();
-                if (r == null) continue;
-                if (!hasBlockTop) { blocksTopY = r.bounds.max.y; hasBlockTop = true; }
-                else blocksTopY = Mathf.Max(blocksTopY, r.bounds.max.y);
-            }
-
-            float skyY = layerCenter.y + 6.0f; // Gridin üstünde gökyüzünde bir yükseklik garanti edilir
-            Vector3 aboveTargetPos = new Vector3(layerCenter.x, skyY - clawVisualYOffset, layerCenter.z);
-            // İniş hedefi bilerek blokların İÇİNE doğru fazladan iner (overshoot) — kanca gerçekte
-            // bu noktaya hiç ulaşmaz, çünkü Collider teması anında iniş anında durdurulur.
-            Vector3 overshootTargetPos = new Vector3(layerCenter.x, (blocksTopY - 0.6f) - clawVisualYOffset, layerCenter.z);
-
-            // Kamera bakışını kapat ki kanca yakalarken bloklar kendi rotasyonunu korusun.
             foreach (var block in blocks)
             {
                 if (block == null) continue;
                 var faceCam = block.GetComponentInChildren<FaceCamera>();
                 if (faceCam != null) faceCam.enabled = false;
             }
-            foreach (var block in blocks)
-            {
-                if (block == null) continue;
-                foreach (var col in block.GetComponentsInChildren<Collider>()) col.enabled = true;
-            }
-
-            // Toplanma küresinin yarıçapını kancanın GERÇEK iç genişliğinden (Collider'ının
-            // X/Z boyutundan) türet — ama hayvanlar birbirine YAKIN/sıkı dursun diye
-            // Collider'ın tam genişliği değil, küçük bir kesri kullanılır.
-            float clusterRadius = 0.18f;
-            if (clawCollider != null)
-            {
-                Bounds cb = clawCollider.bounds;
-                clusterRadius = Mathf.Max(cb.extents.x, cb.extents.z) * 0.4f;
-            }
-            clusterRadius = Mathf.Max(clusterRadius, 0.18f);
-            float clusterYHalfRange = clusterRadius * 0.6f;
-
-            const float ballDuration = 0.27f;
-            bool advanced = false;
-            Tween descendTween = null;
-
-            void RunGrabAndLift()
-            {
-                var seq2 = DOTween.Sequence().SetLink(claw).SetId(LEVEL_ANIM_ID);
-
-                // Uç katmana değdi: item'leri kavradı — kavrama sesi + telefon titreşimi.
-                AudioManager.Instance?.PlayClawGrabSound();
-                if (GameManager.Instance == null || GameManager.Instance.IsVibrationEnabled)
-                {
-                    Handheld.Vibrate();
-                }
-
-                // Uç katmana değdi: pençeler hayvanlar toplanırken kapansın.
-                AnimateClawGrip(claw, 0f, 1f, ballDuration);
-
-                // Kancanın ucu katmana TAM DEĞDİĞİ AN: hayvanlar merkezde sıkı bir 3D küre
-                // (top gibi) oluşturacak şekilde toplansın (Fibonacci küresel dağılımı).
-                for (int i = 0; i < blocks.Count; i++)
-                {
-                    var block = blocks[i];
-                    if (block == null) continue;
-
-                    Vector3 ballOffset = Vector3.zero;
-                    if (blocks.Count > 1)
-                    {
-                        // Fibonacci küresel dağılımı ile hayvanları, kancanın içini dolduran
-                        // BÜYÜK bir top gibi bir araya getiriyoruz (yarıçap: clusterRadius)
-                        float y = -clusterYHalfRange + (2f * clusterYHalfRange * i) / (blocks.Count - 1);
-                        float rRadius = Mathf.Sqrt(Mathf.Max(0f, clusterRadius * clusterRadius - y * y)); // Bu yükseklikteki küre yarıçapı
-                        float theta = i * 2.39996f; // Altın açı (radyan)
-                        float x = Mathf.Cos(theta) * rRadius;
-                        float z = Mathf.Sin(theta) * rRadius;
-                        ballOffset = new Vector3(x, y, z);
-                    }
-                    Vector3 grabCenter = new Vector3(layerCenter.x, claw.transform.position.y + clawVisualYOffset + 0.3f, layerCenter.z);
-                    Vector3 targetPos = grabCenter + ballOffset;
-
-                    block.transform.DOMove(targetPos, ballDuration).SetEase(Ease.OutBack);
-
-                    // Prefilled bloklar (isim: "Prefilled_...") hayvan mesh'i değil, merkezi olmayan
-                    // pivot'lu düz bir kutu (+ içine gizlenmiş ghost hayvan çocuğu) — hayvanlar için
-                    // tasarlanmış "dışa bak + büyüt" küresel yönelimi bu kutuları döndürünce içiçe
-                    // geçmiş/bozuk görünüyordu. Prefilled bloklar kendi orijinal rotasyon ve
-                    // ölçeğinde, sadece küme pozisyonuna taşınır.
-                    bool isPrefilled = block.name.StartsWith("Prefilled_");
-                    if (!isPrefilled)
-                    {
-                        // Bloklar birbirine daha sıkı/dolgun görünsün diye hafifçe büyütülür
-                        block.transform.DOScale(block.transform.localScale * 1.2f, ballDuration).SetEase(Ease.OutBack);
-
-                        // Dışarıya doğru baksınlar (küresel yönelim)
-                        Vector3 lookDir = ballOffset.normalized;
-                        if (lookDir == Vector3.zero) lookDir = Vector3.forward;
-                        Quaternion targetRot = Quaternion.LookRotation(lookDir, Vector3.up);
-                        block.transform.DORotateQuaternion(targetRot, ballDuration).SetEase(Ease.OutBack);
-                    }
-                }
-
-                // Toplanma animasyonunun bitmesini bekle, sonra hayvanları (artık top haldeyken) kancaya bağla
-                seq2.AppendInterval(ballDuration + 0.13f);
-                seq2.AppendCallback(() =>
-                {
-                    foreach (var block in blocks)
-                    {
-                        if (block != null) block.transform.SetParent(claw.transform, true);
-                    }
-                    if (Instance != null && clearedY != -1)
-                    {
-                        Instance.SlideDownRemainingLayers(clearedY);
-                    }
-                });
-
-                // Kancayı yavaşça yukarı (aboveTargetPos) geri çek (0.68 saniye) — hayvanlar
-                // küçülüp solmadan, kancaya SABİTLENMİŞ haldeyken olduğu gibi taşınır.
-                // Bu hareket de üst katmanların içinden geçer, saydamlık iniş boyunca sürer.
-                seq2.Append(claw.transform.DOMove(aboveTargetPos, 0.68f).SetEase(Ease.InOutQuad));
-
-                // Kanca artık üst katmanların üstünde/dışında (aboveTargetPos) — saydamlığı geri al.
-                seq2.AppendCallback(() => DOVirtual.Float(1f, 0f, passFadeDuration, SetPassFade).SetEase(Ease.InQuad));
-
-                // Kancayı başlangıç konumuna (clawStartPos) geri götür (0.3 saniye)
-                seq2.Append(claw.transform.DOMove(clawStartPos, 0.3f).SetEase(Ease.InOutQuad));
-
-                // Evine ulaştı: pençeleri AÇIP yükünü bıraksın (0.24 saniye) ve hayvanları küçülterek delikten düşme efekti ver
-                seq2.Append(DOVirtual.Float(1f, 0f, 0.24f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
-                seq2.Join(DOVirtual.Float(1.2f, 0f, 0.21f, scale => {
-                    foreach (var block in blocks)
-                    {
-                        if (block != null) block.transform.localScale = Vector3.one * scale;
-                    }
-                }).SetEase(Ease.InQuad));
-
-                // Bir sonraki tur için pençeleri tekrar kapatıp dinlenme moduna geçsin (0.17 saniye)
-                seq2.Append(DOVirtual.Float(0f, 1f, 0.17f, v => SetClawGrip(claw, v)).SetEase(Ease.OutQuad));
-
-                // Temizlik
-                seq2.OnComplete(() =>
-                {
-                    if (claw != null)
-                    {
-                        // DetachChildren() KULLANILMAZ: eski kanca tek parça mesh'ti ve
-                        // çocuğu yoktu, ama eklemli modelin çocukları kancanın KENDİ
-                        // gövdesidir (mil, kasa, menteşeler). Hepsini söküp ortada
-                        // bırakıyordu — kanca ilk katmandan sonra görünmez oluyordu.
-                        // Yalnızca taşınmak üzere kancaya bağlanan blokları ayırıyoruz.
-                        foreach (var block in blocks)
-                        {
-                            if (block != null && block.transform.parent == claw.transform)
-                                block.transform.SetParent(null, true);
-                        }
-
-                        claw.transform.position = clawStartPos;
-                        claw.transform.rotation = clawStartRot;
-                        // Yükü bıraktı: pençeler bir sonraki tur için kapalı (varsayılan durum) kalsın.
-                        SetClawGrip(claw, 1f);
-                    }
-                    if (container != null) Object.Destroy(container);
-                    foreach (var block in blocks)
-                    {
-                        if (block != null) Object.Destroy(block);
-                    }
-                });
-            }
-
-            void OnTouchOrTimeout()
-            {
-                if (advanced) return;
-                advanced = true;
-                sensor.Disarm();
-                descendTween?.Kill();
-                RunGrabAndLift();
-            }
-
-            // 1. Kancayı yatay olarak hedef katmanın ÜSTÜNE getir (0.5 saniye)
-            // İniş sırasında üst katmanların içinden geçileceği için, bu katmanları hemen/hareket başlar başlamaz küçültüyoruz
-            DOVirtual.Float(0f, 1f, passFadeDuration, SetPassFade).SetEase(Ease.OutQuad);
-
-            // Başlangıçta kanca kapalıdır.
-            SetClawGrip(claw, 1f);
-
-            // Kanca hareket ederken pençeleri AÇILIR (1'den 0'a).
-            AnimateClawGrip(claw, 1f, 0f, 0.3f);
-
-            claw.transform.DOMove(aboveTargetPos, 0.3f).SetEase(Ease.InOutQuad).OnComplete(() =>
-            {
-                // 2. İniş: kancanın ucundaki Collider bloklara GERÇEKTEN değene kadar aşağı in.
-                // Değme anında (OnTouchOrTimeout) tween erken kesilir ve kanca olduğu yerde durur.
-                // Kanca artık İLK TEMASTA durmuyor; iniş hedefine (blokların içine
-                // ayarlanmış overshootTargetPos) kadar tam süre boyunca iniyor.
-                //
-                // Neden: duruş noktası eskiden Collider temasına bağlıydı ve bu, blok
-                // collider'ı OLAN seviyelerde kancanın hayvanların ÜSTÜNDE, erken ve
-                // hızlıca durmasına yol açıyordu. Collider'ı olmayan seviyelerde ise
-                // temas hiç gerçekleşmediği için kanca emniyet yolundan tam derine
-                // iniyordu — ve istenen görüntü buydu. Artık her seviyede aynı:
-                // derinliği HEDEF belirliyor, collider'lar oynanış için (snap
-                // hassasiyeti, parçaya tıklama, joystick ayrımı) serbest kalıyor.
-                //
-                // sensor BİLEREK Arm edilmiyor; erken kesme yok.
-                descendTween = claw.transform.DOMove(overshootTargetPos, 0.66f)
-                    .SetEase(Ease.InOutQuad)
-                    .OnComplete(OnTouchOrTimeout);
-            });
-            return;
         }
 
-        // EĞER KANCA YOKSA: Varsayılan hızlı dökülme/düşme animasyonu (Fallback)
-        var seq = DOTween.Sequence().SetLink(container).SetId(LEVEL_ANIM_ID);
-        for (int i = 0; i < blocks.Count; i++)
+        Vector3 slideDir = (Random.value > 0.5f ? Vector3.right : Vector3.left) * 12f + Vector3.up * 1.5f;
+        Vector3 targetPos = container.transform.position + slideDir;
+
+        Sequence seq = DOTween.Sequence().SetId(LEVEL_ANIM_ID);
+
+        if (startDelay > 0f)
         {
-            var block = blocks[i];
-            if (block == null) continue;
-
-            float delay = i * 0.07f;
-            var blockTransform = block.transform;
-
-            var faceCam = block.GetComponentInChildren<FaceCamera>();
-            if (faceCam != null) faceCam.enabled = false;
-
-            seq.Join(blockTransform.DOMoveY(blockTransform.position.y - 15.0f, 0.25f)
-                .SetEase(Ease.InQuad)
-                .SetDelay(delay));
-
-            Vector3 randomTumble = new Vector3(Random.Range(90f, 180f), Random.Range(-180f, 180f), Random.Range(-90f, 90f));
-            seq.Join(blockTransform.DORotate(randomTumble, 0.25f, RotateMode.LocalAxisAdd)
-                .SetEase(Ease.InQuad)
-                .SetDelay(delay));
-
-            seq.Join(blockTransform.DOScale(Vector3.zero, 0.17f)
-                .SetEase(Ease.InQuad)
-                .SetDelay(delay + 0.08f));
-
-            var r = block.GetComponentInChildren<Renderer>();
-            if (r != null)
-            {
-                Color originalColor = GetMaterialColor(r.material);
-                Color transparentColor = new Color(originalColor.r, originalColor.g, originalColor.b, 0f);
-
-                if (r.material.HasProperty("_BaseColor"))
-                    seq.Join(r.material.DOColor(transparentColor, "_BaseColor", 0.15f).SetDelay(delay + 0.1f));
-                else if (r.material.HasProperty("_Color"))
-                    seq.Join(r.material.DOColor(transparentColor, "_Color", 0.15f).SetDelay(delay + 0.1f));
-            }
+            seq.AppendInterval(startDelay);
         }
 
+        seq.AppendCallback(() =>
+        {
+            AudioManager.Instance?.PlayPlacementSound();
+            CameraOrbit.Instance?.Shake(0.25f, 0.12f);
+        });
+
+        seq.Append(container.transform.DOMove(targetPos, 0.85f).SetEase(Ease.InOutCubic));
+        seq.Join(container.transform.DOScale(Vector3.zero, 0.85f).SetEase(Ease.InOutCubic));
         seq.OnComplete(() =>
         {
-            if (container != null) Object.Destroy(container);
+            if (container != null)
+                Object.Destroy(container);
+            if (blocks != null)
+            {
+                foreach (var b in blocks)
+                    if (b != null) Object.Destroy(b);
+            }
         });
     }
 

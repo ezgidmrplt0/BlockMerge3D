@@ -463,9 +463,13 @@ public class DraggablePiece : MonoBehaviour
             for (int i = 0; i < currentCells.Count && i < children.Count; i++)
             {
                 var child = children[i];
-                if (CameraOrbit.Instance != null && CameraOrbit.Instance.pivot != null)
+                Transform gridParent = (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
+                    ? LevelManager.Instance.ActiveMainPiece.transform
+                    : (CameraOrbit.Instance != null ? CameraOrbit.Instance.pivot : null);
+
+                if (gridParent != null)
                 {
-                    child.SetParent(CameraOrbit.Instance.pivot, true);
+                    child.SetParent(gridParent, true);
                 }
                 else
                 {
@@ -473,11 +477,12 @@ public class DraggablePiece : MonoBehaviour
                 }
                 foreach (var col in child.GetComponents<Collider>()) col.enabled = false;
 
-                Vector3 targetWorldPos = grid.CellToWorld(currentCells[i] + offset);
-                Quaternion targetWorldRot = (LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null)
-                    ? LevelManager.Instance.ActiveMainPiece.transform.rotation
-                    : Quaternion.identity;
-                Quaternion targetWorldRotFinal = targetWorldRot * currentRotation;
+                Vector3Int targetCell = currentCells[i] + offset;
+                Vector3 targetWorldPos = grid.CellToWorld(targetCell);
+
+                float rotY = Mathf.Round(currentRotation.eulerAngles.y / 90f) * 90f;
+                Quaternion targetLocalRot = Quaternion.Euler(0f, rotY, 0f);
+                Quaternion targetWorldRotFinal = gridParent != null ? gridParent.rotation * targetLocalRot : targetLocalRot;
 
                 // Kart atıyormuş gibi hissettiren başlangıç pozisyonu, rotasyonu ve ölçeği
                 Vector3 throwOffset = Vector3.up * 1.5f - (mainCam != null ? mainCam.transform.forward * 0.5f : Vector3.zero);
@@ -485,26 +490,43 @@ public class DraggablePiece : MonoBehaviour
                 child.rotation = targetWorldRotFinal * Quaternion.Euler(30f, -45f, 15f);
                 child.localScale = Vector3.one * 0.6f;
 
-                // DOTween kart atma animasyonu.
-                // SetLink: bu küpler AŞAĞIDA grid.AddCell ile grid'e devrediliyor ve katman
-                // tamamlanırsa GridManager onları animasyon sürerken YOK EDİYOR. Link olmadan
-                // DOTween yok edilmiş Transform'a yazmaya çalışıp safe-mode hatası basıyordu.
                 float duration = 0.3f;
                 var childGO = child.gameObject;
-                child.DOMove(targetWorldPos, duration).SetEase(Ease.OutBack).SetLink(childGO);
-                child.DORotateQuaternion(targetWorldRotFinal, duration).SetEase(Ease.OutBack).SetLink(childGO);
-
                 Transform finalChild = child;
-                // Ezgi: hücreye tam oturmuş görünmesi için yerleşim sonrası ölçek hücre
-                // boyutunun biraz üzerinde (+0.1) tutuluyor.
+                Quaternion finalRot = targetWorldRotFinal;
+                Quaternion finalLocalRot = targetLocalRot;
+
+                child.DOMove(targetWorldPos, duration).SetEase(Ease.OutBack).SetLink(childGO);
+                child.DORotateQuaternion(finalRot, duration).SetEase(Ease.OutBack).SetLink(childGO)
+                    .OnComplete(() =>
+                    {
+                        if (finalChild != null)
+                        {
+                            finalChild.rotation = finalRot;
+                            if (gridParent != null) finalChild.localRotation = finalLocalRot;
+                        }
+                    });
+
                 child.DOScale(Vector3.one * 1.1f, duration).SetEase(Ease.OutBack)
                     .SetLink(childGO)
                     .OnComplete(() =>
                     {
-                        // Yerleştiğinde tatmin edici esneme/sıkışma etkisi
+                        // Yerleştiğinde tatmin edici esneme/sıkışma etkisi ve açı kilitleme
                         if (finalChild != null)
+                        {
+                            finalChild.rotation = finalRot;
+                            if (gridParent != null) finalChild.localRotation = finalLocalRot;
+
                             finalChild.DOPunchScale(new Vector3(0.08f, -0.15f, 0.08f), 0.32f, 10, 1f)
-                                .SetEase(Ease.OutQuad).SetLink(childGO);
+                                .SetEase(Ease.OutQuad).SetLink(childGO)
+                                .OnComplete(() => {
+                                    if (finalChild != null)
+                                    {
+                                        finalChild.rotation = finalRot;
+                                        if (gridParent != null) finalChild.localRotation = finalLocalRot;
+                                    }
+                                });
+                        }
                     })
                     // OnComplete DEĞİL, OnKill: küp animasyon biterken yok edilirse OnComplete
                     // hiç çalışmaz, sayaç sıfıra inmez ve EndBlockingAnimation çağrılmadığı için

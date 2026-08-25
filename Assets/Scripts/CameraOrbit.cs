@@ -11,10 +11,10 @@ public class CameraOrbit : MonoBehaviour
     public Transform pivot;
 
     [Header("Initial 3D Camera Angles")]
-    [Tooltip("Kameranın başlangıçtaki yatay bakış açısı (Y rotasyonu)")]
-    public float startAzimuth = 25f;
-    [Tooltip("Kameranın başlangıçtaki dikey bakış açısı (X rotasyonu)")]
-    public float startElevation = 28f;
+    [Tooltip("Kameranın başlangıçtaki yatay bakış açısı (Y rotasyonu) - 0° dümdüz bakış")]
+    public float startAzimuth = 0f;
+    [Tooltip("Kameranın başlangıçtaki dikey bakış açısı (X rotasyonu) - 70° dik/üstten bakış")]
+    public float startElevation = 70f;
 
     [Header("Snap")]
     [Tooltip("Küp döndürme animasyon hızı")]
@@ -28,10 +28,14 @@ public class CameraOrbit : MonoBehaviour
     [Tooltip("useFixedZoom açıkken kullanılan sabit orthographic size (kamera orthographic ise). " +
              "ScreenAnchoredProp'un referenceOrthographicSize'ı ile aynı tutulursa (varsayılan 8) " +
              "joystick/buton gibi ekran-sabit objelerin boyutu da tüm levellerde birebir tutarlı kalır.")]
-    public float fixedOrthographicSize = 8f;
+    public float fixedOrthographicSize = 10f;
     [Tooltip("useFixedZoom açıkken kullanılan sabit kamera mesafesi (perspective kamerada zorunlu, " +
              "orthographic'te sadece clipping'e girmeyecek kadar geride durmak için).")]
     public float fixedDistance = 40f;
+
+    [Header("Viewport Centering Offset")]
+    [Tooltip("Küpü alt UI paneli (kartlar/joystick) ile üst UI (header) arasındaki açık alana dikeyde ortalamak için kameranın dikey offset değeri.")]
+    public float viewportCenterOffsetY = 0.5f;
 
     private float currentYaw;
     private float targetYaw;
@@ -47,11 +51,27 @@ public class CameraOrbit : MonoBehaviour
     private void Awake()
     {
         Instance = this;
+        startAzimuth = 0f;
+        startElevation = 70f;
+        viewportCenterOffsetY = 0.5f;
+
+        if (pivot == null)
+        {
+            GameObject p = new GameObject("BoardPivot");
+            pivot = p.transform;
+        }
     }
 
     private void Start()
     {
         IsLocked = false; // Layer-by-layer mode disables camera rotation
+
+        Camera cam = GetComponent<Camera>() ?? Camera.main;
+        if (cam != null)
+        {
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.043f, 0.067f, 0.125f, 1f); // Koyu Lacivert (Dark Navy)
+        }
         
         if (cube == null && pivot != null)
         {
@@ -186,7 +206,7 @@ public class CameraOrbit : MonoBehaviour
             cam.orthographicSize = orthoSize;
             Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
             transform.rotation = rot;
-            transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
+            transform.position = bounds.center + rot * new Vector3(0f, -viewportCenterOffsetY, -distance);
         }
         else
         {
@@ -208,7 +228,7 @@ public class CameraOrbit : MonoBehaviour
 
             Quaternion rot = Quaternion.Euler(startElevation, startAzimuth, 0f);
             transform.rotation = rot;
-            transform.position = bounds.center + rot * new Vector3(0f, 0f, -distance);
+            transform.position = bounds.center + rot * new Vector3(0f, -viewportCenterOffsetY, -distance);
         }
 
         // Yeni seviye her zaman nötr (0°) tahta rotasyonuyla başlar; önceki seviyeden
@@ -216,6 +236,9 @@ public class CameraOrbit : MonoBehaviour
         currentYaw = 0f;
         targetYaw  = 0f;
         ApplyRotation();
+
+        savedCamPos = transform.position;
+        savedCamRot = transform.rotation;
     }
 
     public void ZoomToLayer(Vector3 layerWorldCenter, System.Action onComplete = null)
@@ -232,9 +255,9 @@ public class CameraOrbit : MonoBehaviour
         Camera cam = GetComponent<Camera>() ?? Camera.main;
         float distance = cam != null && cam.orthographic ? cam.orthographicSize * 2.5f : 15f;
         
-        // 2.5D Isometric tilted angle (55 degrees elevation, 30 degrees azimuth)
-        Quaternion targetRot = Quaternion.Euler(55f, 30f, 0f);
-        Vector3 targetPos = layerWorldCenter + targetRot * new Vector3(0f, 0f, -distance);
+        // Dümdüz üstten bakış açısı (elevation 70°, azimuth 0°)
+        Quaternion targetRot = Quaternion.Euler(70f, 0f, 0f);
+        Vector3 targetPos = layerWorldCenter + targetRot * new Vector3(0f, -viewportCenterOffsetY, -distance);
 
         DOTween.Kill(transform);
         Sequence seq = DOTween.Sequence();
@@ -246,12 +269,19 @@ public class CameraOrbit : MonoBehaviour
     public void ReturnTo3D(System.Action onComplete = null)
     {
         DOTween.Kill(transform);
+
+        if (savedCamPos == Vector3.zero)
+        {
+            savedCamRot = Quaternion.Euler(startElevation, startAzimuth, 0f);
+            savedCamPos = savedCamRot * new Vector3(0f, -viewportCenterOffsetY, -18f);
+        }
+
         Sequence seq = DOTween.Sequence();
-        seq.Join(transform.DOMove(savedCamPos, 0.4f).SetEase(Ease.InOutCubic));
-        seq.Join(transform.DORotateQuaternion(savedCamRot, 0.4f).SetEase(Ease.InOutCubic));
+        seq.Join(transform.DOMove(savedCamPos, 0.45f).SetEase(Ease.InOutCubic));
+        seq.Join(transform.DORotateQuaternion(savedCamRot, 0.45f).SetEase(Ease.InOutCubic));
         seq.OnComplete(() => {
             IsInPanelMode = false;
-            IsLocked = false; // 3D modunda kamera dönebilir
+            IsLocked = false;
             onComplete?.Invoke();
         });
     }
@@ -262,21 +292,98 @@ public class CameraOrbit : MonoBehaviour
     }
 
     /// <summary>
-    /// ControlStick tarafından çağrılır — joystick'in sürüklenme yönüne göre board'u 90° döndürür.
-    /// direction > 0 -> sağa sürükleme, direction &lt; 0 -> sola sürükleme.
+    /// ControlStick veya klavye tarafından çağrılır — board'u 90° döndürür.
+    /// direction > 0 -> sağa sürükleme/sağ tuş, direction &lt; 0 -> sola sürükleme/sol tuş.
     /// </summary>
     public void SnapRotate(float direction)
     {
-        if (ControlButton.AdInputBlocked) return; // reklam açıkken/hemen sonrasında tahta dönmez
-        if (DraggablePiece.IsDragging || DOTween.IsTweening(transform) || (IsLocked && !IsInPanelMode)) return;
+        if (ControlButton.AdInputBlocked) return;
+        if (DraggablePiece.IsDragging) return;
         if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return;
+
         targetYaw -= Mathf.Sign(direction) * 90f;
         AudioManager.Instance?.PlayBoardRotateSound();
         TutorialEvents.RaiseBoardRotated();
     }
 
+    private Vector2 swipeStartPos;
+    private bool    isSwiping;
+
+    /// <summary>
+    /// Mobil dokunmatik ekran kaydırma (swipe) ile tahtayı 90° sağa/sola döndürür.
+    /// </summary>
+    private void HandleSwipeInput()
+    {
+        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
+        if (ControlButton.AdInputBlocked) return;
+        if (DraggablePiece.activeDrag != null || DraggablePiece.IsDragging) return;
+        if (GridManager.Instance != null && GridManager.Instance.IsExplodingLayer) return;
+
+        // Öğretici kontrolü
+        if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
+        {
+            if (TutorialOverlay.Instance.CurrentStep != TutorialStepType.SwipeToRotate)
+                return;
+        }
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (UnityEngine.EventSystems.EventSystem.current != null &&
+                UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+            {
+                return;
+            }
+
+            isSwiping = true;
+            swipeStartPos = Input.mousePosition;
+        }
+        else if (Input.GetMouseButton(0) && isSwiping)
+        {
+            Vector2 currentPos = Input.mousePosition;
+            float deltaX = currentPos.x - swipeStartPos.x;
+            float deltaY = currentPos.y - swipeStartPos.y;
+
+            if (Mathf.Abs(deltaX) > 40f && Mathf.Abs(deltaX) > Mathf.Abs(deltaY) * 1.1f)
+            {
+                SnapRotate(deltaX);
+                isSwiping = false; // Tek bir sürükleme hamlesinde 1 kez 90° döner
+            }
+        }
+        else if (Input.GetMouseButtonUp(0))
+        {
+            if (isSwiping)
+            {
+                Vector2 currentPos = Input.mousePosition;
+                float deltaX = currentPos.x - swipeStartPos.x;
+                float deltaY = currentPos.y - swipeStartPos.y;
+
+                if (Mathf.Abs(deltaX) > 25f && Mathf.Abs(deltaX) > Mathf.Abs(deltaY))
+                {
+                    SnapRotate(deltaX);
+                }
+                isSwiping = false;
+            }
+        }
+    }
+
     private void Update()
     {
+        // Mobil ekran kaydırma (swipe) kontrolü
+        HandleSwipeInput();
+
+        // Klavye ok/AD tuşları ile tahta döndürme desteği (A/Sol Ok = sola, D/Sağ Ok = sağa)
+        if (!DraggablePiece.IsDragging && (GridManager.Instance == null || !GridManager.Instance.IsExplodingLayer))
+        {
+            if (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow))
+            {
+                SnapRotate(-1f);
+            }
+            else if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow))
+            {
+                SnapRotate(1f);
+            }
+        }
+
         // Animasyon: currentYaw'u hedefine doğru yumuşakça çek
         if (!Mathf.Approximately(currentYaw, targetYaw))
         {

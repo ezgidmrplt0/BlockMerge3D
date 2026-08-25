@@ -12,6 +12,25 @@ public class ScreenFillBackground : MonoBehaviour
 
     private Camera cam;
 
+    private static readonly Color DarkNavy = new Color(0.043f, 0.067f, 0.125f, 1f);
+
+    private void Start()
+    {
+        if (cam == null) cam = Camera.main;
+        if (cam != null)
+        {
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = DarkNavy;
+        }
+
+        var r = GetComponent<Renderer>();
+        if (r != null)
+        {
+            if (r.material.HasProperty("_BaseColor")) r.material.SetColor("_BaseColor", DarkNavy);
+            else if (r.material.HasProperty("_Color")) r.material.SetColor("_Color", DarkNavy);
+        }
+    }
+
     private void LateUpdate()
     {
         if (cam == null) cam = Camera.main;

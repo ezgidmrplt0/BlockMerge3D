@@ -288,6 +288,34 @@ public class LayerLockManager : MonoBehaviour
             .OnComplete(() => { if (part != null) Destroy(part.gameObject); });
     }
 
+    /// <summary>Kilitli katmanın kilit ve zincir görsellerini yarı saydam/koyu yapar (aktif katman dışındakiler için).</summary>
+    public void SetRigDarkened(int y, bool dark)
+    {
+        if (!rigs.TryGetValue(y, out var rig) || rig == null) return;
+        float dim = dark ? 0.35f : 1f;
+        float alpha = dark ? 0.35f : 1f;
+
+        MaterialPropertyBlock pb = new MaterialPropertyBlock();
+        foreach (var r in rig.GetComponentsInChildren<Renderer>())
+        {
+            if (r == null) continue;
+            if (!dark)
+            {
+                r.SetPropertyBlock(null);
+            }
+            else
+            {
+                pb.Clear();
+                r.GetPropertyBlock(pb);
+                Color baseC = r.sharedMaterial != null ? r.sharedMaterial.color : Color.white;
+                Color dc = new Color(baseC.r * dim, baseC.g * dim, baseC.b * dim, baseC.a * alpha);
+                pb.SetColor("_BaseColor", dc);
+                pb.SetColor("_Color", dc);
+                r.SetPropertyBlock(pb);
+            }
+        }
+    }
+
     /// <summary>Tüm mevcut kilit rig'lerini anında yok eder (seviye yeniden yüklenirken).</summary>
     public void ClearAll()
     {
