@@ -25,13 +25,6 @@ public class GridManager : MonoBehaviour
     // ile aynı renderer'ın rengini EZİYOR ve buz gri/tuhaf bir renge bürünüyordu.
     private readonly HashSet<Vector3Int> meltingIceCells = new HashSet<Vector3Int>();
 
-    // Kilitli (sıralı katmanda henüz sırası gelmemiş) katmanlar — LayerLockManager tarafından
-    // set edilir; RefreshLayerVisibility bu katmanların hücre renklerini koyulaştırır (view'dan
-    // bağımsız PropBlock ile → tahta döndürülünce "pop" olmaz, saydam overlay değil).
-    private readonly HashSet<int> darkenedLayers = new HashSet<int>();
-    [Range(0f, 1f)]
-    [Tooltip("Kilitli katman parlaklık çarpanı (0.4 = %40 = koyu)")]
-    public float lockedLayerDim = 0.4f;
 
     // ─── Buz görseli ──────────────────────────────────────────────────────────
     // Buz artık hedef küpünün boyanmış hali değil, kendi 3D modeli
@@ -279,7 +272,6 @@ public class GridManager : MonoBehaviour
         allShapeCells.Clear();
         cellMatIndex.Clear();
         frozenCells.Clear();
-        darkenedLayers.Clear();
         ClearAllCellObjects();
 
         targetRenderers.Clear();
@@ -724,96 +716,8 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // Kilitli katmanları koyulaştır (tüm normal renk yazımından SONRA, üzerine yazar).
-        if (darkenedLayers.Count > 0) ApplyLockedLayerDim();
     }
 
-    // ─── Kilitli katman koyulaştırma (LayerLockManager) ─────────────────────────
-
-    /// <summary>Bir katmanı "kilitli/koyu" olarak işaretler veya kaldırır. Kaldırılırken o
-    /// katmanın hücre tint'lerini temizler ve görünürlüğü tazeler (katman aydınlanır).</summary>
-    public void SetLayerDarkened(int y, bool dark)
-    {
-        bool changed = dark ? darkenedLayers.Add(y) : darkenedLayers.Remove(y);
-        if (!changed) return;
-        if (!dark) ClearLayerTint(y);
-        else LayerLockManager.Instance?.SetRigDarkened(y, true);
-        RefreshLayerVisibility();
-    }
-
-    private void ApplyLockedLayerDim()
-    {
-        float dim = Mathf.Clamp01(lockedLayerDim);
-        foreach (var cell in allShapeCells)
-        {
-            if (!darkenedLayers.Contains(cell.y)) continue;
-
-            if (targetRenderers.TryGetValue(cell, out var tr)) DimRenderer(tr, dim, true);
-            if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
-            {
-                DimRenderer(pr, dim, true);
-                foreach (var cr in pr.GetComponentsInChildren<Renderer>())
-                    if (cr != pr) DimRenderer(cr, dim, false); // hayvan (SpeciesVisual) → materyal rengi baz
-            }
-            if (cellObjects.TryGetValue(cell, out var co) && co != null)
-            {
-                var main = co.GetComponentInChildren<Renderer>();
-                foreach (var cr in co.GetComponentsInChildren<Renderer>())
-                    DimRenderer(cr, dim, cr == main); // ana küp cellColors/PropBlock baz, çocuklar materyal
-            }
-            if (iceVisuals.TryGetValue(cell, out var ice) && ice != null)
-                foreach (var cr in ice.GetComponentsInChildren<Renderer>())
-                    DimRenderer(cr, dim, false);
-        }
-
-        foreach (var y in darkenedLayers)
-        {
-            LayerLockManager.Instance?.SetRigDarkened(y, true);
-        }
-    }
-
-    /// <summary>Bir renderer'ı koyulaştırır ve yarı saydam yapar. baseFromPropBlock=true ise baz renk
-    /// RefreshLayerVisibility'nin bu çağrıda yazdığı PropBlock renginden alınır; false ise materyal renginden.</summary>
-    private void DimRenderer(Renderer r, float dim, bool baseFromPropBlock)
-    {
-        if (r == null || !r.enabled) return;
-        Color baseC;
-        if (baseFromPropBlock)
-        {
-            PropBlock.Clear();
-            r.GetPropertyBlock(PropBlock);
-            Color pb = PropBlock.GetColor("_BaseColor");
-            baseC = (pb.r + pb.g + pb.b + pb.a) > 0.0001f
-                ? pb
-                : (r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white);
-        }
-        else
-        {
-            baseC = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
-            PropBlock.Clear();
-            r.GetPropertyBlock(PropBlock);
-        }
-        Color dc = new Color(baseC.r * dim, baseC.g * dim, baseC.b * dim, baseC.a * 0.35f);
-        PropBlock.SetColor("_BaseColor", dc);
-        PropBlock.SetColor("_Color", dc);
-        r.SetPropertyBlock(PropBlock);
-    }
-
-    /// <summary>Bir katmanın koyulaştırma tint'ini temizler (materyal rengine döner).</summary>
-    private void ClearLayerTint(int y)
-    {
-        foreach (var cell in allShapeCells)
-        {
-            if (cell.y != y) continue;
-            if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
-                foreach (var cr in pr.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
-            if (cellObjects.TryGetValue(cell, out var co) && co != null)
-                foreach (var cr in co.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
-            if (iceVisuals.TryGetValue(cell, out var ice) && ice != null)
-                foreach (var cr in ice.GetComponentsInChildren<Renderer>()) if (cr != null) cr.SetPropertyBlock(null);
-        }
-        LayerLockManager.Instance?.SetRigDarkened(y, false);
-    }
 
     // DÜZELTİLDİ (renksiz sisteme geçiş): eskiden bir katmanın tamamlanması için tüm hücrelerin
     // dolu OLMASI YETMEZ, hepsi aynı renk/materyal olması da şarttı. Bu monokromluk şartı
@@ -988,7 +892,7 @@ public class GridManager : MonoBehaviour
     {
         IsExplodingLayer = true;
 
-        // Katman patlarken ve kilit/zincir düşerken geniş 3D açıya uzaklaş
+        // Katman patlarken geniş 3D açıya uzaklaş
         CameraOrbit.Instance?.ReturnTo3D();
         // Bu patlama seviyedeki SON katmanı mı temizliyor? (Şekilde bu katmandan başka
         // hücre kalmamışsa evet.) Öyleyse süreyi HEMEN durdur: kanca + çökme animasyonu
@@ -1241,8 +1145,6 @@ public class GridManager : MonoBehaviour
 
         // --- GÖRSEL ÇÖKME (VISUAL COLLAPSE) ---
         float collapseDelay = layerSlideDelay + 0.35f;
-        float unlockDelay = 0.05f;
-
         foreach (var kvp in cellObjects)
         {
             if (kvp.Key.y >= clearedY)
@@ -1289,8 +1191,6 @@ public class GridManager : MonoBehaviour
                 {
                     ActiveLayerY = nextLayer;
                     int nl = nextLayer;
-                    DOVirtual.DelayedCall(layerSlideDelay + unlockDelay,
-                        () => LayerLockManager.Instance?.UnlockLayer(nl)).SetId(LEVEL_ANIM_ID);
                 }
                 else
                     ActiveLayerY = gridMaxY;

@@ -193,7 +193,7 @@ public class GameManager : MonoBehaviour
 
     private void TriggerWinPanel()
     {
-        if (CurrentLevelNumber >= 2 && CurrentLevelNumber % 2 == 0)
+        if (CurrentLevelNumber > 5 && CurrentLevelNumber % 3 == 0)
         {
             InterstitialAds.Show(() => UIManager.Instance?.ShowWinPanel(Score));
         }

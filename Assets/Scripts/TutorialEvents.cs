@@ -12,9 +12,6 @@ using System;
 
 public static class TutorialEvents
 {
-    /// <summary>Oyuncu bir katman butonuna basıp o katmana girdi.</summary>
-    public static event Action LayerOpened;
-
     /// <summary>Oyuncu ekranı yatay kaydırıp tahtayı 90° döndürdü.</summary>
     public static event Action BoardRotated;
 
@@ -27,7 +24,6 @@ public static class TutorialEvents
     /// <summary>Oyuncu bir parçayı HOLD (sakla) kutusuna sürükledi.</summary>
     public static event Action PieceHeld;
 
-    public static void RaiseLayerOpened()  => LayerOpened?.Invoke();
     public static void RaiseBoardRotated() => BoardRotated?.Invoke();
     public static void RaisePiecePlaced()  => PiecePlaced?.Invoke();
     public static void RaiseJokerUsed()    => JokerUsed?.Invoke();

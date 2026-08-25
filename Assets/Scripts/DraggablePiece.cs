@@ -488,7 +488,8 @@ public class DraggablePiece : MonoBehaviour
                 Vector3 throwOffset = Vector3.up * 1.5f - (mainCam != null ? mainCam.transform.forward * 0.5f : Vector3.zero);
                 child.position = targetWorldPos + throwOffset;
                 child.rotation = targetWorldRotFinal * Quaternion.Euler(30f, -45f, 15f);
-                child.localScale = Vector3.one * 0.6f;
+                float cs = grid.CellSize;
+                child.localScale = Vector3.one * cs * 0.6f;
 
                 float duration = 0.3f;
                 var childGO = child.gameObject;
@@ -507,13 +508,14 @@ public class DraggablePiece : MonoBehaviour
                         }
                     });
 
-                child.DOScale(Vector3.one * 1.1f, duration).SetEase(Ease.OutBack)
+                Vector3 finalScale = Vector3.one * cs;
+                child.DOScale(finalScale * 1.1f, duration).SetEase(Ease.OutBack)
                     .SetLink(childGO)
                     .OnComplete(() =>
                     {
-                        // Yerleştiğinde tatmin edici esneme/sıkışma etkisi ve açı kilitleme
                         if (finalChild != null)
                         {
+                            finalChild.localScale = finalScale;
                             finalChild.rotation = finalRot;
                             if (gridParent != null) finalChild.localRotation = finalLocalRot;
 
@@ -522,6 +524,7 @@ public class DraggablePiece : MonoBehaviour
                                 .OnComplete(() => {
                                     if (finalChild != null)
                                     {
+                                        finalChild.localScale = finalScale;
                                         finalChild.rotation = finalRot;
                                         if (gridParent != null) finalChild.localRotation = finalLocalRot;
                                     }

@@ -81,9 +81,6 @@ public class ControlStick : MonoBehaviour
             if (hit.transform.GetComponentInParent<DraggablePiece>() != null)
                 return true;
 
-            if (hit.transform.GetComponentInParent<ControlButton>() != null)
-                return true;
-
             // Kart/Slot veya benzeri etkileşimli nesnelerin isim bazlı kontrolü
             if (hit.transform.name.Contains("Card") || hit.transform.name.Contains("Slot"))
                 return true;

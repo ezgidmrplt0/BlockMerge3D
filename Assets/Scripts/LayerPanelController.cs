@@ -35,13 +35,6 @@ public class LayerPanelController : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
-    /// <summary>Öğretici göstergesinin (bkz. TutorialOverlay) parmağı hangi butonun
-    /// üzerine koyacağını bilmesi için: doldurulması gereken İLK katmanın butonu.</summary>
-    public RectTransform FirstLayerButton =>
-        layerButtons.Count > 0 && layerButtons[0] != null
-            ? layerButtons[0].transform as RectTransform
-            : null;
-
     private void Start()
     {
         grid = GridManager.Instance;
@@ -179,24 +172,20 @@ public class LayerPanelController : MonoBehaviour
         // RefreshButtonColors), bu ikinci bir güvenlik katmanı.
         if (layerY != grid.ActiveLayerY) return;
 
-        // Tutorial check: Sadece TapLayerButton, DragPieceToBoard veya DragPieceToHold adımındayken ve hedeflenen katman ise geçişe izin ver
+        // Tutorial check: DragPieceToBoard veya DragPieceToHold adımındayken ve hedeflenen katman ise geçişe izin ver
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
             var tutStep = TutorialOverlay.Instance.CurrentStep;
-            if (tutStep != TutorialStepType.TapLayerButton &&
-                tutStep != TutorialStepType.DragPieceToBoard &&
+            if (tutStep != TutorialStepType.DragPieceToBoard &&
                 tutStep != TutorialStepType.DragPieceToHold)
                 return;
 
-            // Katmanlar artık üstten alta dolduruluyor — öğreticinin hedeflediği ilk katman
-            // GridMinY değil GridMaxY.
             if (layerY != grid.GridMaxY)
                 return;
         }
 
         isTransitioning = true;
         CancelInvoke(nameof(BuildLayerButtons));
-        TutorialEvents.RaiseLayerOpened();
 
         float step = grid.Step;
         Vector3 layerCenter = Vector3.zero;

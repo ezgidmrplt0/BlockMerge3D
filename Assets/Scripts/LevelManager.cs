@@ -139,11 +139,6 @@ public class LevelManager : MonoBehaviour
                 gridManager.Initialize(activeMainPiece, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
                 ApplyTargetGhost(activeMainPiece);
 
-                // Sıralı katman görseli: aktif (gereken) katman hariç her katmana zincir+kilit.
-                // ApplyTargetGhost'tan SONRA — aksi halde o metodun prefilled/species döngüsü
-                // (shape.transform çocuklarını gezer) kilit rig'lerini hücre sanıp içine hayvan
-                // iliştiriyordu.
-                LayerLockManager.Instance?.BuildForNewLevel();
             }
         }
 
@@ -869,8 +864,7 @@ public class LevelManager : MonoBehaviour
     public void RestoreJoker()
     {
         isJokerUsedThisLevel = false;
-        foreach (var btn in FindObjectsOfType<ControlButton>())
-            if (btn != null) btn.ResetJoker();
+        ControlButton.Instance?.ResetJoker();
     }
 
     public void UndoLastPlace()
@@ -917,11 +911,7 @@ public class LevelManager : MonoBehaviour
 
         isJokerUsedThisLevel = false;
 
-        var controlButtons = FindObjectsOfType<ControlButton>();
-        foreach (var btn in controlButtons)
-        {
-            if (btn != null) btn.ResetForNewLevel();
-        }
+        ControlButton.Instance?.ResetForNewLevel();
 
         gridManager?.ClearAllCellObjects();
         if (activeMainPiece != null)

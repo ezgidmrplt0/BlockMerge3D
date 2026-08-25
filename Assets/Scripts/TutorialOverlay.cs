@@ -5,10 +5,6 @@ using UnityEngine.UI;
 
 public enum TutorialStepType
 {
-    /// <summary>Katman butonuna bas — parmak sağdaki, doldurulması gereken İLK (artık üstten
-    /// alta olduğu için en ÜST) katman butonunun üzerinde nabız atar.</summary>
-    TapLayerButton,
-
     /// <summary>Ekranı yatay kaydırıp tahtayı döndür — parmak ekran ortasında sağa-sola gider.</summary>
     SwipeToRotate,
 
@@ -118,7 +114,6 @@ public class TutorialOverlay : MonoBehaviour
     private void Awake()
     {
         Instance = this;
-        TutorialEvents.LayerOpened  += OnLayerOpened;
         TutorialEvents.BoardRotated += OnBoardRotated;
         TutorialEvents.PiecePlaced  += OnPiecePlaced;
         TutorialEvents.JokerUsed    += OnJokerUsed;
@@ -127,7 +122,6 @@ public class TutorialOverlay : MonoBehaviour
 
     private void OnDestroy()
     {
-        TutorialEvents.LayerOpened  -= OnLayerOpened;
         TutorialEvents.BoardRotated -= OnBoardRotated;
         TutorialEvents.PiecePlaced  -= OnPiecePlaced;
         TutorialEvents.JokerUsed    -= OnJokerUsed;
@@ -159,8 +153,7 @@ public class TutorialOverlay : MonoBehaviour
 
         if (IsLevel5)
         {
-            // Level 5 (Joker Öğreticisi): Katmana gir -> Yanlış yerleştir -> Jokerle geri al -> Doğru yerleştir -> Tüm parçaları koydur
-            steps.Add(TutorialStepType.TapLayerButton);
+            // Level 5 (Joker Öğreticisi): Yanlış yerleştir -> Jokerle geri al -> Doğru yerleştir -> Tüm parçaları koydur
             steps.Add(TutorialStepType.DragPieceToBoard); // Yanlış yerleştirme
             steps.Add(TutorialStepType.UseJoker);          // Kırmızı Joker butonuna bas
             steps.Add(TutorialStepType.DragPieceToBoard); // Jokerden sonraki doğru yerleştirme
@@ -168,13 +161,11 @@ public class TutorialOverlay : MonoBehaviour
         }
         else if (IsLevel4)
         {
-            // Level 4 (Buz Öğreticisi): 
-            // 1. Katmana gir
-            // 2. 1. Parça (Ördek - Buzu erit)
-            // 3. 2. Parça (Döndürmeden ÖNCE yerleştir)
-            // 4. Tahtayı döndür (SWIPE TO ROTATE)
-            // 5. 3. Parça (Dönmüş tahtaya yerleştir)
-            steps.Add(TutorialStepType.TapLayerButton);
+            // Level 4 (Buz Öğreticisi):
+            // 1. 1. Parça (Ördek - Buzu erit)
+            // 2. 2. Parça (Döndürmeden ÖNCE yerleştir)
+            // 3. Tahtayı döndür (SWIPE TO ROTATE)
+            // 4. 3. Parça (Dönmüş tahtaya yerleştir)
             steps.Add(TutorialStepType.DragPieceToBoard); // 1. Parça (Buz eritme)
             steps.Add(TutorialStepType.DragPieceToBoard); // 2. Parça (Döndürmeden ÖNCE yerleşecek parça)
             steps.Add(TutorialStepType.SwipeToRotate);    // Tahtayı döndür!
@@ -182,8 +173,7 @@ public class TutorialOverlay : MonoBehaviour
         }
         else if (IsLevel3)
         {
-            // Level 3 (Katman + Hold Öğreticisi): Katmana gir -> Parçayı Hold'a koy -> Parçaları yerleştir
-            steps.Add(TutorialStepType.TapLayerButton);
+            // Level 3 (Hold Öğreticisi): Parçayı Hold'a koy -> Parçaları yerleştir
             steps.Add(TutorialStepType.DragPieceToHold);
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
@@ -191,15 +181,13 @@ public class TutorialOverlay : MonoBehaviour
         }
         else if (IsLevel2)
         {
-            // Level 2 (Katman + 2 Parça Öğreticisi): Katmana gir -> 1. Parçayı koy -> 2. Parçayı koy (Döndürme yok)
-            steps.Add(TutorialStepType.TapLayerButton);
+            // Level 2 (2 Parça Öğreticisi): 1. Parçayı koy -> 2. Parçayı koy
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else if (IsLevel1)
         {
-            // Level 1 (Temel Öğretici): Katmana gir -> Parçayı yerleştir (Döndürme yok)
-            steps.Add(TutorialStepType.TapLayerButton);
+            // Level 1 (Temel Öğretici): Parçayı yerleştir
             steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else
@@ -239,14 +227,14 @@ public class TutorialOverlay : MonoBehaviour
             return;
         }
 
-        if (steps[stepIndex] == TutorialStepType.DragPieceToBoard)
+        if (steps[stepIndex] == TutorialStepType.DragPieceToBoard ||
+            steps[stepIndex] == TutorialStepType.DragPieceToHold)
         {
-            // Güvenlik: Sürükleme adımı başladığında oyuncu hâlâ 3D genel bakış modundaysa (panel kapalıysa), katmanı otomatik aç ki parça kartları görünsün!
             if (GridManager.Instance != null && CameraOrbit.Instance != null && !CameraOrbit.Instance.IsInPanelMode)
             {
-                LayerPanelController.Instance?.OpenPanel(GridManager.Instance.GridMaxY); // Katmanlar artık üstten alta dolduruluyor
+                LayerPanelController.Instance?.OpenPanel(GridManager.Instance.GridMaxY);
             }
-            HighlightTutorialTargetCells(true);
+            HighlightTutorialTargetCells(steps[stepIndex] == TutorialStepType.DragPieceToBoard);
         }
         else
         {
@@ -258,7 +246,6 @@ public class TutorialOverlay : MonoBehaviour
 
     // ─── Olaylar ──────────────────────────────────────────────────────────────
 
-    private void OnLayerOpened()  => CompleteIfCurrent(TutorialStepType.TapLayerButton);
     private void OnBoardRotated() => CompleteIfCurrent(TutorialStepType.SwipeToRotate);
     private void OnPiecePlaced()
     {
@@ -460,7 +447,6 @@ public class TutorialOverlay : MonoBehaviour
 
         switch (type)
         {
-            case TutorialStepType.TapLayerButton:   PlayTap();        break;
             case TutorialStepType.SwipeToRotate:    PlaySwipe();      break;
             case TutorialStepType.DragPieceToBoard: PlayDrag();       break;
             case TutorialStepType.UseJoker:         PlayJoker();      break;
@@ -481,18 +467,6 @@ public class TutorialOverlay : MonoBehaviour
 
         switch (type)
         {
-            case TutorialStepType.TapLayerButton:
-            {
-                // Katman butonu bir UI elemanı: karartmanın ÜSTÜNE çıkarılıp
-                // gerçekten parlak bırakılıyor, hale gerekmiyor.
-                var btn = LayerPanelController.Instance != null
-                    ? LayerPanelController.Instance.FirstLayerButton : null;
-                if (btn == null) { HideSpotlight(); return; }
-                ShowSpotlight(Vector2.zero, 0f, btn);
-                // Katman butonu sağ kenarda: yazı SOLUNA gelsin.
-                ShowStepText(TextFor(type), WorldToCanvas(btn.position), -1);
-                break;
-            }
             case TutorialStepType.SwipeToRotate:
                 // Döndürülen şey tahtanın kendisi: sahne kararır, tahta parlak kalır.
                 ShowSpotlight(Vector2.zero, 0f, BoardObject());
@@ -514,14 +488,12 @@ public class TutorialOverlay : MonoBehaviour
             }
             case TutorialStepType.UseJoker:
             {
-                // Joker 3D bir nesne: sahne kararır, YALNIZCA buton parlak kalır.
-                var jokerBtn = FindObjectOfType<ControlButton>();
+                var jokerBtn = ControlButton.Instance;
                 if (jokerBtn == null) { HideSpotlight(); return; }
-                ShowSpotlight(Vector2.zero, 0f, jokerBtn.gameObject);
-                var jr = jokerBtn.GetComponentInChildren<Renderer>();
-                Vector3 jw = jr != null ? jr.bounds.center : jokerBtn.transform.position;
-                // Joker sağ altta: yazı SOLUNA gelsin.
-                ShowStepText(TextFor(type), WorldObjectToCanvas(jw), -1);
+                var jokerRT = jokerBtn.transform as RectTransform;
+                if (jokerRT == null) { HideSpotlight(); return; }
+                ShowSpotlight(Vector2.zero, 0f, jokerRT);
+                ShowStepText(TextFor(type), WorldToCanvas(jokerRT.position), -1);
                 break;
             }
             case TutorialStepType.DragPieceToHold:
@@ -540,23 +512,12 @@ public class TutorialOverlay : MonoBehaviour
     private void PlayJoker()
     {
         Vector2 pos = new Vector2(0f, -Screen.height * 0.4f);
-        var jokerBtn = FindObjectOfType<ControlButton>();
+        var jokerBtn = ControlButton.Instance;
         if (jokerBtn != null)
         {
-            // ControlButton UI DEĞİL, sahnedeki 3D arcade butonu — konumu kamera
-            // üzerinden ekrana yansıtılmalı (bkz. WorldObjectToCanvas).
-            //
-            // transform.position KULLANILMAZ: ControlButton kökünün orijini görünen
-            // kırmızı kapaktan çok uzakta (ekranda ~450 piksel fark ölçüldü), parmak
-            // bu yüzden boşluğu gösteriyordu. Görünen geometrinin merkezini alıyoruz.
-            Vector3 target = jokerBtn.buttonCap != null
-                ? jokerBtn.buttonCap.position
-                : jokerBtn.transform.position;
-
-            var rend = jokerBtn.GetComponentInChildren<Renderer>();
-            if (rend != null) target = rend.bounds.center;
-
-            pos = WorldObjectToCanvas(target) + tipOffset;
+            var jokerRT = jokerBtn.transform as RectTransform;
+            if (jokerRT != null)
+                pos = WorldToCanvas(jokerRT.position) + tipOffset;
         }
 
         PlaceIcon(pos);
@@ -585,7 +546,7 @@ public class TutorialOverlay : MonoBehaviour
             var holdRT = holdPanel.transform as RectTransform;
             if (holdRT != null)
             {
-                to = WorldToCanvas(holdRT.position) + tipOffset;
+                to = WorldToCanvas(holdRT.position) + new Vector2(40f, 0f);
             }
         }
 
@@ -596,22 +557,6 @@ public class TutorialOverlay : MonoBehaviour
             .Append(iconGroup.DOFade(0f, loopDuration * 0.2f))
             .AppendCallback(() => icon.anchoredPosition = from)
             .AppendInterval(loopDuration * 0.10f);
-    }
-
-    private void PlayTap()
-    {
-        Vector2 pos = ScreenCenter();
-        var btn = LayerPanelController.Instance != null
-            ? LayerPanelController.Instance.FirstLayerButton
-            : null;
-        if (btn != null) pos = WorldToCanvas(btn.position) + tipOffset;
-
-        PlaceIcon(pos);
-        loop = DOTween.Sequence().SetLink(icon.gameObject).SetLoops(-1)
-            .Append(icon.DOScale(0.75f, loopDuration * 0.35f).SetEase(Ease.OutQuad))
-            .Join(iconGroup.DOFade(1f, loopDuration * 0.35f))
-            .Append(icon.DOScale(1f, loopDuration * 0.4f).SetEase(Ease.OutBack))
-            .AppendInterval(loopDuration * 0.25f);
     }
 
     private void PlaySwipe()
@@ -719,7 +664,6 @@ public class TutorialOverlay : MonoBehaviour
         {
             // Tebrik yazılarıyla (NICE! / GREAT!) aynı dil ve aynı ton: kısa,
             // büyük harf, emir kipi.
-            case TutorialStepType.TapLayerButton:   return "ENTER THE LAYER";
             case TutorialStepType.SwipeToRotate:    return "SWIPE TO ROTATE";
             case TutorialStepType.DragPieceToBoard:
                 // Level 4 buz öğreticisi: yalnızca tahtada HÂLÂ donmuş hücre varken
