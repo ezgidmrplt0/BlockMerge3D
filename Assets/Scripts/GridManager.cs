@@ -130,7 +130,12 @@ public class GridManager : MonoBehaviour
 
     private int gridMinX, gridMaxX, gridMinY, gridMaxY, gridMinZ, gridMaxZ;
 
-    private void Awake() { Instance = this; }
+    private void Awake()
+    {
+        Instance = this;
+        hideLowerLayerEmptyGrid = true;
+        hideLowerLayerPlacedBlocks = true;
+    }
 
     public HashSet<Vector3Int> highlightedCells = new HashSet<Vector3Int>();
 
@@ -250,6 +255,31 @@ public class GridManager : MonoBehaviour
 
     public int ActiveLayerY { get; private set; }
     public bool IsExplodingLayer { get; set; }
+
+    [Header("Layer Visualization Settings")]
+    [Tooltip("Alt katmanlardaki boş hedef (ghost) grid küplerini gizler.")]
+    public bool hideLowerLayerEmptyGrid = true;
+
+    [Tooltip("Alt katmanlardaki dizilmiş/dolu blokları tamamen gizler (Sadece aktif katman görünür).")]
+    public bool hideLowerLayerPlacedBlocks = true;
+
+    [Tooltip("Alt katmandaki dolu blokların saydamlığı (0 = tamamen gizli, 1 = tam opak).")]
+    [Range(0f, 1f)]
+    public float lowerLayerBlockAlpha = 0.25f;
+
+    [Tooltip("Alt katmandaki dolu blokları karartma/gölge faktörü (0 = kendi rengi, 1 = tamamen siyah silüet).")]
+    [Range(0f, 1f)]
+    public float lowerLayerDarkenFactor = 0.75f;
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        if (Application.isPlaying && Instance == this)
+        {
+            RefreshLayerVisibility();
+        }
+    }
+#endif
 
     public void SetActiveLayer(int y)
     {
@@ -428,34 +458,7 @@ public class GridManager : MonoBehaviour
             foreach (var cell in shapeHolder.frozenCells)
             {
                 frozenCells.Add(cell);
-                int hitCount = shapeHolder.GetFrozenHitCount(cell);
-
-                // Bu seviye tek-vuruşluk buz istiyorsa (tutorial, ör. LEVEL 4): dinamik zorluk
-                // rolü / çoklu-vuruş atlanır, buz TEK temasta erir.
-                bool forceSingleHit = LevelManager.Instance != null
-                    && LevelManager.Instance.currentLevel != null
-                    && LevelManager.Instance.currentLevel.forceSingleHitIce;
-
-                // Eğer özel vuruş verisi pişirilmemişse (veya <= 1 ise) ve LevelManager üzerinden dinamik zorluk aktifse:
-                bool useDynamic = LevelManager.Instance == null || LevelManager.Instance.autoAssignIceHitsByDifficulty;
-                if (forceSingleHit)
-                {
-                    hitCount = 1;
-                }
-                else if (useDynamic && hitCount <= 1)
-                {
-                    if (LevelManager.Instance != null && LevelManager.Instance.overrideHitCountPerLevel)
-                    {
-                        var range = LevelManager.Instance.customHitCountRange;
-                        hitCount = Random.Range(Mathf.Min(range.x, range.y), Mathf.Max(range.x, range.y) + 1);
-                    }
-                    else
-                    {
-                        hitCount = IceHitCountUtility.RollHitCountForLevel(currentLevelNum);
-                    }
-                }
-
-                iceRemainingHits[cell] = Mathf.Max(1, hitCount);
+                iceRemainingHits[cell] = 1;
             }
         }
         else
@@ -527,7 +530,7 @@ public class GridManager : MonoBehaviour
                     }
                     else if (cell.y < ActiveLayerY)
                     {
-                        r.enabled = true;
+                        r.enabled = !hideLowerLayerEmptyGrid;
                         if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                     }
                     else
@@ -542,19 +545,12 @@ public class GridManager : MonoBehaviour
                 }
 
                 // Hücre gerçek (opak) bir parça ile doluysa hedef/ghost küpünü TAMAMEN gizle.
-                // Öncesinde sadece şeffaflaştırılıyordu (a = 0.12), ama ZWrite kapalı transparan
-                // ghost materyali opak yerleştirilmiş parçanın üzerinde/içinde aynı hacimde
-                // render edildiğinden çift görüntü / hatalı derinlik sıralaması (görsel "tuhaflık")
-                // oluşuyordu. Buz (frozen) hücreleri bu kuraldan muaf: onlar henüz kırılmadıysa
-                // görünür kalmalı.
                 if (occupiedCells.Contains(cell) && !frozenCells.Contains(cell))
                 {
                     r.enabled = false;
                 }
 
-                // Buz artık kendi 3D modeliyle gösteriliyor: modeli hücreye ekle ve
-                // altındaki küpün renderer'ını kapat ki buzun içinden sırıtmasın.
-                // Panel modunda alt katmanlar soluklaşırken model gizlenir.
+                // Buz artık kendi 3D modeliyle gösteriliyor
                 bool isFrozenHere = frozenCells.Contains(cell);
                 if (isFrozenHere)
                 {
@@ -610,7 +606,14 @@ public class GridManager : MonoBehaviour
                                 defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
                             }
 
-                            if (isPanelMode && cell.y < ActiveLayerY) defaultColor.a *= 0.33f; // Faded target base
+                            if (isPanelMode && cell.y < ActiveLayerY)
+                            {
+                                if (lowerLayerDarkenFactor > 0f)
+                                {
+                                    defaultColor = Color.Lerp(defaultColor, Color.black, lowerLayerDarkenFactor);
+                                }
+                                defaultColor.a *= lowerLayerBlockAlpha; // Faded target base
+                            }
                             PropBlock.SetColor("_BaseColor", defaultColor);
                             PropBlock.SetColor("_Color", defaultColor);
                             PropBlock.SetColor("_EmissionColor", Color.clear);
@@ -638,15 +641,26 @@ public class GridManager : MonoBehaviour
                     }
                     else if (cell.y < ActiveLayerY)
                     {
-                        r.enabled = true;
-                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                        
-                        r.GetPropertyBlock(PropBlock);
-                        Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
-                        c.a = 0.35f; // faded prefilled base
-                        PropBlock.SetColor("_BaseColor", c);
-                        PropBlock.SetColor("_Color", c);
-                        r.SetPropertyBlock(PropBlock);
+                        if (hideLowerLayerPlacedBlocks || lowerLayerBlockAlpha <= 0f)
+                        {
+                            r.enabled = false;
+                        }
+                        else
+                        {
+                            r.enabled = true;
+                            if (applyScale) r.transform.localScale = Vector3.one * CellSize;
+                            
+                            r.GetPropertyBlock(PropBlock);
+                            Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
+                            if (lowerLayerDarkenFactor > 0f)
+                            {
+                                c = Color.Lerp(c, Color.black, lowerLayerDarkenFactor);
+                            }
+                            c.a = lowerLayerBlockAlpha; // faded prefilled base
+                            PropBlock.SetColor("_BaseColor", c);
+                            PropBlock.SetColor("_Color", c);
+                            r.SetPropertyBlock(PropBlock);
+                        }
                     }
                     else
                     {
@@ -683,18 +697,29 @@ public class GridManager : MonoBehaviour
                     }
                     else if (cell.y < ActiveLayerY)
                     {
-                        cube.SetActive(true);
-                        if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
-                        
-                        Renderer r = cube.GetComponentInChildren<Renderer>();
-                        if (r != null)
+                        if (hideLowerLayerPlacedBlocks || lowerLayerBlockAlpha <= 0f)
                         {
-                            r.GetPropertyBlock(PropBlock);
-                            Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
-                            c.a = 0.35f; // faded occupied base
-                            PropBlock.SetColor("_BaseColor", c);
-                            PropBlock.SetColor("_Color", c);
-                            r.SetPropertyBlock(PropBlock);
+                            cube.SetActive(false);
+                        }
+                        else
+                        {
+                            cube.SetActive(true);
+                            if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
+                            
+                            Renderer r = cube.GetComponentInChildren<Renderer>();
+                            if (r != null)
+                            {
+                                r.GetPropertyBlock(PropBlock);
+                                Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
+                                if (lowerLayerDarkenFactor > 0f)
+                                {
+                                    c = Color.Lerp(c, Color.black, lowerLayerDarkenFactor);
+                                }
+                                c.a = lowerLayerBlockAlpha; // faded occupied base
+                                PropBlock.SetColor("_BaseColor", c);
+                                PropBlock.SetColor("_Color", c);
+                                r.SetPropertyBlock(PropBlock);
+                            }
                         }
                     }
                     else

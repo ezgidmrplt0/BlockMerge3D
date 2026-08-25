@@ -106,7 +106,7 @@ public class IceVisualMarker : MonoBehaviour
         int current = Mathf.Max(0, remaining);
         countLabel.text = current.ToString();
 
-        if (current <= 0)
+        if (current <= 0 || totalHits <= 1)
         {
             labelPivot.gameObject.SetActive(false);
             return;

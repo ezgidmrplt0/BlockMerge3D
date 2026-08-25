@@ -241,7 +241,7 @@ public class CameraOrbit : MonoBehaviour
         savedCamRot = transform.rotation;
     }
 
-    public void ZoomToLayer(Vector3 layerWorldCenter, System.Action onComplete = null)
+    public void ZoomToLayer(Vector3 layerWorldCenter, System.Action onComplete = null, bool instant = false)
     {
         if (!IsInPanelMode)
         {
@@ -260,10 +260,19 @@ public class CameraOrbit : MonoBehaviour
         Vector3 targetPos = layerWorldCenter + targetRot * new Vector3(0f, -viewportCenterOffsetY, -distance);
 
         DOTween.Kill(transform);
-        Sequence seq = DOTween.Sequence();
-        seq.Join(transform.DOMove(targetPos, 0.4f).SetEase(Ease.InOutCubic));
-        seq.Join(transform.DORotateQuaternion(targetRot, 0.4f).SetEase(Ease.InOutCubic));
-        seq.OnComplete(() => onComplete?.Invoke());
+        if (instant)
+        {
+            transform.position = targetPos;
+            transform.rotation = targetRot;
+            onComplete?.Invoke();
+        }
+        else
+        {
+            Sequence seq = DOTween.Sequence();
+            seq.Join(transform.DOMove(targetPos, 0.4f).SetEase(Ease.InOutCubic));
+            seq.Join(transform.DORotateQuaternion(targetRot, 0.4f).SetEase(Ease.InOutCubic));
+            seq.OnComplete(() => onComplete?.Invoke());
+        }
     }
 
     public void ReturnTo3D(System.Action onComplete = null)

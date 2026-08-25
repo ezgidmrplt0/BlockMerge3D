@@ -191,7 +191,7 @@ public class LevelManager : MonoBehaviour
             lpc.ResetPanel();
             if (GridManager.Instance != null)
             {
-                lpc.OpenPanel(GridManager.Instance.ActiveLayerY);
+                lpc.OpenPanel(GridManager.Instance.ActiveLayerY, instant: true);
             }
         }
 

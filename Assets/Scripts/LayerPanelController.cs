@@ -93,6 +93,7 @@ public class LayerPanelController : MonoBehaviour
             rt.sizeDelta = buttonSize;
 
             Image img = btnObj.GetComponent<Image>();
+            img.raycastTarget = false;
             if (buttonSprite != null)
             {
                 img.sprite = buttonSprite;
@@ -111,37 +112,31 @@ public class LayerPanelController : MonoBehaviour
             tmp.alignment = TextAnchor.MiddleCenter;
             tmp.font = buttonFont != null ? buttonFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             tmp.fontSize = buttonFontSize;
+            tmp.raycastTarget = false;
 
             Button btn = btnObj.GetComponent<Button>();
+            btn.interactable = false;
 
             if (i < completedLayersCount)
             {
-                // Tamamlanan katman: Tik işareti (✓) ve yeşil renk
+                // Tamamlanan katman göstergesi: Tik işareti (✓) ve yeşil renk
                 tmp.text = "✓";
                 tmp.color = Color.white;
                 img.color = buttonCompletedColor;
-                btn.interactable = false;
             }
             else if (i == completedLayersCount)
             {
-                // Aktif katman: Katman numarası ve aktif altın renk
+                // Aktif katman göstergesi: Katman numarası ve aktif altın renk
                 tmp.text = (i + 1).ToString();
                 tmp.color = buttonTextColor;
                 img.color = buttonActiveColor;
-                btn.interactable = true;
-                int targetY = layerY;
-                btn.onClick.AddListener(() => {
-                    AudioManager.Instance?.PlayLayerButtonSound();
-                    OpenPanel(targetY);
-                });
             }
             else
             {
-                // Kilitli / Gelecek katman: Karartılmış renk
+                // Kilitli / Gelecek katman göstergesi: Karartılmış renk
                 tmp.text = (i + 1).ToString();
                 tmp.color = new Color(buttonTextColor.r, buttonTextColor.g, buttonTextColor.b, 0.5f);
                 img.color = buttonLockedColor;
-                btn.interactable = false;
             }
 
             layerButtons.Add(btn);
@@ -153,10 +148,9 @@ public class LayerPanelController : MonoBehaviour
         BuildLayerButtons();
     }
 
-    public void OpenPanel(int layerY)
+    public void OpenPanel(int layerY, bool instant = false)
     {
-        // Reklam paneli açıkken (ve kapanışından hemen sonra) katman girişi yok sayılır —
-        // reklamı açan/kapatan tık arkadaki butonlara sızıyordu.
+        // Reklam paneli açıkken (ve kapanışından hemen sonra) katman girişi yok sayılır
         if (ControlButton.AdInputBlocked) return;
         if (isTransitioning || cam == null || grid == null) return;
         if (cam.IsInPanelMode && grid.ActiveLayerY == layerY)
@@ -167,12 +161,9 @@ public class LayerPanelController : MonoBehaviour
         if (grid.IsExplodingLayer) return;
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
-        // Sıralı katman kuralı: sadece şu an doldurulması gereken katman (grid.ActiveLayerY)
-        // açılabilir. Butonlar zaten bunun dışındakiler için disabled (bkz. BuildLayerButtons/
-        // RefreshButtonColors), bu ikinci bir güvenlik katmanı.
         if (layerY != grid.ActiveLayerY) return;
 
-        // Tutorial check: DragPieceToBoard veya DragPieceToHold adımındayken ve hedeflenen katman ise geçişe izin ver
+        // Tutorial check
         if (TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning)
         {
             var tutStep = TutorialOverlay.Instance.CurrentStep;
@@ -219,7 +210,7 @@ public class LayerPanelController : MonoBehaviour
             layerCenter = grid.CellToWorld(new Vector3Int(0, layerY, 0));
         }
 
-        cam.ZoomToLayer(layerCenter, () => isTransitioning = false);
+        cam.ZoomToLayer(layerCenter, () => isTransitioning = false, instant);
 
         grid.SetActiveLayer(layerY);
         RefreshButtonColors();
