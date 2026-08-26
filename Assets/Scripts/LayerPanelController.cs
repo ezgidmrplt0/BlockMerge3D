@@ -262,6 +262,7 @@ public class LayerPanelController : MonoBehaviour
     {
         CancelInvoke(nameof(BuildLayerButtons));
         isTransitioning = false;
+        initialTotalLayers = 0;
         if (backButton != null) backButton.gameObject.SetActive(false);
         SetButtonsVisible(true);
         SetBottomPanelVisible(true);

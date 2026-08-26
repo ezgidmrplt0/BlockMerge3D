@@ -524,7 +524,7 @@ public class GridManager : MonoBehaviour
             {
                 if (isPanelMode)
                 {
-                    if (cell.y == ActiveLayerY || (IsExplodingLayer && cell.y <= ActiveLayerY))
+                    if (cell.y == ActiveLayerY)
                     {
                         r.enabled = true;
                         if (applyScale) r.transform.localScale = Vector3.one * CellSize;
@@ -554,7 +554,7 @@ public class GridManager : MonoBehaviour
                     var iceGo = GetIceVisual(cell);
                     if (iceGo != null)
                     {
-                        bool hideIce = isPanelMode && cell.y != ActiveLayerY && !IsExplodingLayer;
+                        bool hideIce = isPanelMode && cell.y != ActiveLayerY;
                         iceGo.SetActive(!hideIce);
                         Debug.Log($"[GridManager] RefreshLayerVisibility: cell={cell}, hideIce={hideIce}, iceGo.activeSelf={iceGo.activeSelf}, scale={iceGo.transform.localScale}");
                         if (!hideIce) r.enabled = false;
@@ -629,7 +629,7 @@ public class GridManager : MonoBehaviour
             {
                 if (isPanelMode)
                 {
-                    if (cell.y == ActiveLayerY || (IsExplodingLayer && cell.y <= ActiveLayerY))
+                    if (cell.y == ActiveLayerY)
                     {
                         r.enabled = true;
                         if (applyScale) r.transform.localScale = Vector3.one * CellSize;
@@ -657,7 +657,7 @@ public class GridManager : MonoBehaviour
             {
                 if (isPanelMode)
                 {
-                    if (cell.y == ActiveLayerY || (IsExplodingLayer && cell.y <= ActiveLayerY))
+                    if (cell.y == ActiveLayerY)
                     {
                         cube.SetActive(true);
                         if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
