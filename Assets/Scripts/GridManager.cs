@@ -1879,14 +1879,14 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // 2. Şimdi yeni snaplenen kılavuz hücrelerini gizlemeyip açık bırakıyoruz ki parçalar içindeymiş gibi gözüksün
+        // 2. Yeni snaplenen kılavuz hücrelerini gizle ki yerleştirilecek parça direkt gridin yerine geçsin
         foreach (var cell in newSnapped)
         {
             if (!occupiedCells.Contains(cell))
             {
                 if (targetRenderers.TryGetValue(cell, out var r) && r != null)
                 {
-                    // r.enabled = false;
+                    r.enabled = false;
                 }
             }
         }

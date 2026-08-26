@@ -116,8 +116,8 @@ public class GameManager : MonoBehaviour
         currentLevelIndex = Mathf.Clamp(currentLevelIndex, 0, levelOrder.levels.Count - 1);
         var level = levelOrder.levels[currentLevelIndex];
         if (level == null) return;
-        LevelManager.Instance?.LoadLevel(level);
         StartLevel(level);
+        LevelManager.Instance?.LoadLevel(level);
     }
 
     private void StartLevel(LevelData level)

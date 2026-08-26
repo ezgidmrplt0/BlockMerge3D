@@ -175,6 +175,13 @@ public class LevelManager : MonoBehaviour
         }
 
         // Kart UI'larını başlat (idempotent)
+        if (pieceCards == null || pieceCards.Count == 0 || pieceCards.Any(c => c == null))
+        {
+            pieceCards = FindObjectsOfType<PieceCardUI>(true)
+                .Where(c => c != null && c.gameObject.name.StartsWith("PieceCard_"))
+                .OrderBy(c => c.transform.GetSiblingIndex())
+                .ToList();
+        }
         for (int i = 0; i < pieceCards.Count; i++)
             pieceCards[i]?.Init(i);
 
@@ -1575,7 +1582,7 @@ public class LevelManager : MonoBehaviour
         badgeTmp.text = "HOLD";
         badgeTmp.fontStyle = FontStyles.Bold;
         badgeTmp.alignment = TextAlignmentOptions.Center;
-        badgeTmp.color = new Color(1f, 0.85f, 0.2f);
+        badgeTmp.color = new Color(0.06f, 0.12f, 0.35f); // Koyu lacivert
         badgeTmp.enableAutoSizing = true;
         badgeTmp.fontSizeMin = 10f;
         badgeTmp.fontSizeMax = 28f;

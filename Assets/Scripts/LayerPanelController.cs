@@ -12,7 +12,7 @@ public class LayerPanelController : MonoBehaviour
 
     [Header("Button Style")]
     public Color buttonNormalColor   = new Color(0.9f, 0.9f, 1f, 0.85f);
-    public Color buttonActiveColor   = new Color(1.0f, 0.85f, 0.25f, 1f);
+    public Color buttonActiveColor   = new Color(1.45f, 1.35f, 0.15f, 1f);
     public Color buttonLockedColor   = new Color(0.35f, 0.35f, 0.4f, 0.4f);
     public Color buttonCompletedColor = new Color(0.22f, 0.78f, 0.42f, 1f);
     public Sprite buttonSprite;
@@ -126,10 +126,10 @@ public class LayerPanelController : MonoBehaviour
             }
             else if (i == completedLayersCount)
             {
-                // Aktif katman göstergesi: Katman numarası ve aktif altın renk
+                // Aktif katman göstergesi: Katman numarası ve ekstra parlak canlı sarı renk
                 tmp.text = (i + 1).ToString();
-                tmp.color = buttonTextColor;
-                img.color = buttonActiveColor;
+                tmp.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+                img.color = new Color(1.45f, 1.35f, 0.15f, 1f);
             }
             else
             {
@@ -270,13 +270,24 @@ public class LayerPanelController : MonoBehaviour
     private void SetBottomPanelVisible(bool visible)
     {
         var lm = LevelManager.Instance;
+        Transform bottomPanelTransform = null;
         if (lm != null && lm.pieceCards != null && lm.pieceCards.Count > 0)
         {
-            var firstCard = lm.pieceCards[0];
+            var firstCard = lm.pieceCards.Find(c => c != null);
             if (firstCard != null && firstCard.transform.parent != null)
             {
-                firstCard.transform.parent.gameObject.SetActive(visible);
+                bottomPanelTransform = firstCard.transform.parent;
             }
+        }
+
+        if (bottomPanelTransform == null && uiCanvas != null)
+        {
+            bottomPanelTransform = uiCanvas.transform.Find("BottomPiecePanel");
+        }
+
+        if (bottomPanelTransform != null)
+        {
+            bottomPanelTransform.gameObject.SetActive(visible);
         }
 
         // Sıradaki parça önizlemesini kart paneliyle birlikte göster/gizle.
