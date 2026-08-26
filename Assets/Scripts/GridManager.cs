@@ -135,6 +135,7 @@ public class GridManager : MonoBehaviour
         Instance = this;
         hideLowerLayerEmptyGrid = true;
         hideLowerLayerPlacedBlocks = true;
+        lowerLayerBlockAlpha = 0f;
     }
 
     public HashSet<Vector3Int> highlightedCells = new HashSet<Vector3Int>();
@@ -495,10 +496,10 @@ public class GridManager : MonoBehaviour
 
     public void RefreshLayerVisibility()
     {
-        bool isPanelMode = false;
-        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode)
+        bool isPanelMode = true;
+        if (CameraOrbit.Instance != null && !CameraOrbit.Instance.IsInPanelMode)
         {
-            isPanelMode = true;
+            CameraOrbit.Instance.IsInPanelMode = true;
         }
 
         bool applyScale = !IsExplodingLayer;
@@ -523,14 +524,9 @@ public class GridManager : MonoBehaviour
             {
                 if (isPanelMode)
                 {
-                    if (cell.y == ActiveLayerY)
+                    if (cell.y == ActiveLayerY || (IsExplodingLayer && cell.y <= ActiveLayerY))
                     {
                         r.enabled = true;
-                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                    }
-                    else if (cell.y < ActiveLayerY)
-                    {
-                        r.enabled = !hideLowerLayerEmptyGrid;
                         if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                     }
                     else
@@ -558,7 +554,7 @@ public class GridManager : MonoBehaviour
                     var iceGo = GetIceVisual(cell);
                     if (iceGo != null)
                     {
-                        bool hideIce = isPanelMode && cell.y != ActiveLayerY;
+                        bool hideIce = isPanelMode && cell.y != ActiveLayerY && !IsExplodingLayer;
                         iceGo.SetActive(!hideIce);
                         Debug.Log($"[GridManager] RefreshLayerVisibility: cell={cell}, hideIce={hideIce}, iceGo.activeSelf={iceGo.activeSelf}, scale={iceGo.transform.localScale}");
                         if (!hideIce) r.enabled = false;
@@ -633,34 +629,11 @@ public class GridManager : MonoBehaviour
             {
                 if (isPanelMode)
                 {
-                    if (cell.y == ActiveLayerY)
+                    if (cell.y == ActiveLayerY || (IsExplodingLayer && cell.y <= ActiveLayerY))
                     {
                         r.enabled = true;
                         if (applyScale) r.transform.localScale = Vector3.one * CellSize;
                         r.SetPropertyBlock(null); // Prefilled küp kendi orijinal renk/materyalini korur
-                    }
-                    else if (cell.y < ActiveLayerY)
-                    {
-                        if (hideLowerLayerPlacedBlocks || lowerLayerBlockAlpha <= 0f)
-                        {
-                            r.enabled = false;
-                        }
-                        else
-                        {
-                            r.enabled = true;
-                            if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                            
-                            r.GetPropertyBlock(PropBlock);
-                            Color c = r.sharedMaterial != null ? GetMaterialColor(r.sharedMaterial) : Color.white;
-                            if (lowerLayerDarkenFactor > 0f)
-                            {
-                                c = Color.Lerp(c, Color.black, lowerLayerDarkenFactor);
-                            }
-                            c.a = lowerLayerBlockAlpha; // faded prefilled base
-                            PropBlock.SetColor("_BaseColor", c);
-                            PropBlock.SetColor("_Color", c);
-                            r.SetPropertyBlock(PropBlock);
-                        }
                     }
                     else
                     {
@@ -684,7 +657,7 @@ public class GridManager : MonoBehaviour
             {
                 if (isPanelMode)
                 {
-                    if (cell.y == ActiveLayerY)
+                    if (cell.y == ActiveLayerY || (IsExplodingLayer && cell.y <= ActiveLayerY))
                     {
                         cube.SetActive(true);
                         if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
@@ -693,33 +666,6 @@ public class GridManager : MonoBehaviour
                         if (r != null)
                         {
                             r.SetPropertyBlock(null); // Küp kendi orijinal renk/materyalini korur
-                        }
-                    }
-                    else if (cell.y < ActiveLayerY)
-                    {
-                        if (hideLowerLayerPlacedBlocks || lowerLayerBlockAlpha <= 0f)
-                        {
-                            cube.SetActive(false);
-                        }
-                        else
-                        {
-                            cube.SetActive(true);
-                            if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
-                            
-                            Renderer r = cube.GetComponentInChildren<Renderer>();
-                            if (r != null)
-                            {
-                                r.GetPropertyBlock(PropBlock);
-                                Color c = cellColors.TryGetValue(cell, out Color col) ? col : Color.white;
-                                if (lowerLayerDarkenFactor > 0f)
-                                {
-                                    c = Color.Lerp(c, Color.black, lowerLayerDarkenFactor);
-                                }
-                                c.a = lowerLayerBlockAlpha; // faded occupied base
-                                PropBlock.SetColor("_BaseColor", c);
-                                PropBlock.SetColor("_Color", c);
-                                r.SetPropertyBlock(PropBlock);
-                            }
                         }
                     }
                     else
@@ -1197,14 +1143,13 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        RefreshLayerVisibility();
-        RefreshSpeciesSparkle();
-
-        float totalAnimDuration = layerSlideDelay + 0.85f;
-
         if (allShapeCells.Count == 0)
         {
             ActiveLayerY = gridMaxY + 1;
+            RefreshLayerVisibility();
+            RefreshSpeciesSparkle();
+
+            float totalAnimDuration = layerSlideDelay + 0.85f;
             System.Action winFinish = () => { IsExplodingLayer = false; onLevelComplete?.Invoke(); };
             DOVirtual.DelayedCall(totalAnimDuration, () => winFinish()).SetId(LEVEL_ANIM_ID);
         }
@@ -1215,7 +1160,6 @@ public class GridManager : MonoBehaviour
                 if (TryFindNextRequiredLayer(out int nextLayer))
                 {
                     ActiveLayerY = nextLayer;
-                    int nl = nextLayer;
                 }
                 else
                     ActiveLayerY = gridMaxY;
@@ -1226,7 +1170,11 @@ public class GridManager : MonoBehaviour
             }
 
             RefreshLayerVisibility();
+            RefreshSpeciesSparkle();
 
+            LayerPanelController.Instance?.OpenPanel(ActiveLayerY, instant: true);
+
+            float totalAnimDuration = layerSlideDelay + 0.85f;
             System.Action layerFinish = () => { IsExplodingLayer = false; onLayerComplete?.Invoke(); };
             DOVirtual.DelayedCall(totalAnimDuration, () => layerFinish()).SetId(LEVEL_ANIM_ID);
         }

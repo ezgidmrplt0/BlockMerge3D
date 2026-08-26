@@ -46,7 +46,7 @@ public class CameraOrbit : MonoBehaviour
     // Panel mode: saved 3D state
     private Vector3    savedCamPos;
     private Quaternion savedCamRot;
-    public  bool       IsInPanelMode { get; private set; }
+    public  bool       IsInPanelMode { get; set; }
 
     private void Awake()
     {

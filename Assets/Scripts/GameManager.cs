@@ -122,7 +122,7 @@ public class GameManager : MonoBehaviour
 
     private void StartLevel(LevelData level)
     {
-        levelComplete      = false;
+        levelComplete        = false;
         winLocked          = false;
         pendingWin         = false;
         blockingAnimations = 0;
@@ -249,9 +249,18 @@ public class GameManager : MonoBehaviour
 
     // ─── Navigation ──────────────────────────────────────────────────────────
 
+    private bool isTransitioningLevel = false;
+
     public void NextLevel()
     {
-        if (levelOrder == null || levelOrder.levels.Count == 0) return;
+        if (isTransitioningLevel) return;
+        isTransitioningLevel = true;
+
+        if (levelOrder == null || levelOrder.levels.Count == 0)
+        {
+            isTransitioningLevel = false;
+            return;
+        }
 
         // Sıradaki DOLU (null olmayan) leveli bul; boş slotları atla. LevelOrder'ın sonunda
         // boş slotlar var (henüz doldurulmamış), o yüzden "son level = son index" değil,
@@ -269,19 +278,56 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.SetInt(PREF_LEVEL, currentLevelIndex);
         PlayerPrefs.Save();
         
+        // 1. Önce arka planda yeni bölüm yüklensin (3D tahta sahnede oluşur)
         LoadCurrentLevel();
+
+        // 2. Eğer Zafer paneli açıksa: Arkada yeni bölüm hazır durumdayken paneli eriterek kapat!
+        if (UIManager.Instance != null && UIManager.Instance.IsWinPanelActive)
+        {
+            UIManager.Instance.AnimateWinPanelExit(() =>
+            {
+                isTransitioningLevel = false;
+            });
+        }
+        else
+        {
+            isTransitioningLevel = false;
+        }
     }
 
     public void RetryLevel()
     {
         // Reklam açıkken/hemen sonrasında gelen kaza tıkı leveli restart etmesin
-        // (WATCH tıkı RetryBtn'e sızıyordu — bkz. ControlButton.AdInputBlocked).
         if (ControlButton.AdInputBlocked) return;
+        if (isTransitioningLevel) return;
+        isTransitioningLevel = true;
 
         // Analitik: oyuncu bu leveli yeniden denedi (retries++). Ardından LoadCurrentLevel
         // → StartLevel yeni bir attempt (LogLevelStart) olarak da kaydeder.
         FirebaseManager.Instance?.LogLevelRetry(currentLevelIndex);
+        
+        // 1. Önce arka planda seviye sıfırlanıp yüklensin (3D tahta sahnede oluşur)
         LoadCurrentLevel();
+
+        // 2. Paneller açıksa: Arkada seviye hazır durumdayken paneli eriterek kapat!
+        if (UIManager.Instance != null && UIManager.Instance.IsLosePanelActive)
+        {
+            UIManager.Instance.AnimateLosePanelExit(() =>
+            {
+                isTransitioningLevel = false;
+            });
+        }
+        else if (UIManager.Instance != null && UIManager.Instance.IsWinPanelActive)
+        {
+            UIManager.Instance.AnimateWinPanelExit(() =>
+            {
+                isTransitioningLevel = false;
+            });
+        }
+        else
+        {
+            isTransitioningLevel = false;
+        }
     }
 
     // ─── Scoring ─────────────────────────────────────────────────────────────

@@ -83,9 +83,14 @@ public class UIManager : MonoBehaviour
 
     // ─── Level Start ──────────────────────────────────────────────────────────
 
+    public bool IsLosePanelActive => loseOverlay != null && loseOverlay.gameObject.activeSelf;
+
     public void OnLevelStart(int targetScore, float timeLimit)
     {
-        HidePanelsImmediate();
+        if (!IsWinPanelActive && !IsLosePanelActive)
+        {
+            HidePanelsImmediate();
+        }
         RestoreGameplayUI();   // yalnızca RetryBtn; kartları LayerPanelController yönetir
         displayedScore = 0;
         currentTargetScore = targetScore > 0 ? targetScore : 100;
@@ -197,26 +202,39 @@ public class UIManager : MonoBehaviour
     /// </summary>
     private void HideGameplayUI()
     {
-        SetUIObjectsActive(false, "BottomPiecePanel", "RetryBtn");
+        SetUIObjectsActive(false, "BottomPiecePanel", "RetryBtn", "HoldSlotPanel", "ControlButton");
 
         // Sıradaki parça paneli çalışma zamanında üretiliyor; isimle aramak yerine
         // LevelManager'ın tuttuğu referans kullanılır (bkz. oradaki not).
         var preview = LevelManager.Instance != null ? LevelManager.Instance.NextPiecePreviewPanel : null;
         if (preview != null) preview.SetActive(false);
+
+        var hold = LevelManager.Instance != null ? LevelManager.Instance.HoldSlotPanel : null;
+        if (hold != null) hold.SetActive(false);
+
+        if (ControlButton.Instance != null)
+        {
+            ControlButton.Instance.gameObject.SetActive(false);
+        }
     }
 
     /// <summary>
-    /// Seviye başlarken YALNIZCA yeniden başlat butonu geri getirilir.
-    ///
-    /// Parça kartları ve sıradaki parça önizlemesi BİLEREK açılmaz: onlar oyuncu bir
-    /// katmana girince görünmeli ve bunu LayerPanelController yönetiyor
-    /// (OpenPanel -> göster, ResetPanel/ClosePanel -> gizle). Burada hepsini birden
-    /// açmak, LoadLevel'ın sonundaki ResetPanel'ın gizlemesini hemen geri alıyordu;
-    /// Retry'dan sonra kartlar katmana girilmeden, genel bakışta beliriyordu.
-    /// </summary>
     private void RestoreGameplayUI()
     {
-        SetUIObjectsActive(true, "RetryBtn");
+        SetUIObjectsActive(true, "BottomPiecePanel", "RetryBtn", "HoldSlotPanel", "ControlButton");
+
+        var preview = LevelManager.Instance != null ? LevelManager.Instance.NextPiecePreviewPanel : null;
+        if (preview != null) preview.SetActive(true);
+
+        var hold = LevelManager.Instance != null ? LevelManager.Instance.HoldSlotPanel : null;
+        if (hold != null) hold.SetActive(true);
+
+        if (ControlButton.Instance != null)
+        {
+            ControlButton.Instance.gameObject.SetActive(true);
+        }
+
+        LayerPanelController.Instance?.SetBottomPanelVisible(true);
     }
 
     private void SetUIObjectsActive(bool active, params string[] names)
@@ -280,6 +298,8 @@ public class UIManager : MonoBehaviour
     private Vector2    trophyStartPos;
     private bool       trophyPosSaved = false;
 
+    public bool IsWinPanelActive => winOverlay != null && winOverlay.gameObject.activeSelf;
+
     public void ShowWinPanel(int finalScore)
     {
         Debug.Log($"[UIManager] ShowWinPanel tetiklendi! Skor: {finalScore}");
@@ -315,6 +335,54 @@ public class UIManager : MonoBehaviour
         seq.Append(winCard.DOPunchScale(Vector3.one * 0.07f, 0.3f, 5, 0.5f));
     }
 
+    public void AnimateWinPanelExit(System.Action onComplete = null)
+    {
+        if (winOverlay == null || winCard == null)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+
+        // 1. Önce arka planda yeni bölüm yüklendi & 3D tahta sahnede yaylanarak belirir (Elastic In)
+        Transform boardTr = LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null
+            ? LevelManager.Instance.ActiveMainPiece.transform
+            : null;
+
+        if (boardTr != null)
+        {
+            boardTr.localScale = Vector3.one * 0.8f;
+            boardTr.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
+        }
+
+        // 2. Eşzamanlı olarak öndeki Zafer paneli kartı & karartma eriyerek kaybolur (Fade Out)
+        Sequence exitSeq = DOTween.Sequence();
+        exitSeq.Append(winCard.DOScale(0.8f, 0.25f).SetEase(Ease.InBack));
+        exitSeq.Join(winOverlay.DOFade(0f, 0.25f).SetEase(Ease.InQuad));
+
+        exitSeq.OnComplete(() =>
+        {
+            winOverlay.gameObject.SetActive(false);
+            if (activeSunburst != null) Destroy(activeSunburst);
+
+            // 3. Üst Arayüz (HUD) süzülerek kendi konumuna yerleşir
+            AnimateTopBarSlideDown();
+            RestoreGameplayUI();
+
+            onComplete?.Invoke();
+        });
+    }
+
+    private void AnimateTopBarSlideDown()
+    {
+        var topBar = GameObject.Find("TopBar") ?? GameObject.Find("Header") ?? (scoreText != null ? scoreText.transform.parent?.gameObject : null);
+        if (topBar != null && topBar.TryGetComponent<RectTransform>(out var rt))
+        {
+            Vector2 origPos = rt.anchoredPosition;
+            rt.anchoredPosition = origPos + new Vector2(0f, 150f);
+            rt.DOAnchorPosY(origPos.y, 0.4f).SetEase(Ease.OutBack);
+        }
+    }
+
     private void SetupWinAnimations()
     {
         Debug.Log("[UIManager] SetupWinAnimations başlatılıyor...");
@@ -348,16 +416,21 @@ public class UIManager : MonoBehaviour
 
         Debug.Log($"[UIManager] Element Arama Sonuçları -> nextBtn: {(nextBtn != null ? nextBtn.name : "BULUNAMADI")}, trophy: {(trophy != null ? trophy.name : "BULUNAMADI")}, titleText: {(titleText != null ? titleText.name : "BULUNAMADI")}");
 
-        // 2. Sonraki Seviye Butonu Nabız Animasyonu (CTA Pulsing)
-        if (nextBtn != null)
+        // 2. Sonraki Seviye Butonu Tıklama ve Nabız Animasyonu (Button Juice & CTA Pulsing)
+        if (nextBtn != null && nextBtn.TryGetComponent<Button>(out var nBtn))
         {
-            Debug.Log("[UIManager] NextBtn nabız animasyonu başlatılıyor.");
-            nextBtn.DOKill();
-            nextBtn.localScale = Vector3.one;
-            nextBtn.DOScale(1.06f, 0.75f)
-                .SetEase(Ease.InOutSine)
-                .SetLoops(-1, LoopType.Yoyo)
-                .SetUpdate(true);
+            nBtn.interactable = true;
+            nBtn.onClick.RemoveAllListeners();
+            nBtn.onClick.AddListener(() =>
+            {
+                nBtn.interactable = false;
+                nextBtn.DOKill();
+                Sequence pressSeq = DOTween.Sequence();
+                pressSeq.Append(nextBtn.DOScale(0.9f, 0.06f).SetEase(Ease.OutQuad));
+                pressSeq.Append(nextBtn.DOScale(1.0f, 0.18f).SetEase(Ease.OutBack));
+
+                GameManager.Instance?.NextLevel();
+            });
         }
 
         // 3. Kupa İkonu Salınım Animasyonu (Trophy Floating)
@@ -622,13 +695,46 @@ public class UIManager : MonoBehaviour
             Debug.LogError("[UIManager] loseCard atanmamış!");
             return;
         }
-        loseCard.localScale = new Vector3(1f, 0f, 1f);
+        loseCard.localScale = Vector3.zero;
 
         SetupLoseAnimations();
 
         var seq = DOTween.Sequence();
         seq.Append(loseOverlay.DOFade(1f, 0.22f));
-        seq.Join(loseCard.DOScaleY(1f, 0.32f).SetEase(Ease.OutBack));
+        seq.Join(loseCard.DOScale(1f, 0.42f).SetEase(Ease.OutBack));
+    }
+
+    public void AnimateLosePanelExit(System.Action onComplete = null)
+    {
+        if (loseOverlay == null || loseCard == null)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+
+        Transform boardTr = LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null
+            ? LevelManager.Instance.ActiveMainPiece.transform
+            : null;
+
+        if (boardTr != null)
+        {
+            boardTr.localScale = Vector3.one * 0.8f;
+            boardTr.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
+        }
+
+        Sequence exitSeq = DOTween.Sequence();
+        exitSeq.Append(loseCard.DOScale(0.8f, 0.25f).SetEase(Ease.InBack));
+        exitSeq.Join(loseOverlay.DOFade(0f, 0.25f).SetEase(Ease.InQuad));
+
+        exitSeq.OnComplete(() =>
+        {
+            loseOverlay.gameObject.SetActive(false);
+
+            AnimateTopBarSlideDown();
+            RestoreGameplayUI();
+
+            onComplete?.Invoke();
+        });
     }
 
     private void SetupLoseAnimations()
@@ -648,15 +754,21 @@ public class UIManager : MonoBehaviour
 
         Debug.Log($"[UIManager] Lose Element Arama Sonuçları -> retryBtn: {(retryBtn != null ? retryBtn.name : "BULUNAMADI")}, hourglass: {(hourglass != null ? hourglass.name : "BULUNAMADI")}, titleText: {(titleText != null ? titleText.name : "BULUNAMADI")}");
 
-        // 2. Yeniden Dene Butonu Nabız Animasyonu (CTA Pulsing)
-        if (retryBtn != null)
+        // 2. Yeniden Dene Butonu Tıklama ve Nabız Animasyonu (Button Juice & CTA)
+        if (retryBtn != null && retryBtn.TryGetComponent<Button>(out var rBtn))
         {
-            retryBtn.DOKill();
-            retryBtn.localScale = Vector3.one;
-            retryBtn.DOScale(1.06f, 0.75f)
-                .SetEase(Ease.InOutSine)
-                .SetLoops(-1, LoopType.Yoyo)
-                .SetUpdate(true);
+            rBtn.interactable = true;
+            rBtn.onClick.RemoveAllListeners();
+            rBtn.onClick.AddListener(() =>
+            {
+                rBtn.interactable = false;
+                retryBtn.DOKill();
+                Sequence pressSeq = DOTween.Sequence();
+                pressSeq.Append(retryBtn.DOScale(0.9f, 0.06f).SetEase(Ease.OutQuad));
+                pressSeq.Append(retryBtn.DOScale(1.0f, 0.18f).SetEase(Ease.OutBack));
+
+                GameManager.Instance?.RetryLevel();
+            });
         }
 
         // 3. Kum Saati Sallanma Animasyonu (Hourglass Swaying)
@@ -695,8 +807,6 @@ public class UIManager : MonoBehaviour
         CloseSettingsImmediate();
         if (winOverlay)  { winOverlay.alpha  = 0f; winOverlay.gameObject.SetActive(false); }
         if (loseOverlay) { loseOverlay.alpha = 0f; loseOverlay.gameObject.SetActive(false); }
-
-        LayerPanelController.Instance?.SetButtonsVisible(true);
 
         // Win Panel Temizliği
         if (winOverlay != null)

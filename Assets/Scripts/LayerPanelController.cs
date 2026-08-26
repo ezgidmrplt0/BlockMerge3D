@@ -150,16 +150,18 @@ public class LayerPanelController : MonoBehaviour
 
     public void OpenPanel(int layerY, bool instant = false)
     {
-        // Reklam paneli açıkken (ve kapanışından hemen sonra) katman girişi yok sayılır
-        if (ControlButton.AdInputBlocked) return;
-        if (isTransitioning || cam == null || grid == null) return;
+        // Reklam paneli açıkken kullanıcı kaynaklı katman girişi yok sayılır (instant yüklemelerde baypas edilir)
+        if (!instant && ControlButton.AdInputBlocked) return;
+        if (!instant && isTransitioning) return;
+        if (cam == null || grid == null) return;
         if (cam.IsInPanelMode && grid.ActiveLayerY == layerY)
         {
             SetBottomPanelVisible(true);
+            grid.RefreshLayerVisibility();
             return;
         }
-        if (grid.IsExplodingLayer) return;
-        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
+        if (!instant && grid.IsExplodingLayer) return;
+        if (!instant && GameManager.Instance != null && GameManager.Instance.IsLevelOver) return;
 
         if (layerY != grid.ActiveLayerY) return;
 
@@ -262,12 +264,12 @@ public class LayerPanelController : MonoBehaviour
         isTransitioning = false;
         if (backButton != null) backButton.gameObject.SetActive(false);
         SetButtonsVisible(true);
-        SetBottomPanelVisible(false);
+        SetBottomPanelVisible(true);
         BuildLayerButtons();
         GridManager.Instance?.RefreshLayerVisibility();
     }
 
-    private void SetBottomPanelVisible(bool visible)
+    public void SetBottomPanelVisible(bool visible)
     {
         var lm = LevelManager.Instance;
         Transform bottomPanelTransform = null;
@@ -303,6 +305,11 @@ public class LayerPanelController : MonoBehaviour
             ? LevelManager.Instance.HoldSlotPanel
             : null;
         if (holdPanel != null) holdPanel.SetActive(visible);
+
+        if (ControlButton.Instance != null)
+        {
+            ControlButton.Instance.gameObject.SetActive(visible);
+        }
     }
 
     public void SetButtonsVisible(bool visible)

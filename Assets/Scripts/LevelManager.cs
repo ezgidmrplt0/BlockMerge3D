@@ -670,6 +670,11 @@ public class LevelManager : MonoBehaviour
         {
             var lpc = FindObjectOfType<LayerPanelController>();
 
+            // Tüketilen parçanın (boşalan kartın) yerine HEMEN yenisini getir (patlama animasyonunu beklemeden!)
+            gridManager.RefreshLayerVisibility();
+            gridManager.RefreshSpeciesSparkle();
+            SpawnRandomPiece();
+
             if (gridManager.IsLayerComplete(placedLayerY))
             {
                 gridManager.IsExplodingLayer = true;
@@ -680,22 +685,16 @@ public class LevelManager : MonoBehaviour
                             lpc.BuildLayerButtons();
                             lpc.OpenPanel(gridManager.ActiveLayerY);
                         }
-                        HandlePostPiecePlaced(placedLayerY);
+                        CheckGameOver(placedLayerY);
                     },
                     onLevelComplete: () => {
                         GameManager.Instance?.CheckWin();
                     }
                 );
             }
-            else if (iceResolved)
-            {
-                // Buz kırıldı ama katman henüz tamamlanmadı
-                // Panel modda kalıyoruz, sadece piece spawn'ı yapıyoruz
-                HandlePostPiecePlaced(placedLayerY);
-            }
             else
             {
-                HandlePostPiecePlaced(placedLayerY);
+                CheckGameOver(placedLayerY);
             }
         });
     }
