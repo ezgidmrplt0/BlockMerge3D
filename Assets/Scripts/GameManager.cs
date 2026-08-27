@@ -146,8 +146,7 @@ public class GameManager : MonoBehaviour
     public void CheckWin()
     {
         if (levelComplete) return;
-        
-        // Bölümü kazanmak için tüm katmanların (gridin tamamının) kusursuzca temizlenmiş olması gerekir.
+
         bool won = false;
         if (GridManager.Instance != null && GridManager.Instance.IsComplete())
         {
@@ -155,6 +154,7 @@ public class GameManager : MonoBehaviour
         }
 
         if (!won) return;
+        Debug.Log($"[WIN_TIMING] CheckWin → won=true — t={Time.time:F3}");
         levelComplete = true;
         timerRunning  = false;
 
@@ -164,6 +164,7 @@ public class GameManager : MonoBehaviour
         // Parça yerleşim/merge animasyonu devam ediyorsa bitene kadar bekle
         if (blockingAnimations > 0)
         {
+            Debug.Log($"[WIN_TIMING] blockingAnimations={blockingAnimations}, pendingWin bekliyor — t={Time.time:F3}");
             pendingWin = true;
         }
         else
@@ -186,6 +187,7 @@ public class GameManager : MonoBehaviour
         blockingAnimations = Mathf.Max(0, blockingAnimations - 1);
         if (blockingAnimations == 0 && pendingWin)
         {
+            Debug.Log($"[WIN_TIMING] EndBlockingAnimation → pendingWin çözüldü — t={Time.time:F3}");
             pendingWin = false;
             TriggerWinPanel();
         }
@@ -193,7 +195,8 @@ public class GameManager : MonoBehaviour
 
     private void TriggerWinPanel()
     {
-        if (CurrentLevelNumber > 5 && CurrentLevelNumber % 3 == 0)
+        Debug.Log($"[WIN_TIMING] TriggerWinPanel — t={Time.time:F3}");
+        if (CurrentLevelNumber > 5 && CurrentLevelNumber % 5 == 0)
         {
             InterstitialAds.Show(() => UIManager.Instance?.ShowWinPanel(Score));
         }

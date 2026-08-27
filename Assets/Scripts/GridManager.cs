@@ -1149,8 +1149,9 @@ public class GridManager : MonoBehaviour
             RefreshLayerVisibility();
             RefreshSpeciesSparkle();
 
-            float totalAnimDuration = layerSlideDelay + 0.85f;
-            System.Action winFinish = () => { IsExplodingLayer = false; onLevelComplete?.Invoke(); };
+            float totalAnimDuration = layerSlideDelay + 0.3f;
+            Debug.Log($"[WIN_TIMING] ExplodeLayer SON KATMAN — t={Time.time:F3}, winCallback {totalAnimDuration:F2}sn sonra");
+            System.Action winFinish = () => { Debug.Log($"[WIN_TIMING] onLevelComplete fired — t={Time.time:F3}"); IsExplodingLayer = false; onLevelComplete?.Invoke(); };
             DOVirtual.DelayedCall(totalAnimDuration, () => winFinish()).SetId(LEVEL_ANIM_ID);
         }
         else

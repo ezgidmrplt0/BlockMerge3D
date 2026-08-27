@@ -259,11 +259,7 @@ public class LevelManager : MonoBehaviour
 
     public bool IsEarlyTutorialLevel()
     {
-        if (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 5)
-            return true;
-        if (currentLevel != null && (currentLevel.levelName.StartsWith("LEVEL 1") || currentLevel.levelName.StartsWith("LEVEL2") || currentLevel.levelName.StartsWith("LEVEL 3") || currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("JOKER") || currentLevel.levelName.StartsWith("Tutorial_")))
-            return true;
-        return false;
+        return GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 5;
     }
 
     private Quaternion GetFittingRotationForPiece(GameObject shapePrefabOrGO)
