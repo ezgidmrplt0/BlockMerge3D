@@ -80,11 +80,14 @@ public class UnityAdsInterstitial : MonoBehaviour
         {
             Advertisement.Show(adUnitId, this);
         }
+        else if (!initialized)
+        {
+            FailPending();
+        }
         else
         {
-            // Eğer reklam henüz yüklü değilse kısa bir süre bekleyip göster
             showQueued = true;
-            showDeadline = Time.unscaledTime + 5f; // Geçiş reklamında 5 saniye beklemek yeterli
+            showDeadline = Time.unscaledTime + 2f;
             Load();
         }
     }

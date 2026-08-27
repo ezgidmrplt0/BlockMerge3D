@@ -259,11 +259,7 @@ public class LevelManager : MonoBehaviour
 
     public bool IsEarlyTutorialLevel()
     {
-        if (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 5)
-            return true;
-        if (currentLevel != null && (currentLevel.levelName.StartsWith("LEVEL 1") || currentLevel.levelName.StartsWith("LEVEL2") || currentLevel.levelName.StartsWith("LEVEL 3") || currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("JOKER") || currentLevel.levelName.StartsWith("Tutorial_")))
-            return true;
-        return false;
+        return GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 5;
     }
 
     private Quaternion GetFittingRotationForPiece(GameObject shapePrefabOrGO)
@@ -1864,26 +1860,11 @@ public class LevelManager : MonoBehaviour
         int activeLayer = gridManager != null ? gridManager.ActiveLayerY : 0;
         bool hasIceOnActiveLayer = gridManager != null && gridManager.frozenCells != null && gridManager.frozenCells.Any(c => c.y == activeLayer);
 
-        // Sıralı katman parçası seçimi (1 -> 2 -> 3 -> 4): Oyuncuya parçalar kesinlikle katman sırasıyla sunulur.
-        // originLayerY <= activeLayer olan parçalar filtrelenir; böylece alt katmanlar dolmadan üst katman
-        // parçaları kart yuvalarını tıkamaz ve seviye 1-2-3-4 sırasıyla çözülebilir kalır.
         int GetPieceOriginLayer(int pieceIndex)
         {
             if (pieceIndex < 0 || pieceIndex >= allPiecePrefabs.Count || allPiecePrefabs[pieceIndex] == null) return 0;
             var h = allPiecePrefabs[pieceIndex].GetComponent<CubeShapeDataHolder>();
             return (h != null && h.originLayerY >= 0) ? h.originLayerY : 0;
-        }
-
-        List<int> currentLayerAvailable = availableIndices.Where(i => GetPieceOriginLayer(i) <= activeLayer).ToList();
-        if (currentLayerAvailable.Count == 0 && availableIndices.Count > 0)
-        {
-            int minLayer = availableIndices.Min(i => GetPieceOriginLayer(i));
-            currentLayerAvailable = availableIndices.Where(i => GetPieceOriginLayer(i) == minLayer).ToList();
-        }
-
-        if (currentLayerAvailable.Count > 0)
-        {
-            availableIndices = currentLayerAvailable;
         }
 
         bool isSmartTriggered = false;
@@ -1972,13 +1953,20 @@ public class LevelManager : MonoBehaviour
                 List<int> iceBreakerPool = new List<int>();
                 foreach (int i in availableIndices)
                 {
+                    int cellCount = GetPieceCellCount(i);
                     bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
+                    int weight;
                     if (fits)
                     {
                         bool isIceAdj = CandidateHasIceAdjacentPlacement(i);
-                        int weight = isIceAdj ? 10 : 3;
-                        for (int w = 0; w < weight; w++) iceBreakerPool.Add(i);
+                        weight = isIceAdj ? 4 : 2;
+                        if (cellCount <= 1) weight = 1;
                     }
+                    else
+                    {
+                        weight = cellCount > 1 ? 2 : 1;
+                    }
+                    for (int w = 0; w < weight; w++) iceBreakerPool.Add(i);
                 }
 
                 if (iceBreakerPool.Count > 0)
@@ -1987,11 +1975,7 @@ public class LevelManager : MonoBehaviour
                 }
                 else
                 {
-                    var fitsAny = availableIndices.Where(i => CanShapeFitRequiredLayer(allPiecePrefabs[i])).ToList();
-                    if (fitsAny.Count > 0)
-                        nextPieceIndex = fitsAny[Random.Range(0, fitsAny.Count)];
-                    else
-                        nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
+                    nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
                 }
 
                 nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
@@ -2003,44 +1987,45 @@ public class LevelManager : MonoBehaviour
                 // ═══════════════════════════════════════════════════════════════════
                 // Katmandaki buzlar eridi! Editörde bu katman için üretilmiş ana parçalar
                 // (originLayerY == activeLayer) oyuncunun seçimine sunulur.
-                List<int> layerSolutionIndices = new List<int>();
-                foreach (int i in availableIndices)
-                {
-                    var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
-                    if (h != null && h.originLayerY == activeLayer && CanShapeFitRequiredLayer(allPiecePrefabs[i]))
-                    {
-                        layerSolutionIndices.Add(i);
-                    }
-                }
-
-                List<int> targetIndices = layerSolutionIndices.Count > 0 ? layerSolutionIndices : availableIndices;
                 List<int> weightedPool = new List<int>();
-                bool hasMultiCellFits = targetIndices.Any(i => GetPieceCellCount(i) > 1 && CanShapeFitRequiredLayer(allPiecePrefabs[i]));
 
-                foreach (int i in targetIndices)
+                foreach (int i in availableIndices)
                 {
                     int cellCount = GetPieceCellCount(i);
                     bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
 
-                    if (fits)
-                    {
-                        int weight = cellCount > 1 ? (cellCount * 5) : (hasMultiCellFits ? 1 : 3);
-                        if (CandidateCompletesLayerWithHold(i))
-                            weight += cellCount * holdCompletionWeightBonus;
+                    var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
+                    bool isLayerPiece = h != null && h.originLayerY == activeLayer;
 
-                        for (int w = 0; w < weight; w++)
-                            weightedPool.Add(i);
-                    }
-                    else if (cellCount > 1)
+                    int weight;
+                    if (cellCount <= 1)
                     {
-                        weightedPool.Add(i);
+                        weight = 1;
                     }
+                    else if (fits && isLayerPiece)
+                    {
+                        weight = cellCount;
+                    }
+                    else if (fits)
+                    {
+                        weight = 2;
+                    }
+                    else
+                    {
+                        weight = 2;
+                    }
+
+                    if (fits && CandidateCompletesLayerWithHold(i))
+                        weight += holdCompletionWeightBonus;
+
+                    for (int w = 0; w < weight; w++)
+                        weightedPool.Add(i);
                 }
 
                 if (weightedPool.Count > 0)
                     nextPieceIndex = weightedPool[Random.Range(0, weightedPool.Count)];
                 else
-                    nextPieceIndex = targetIndices[Random.Range(0, targetIndices.Count)];
+                    nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
 
                 nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
             }
