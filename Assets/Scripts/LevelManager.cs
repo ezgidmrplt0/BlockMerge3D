@@ -1957,17 +1957,20 @@ public class LevelManager : MonoBehaviour
                 List<int> iceBreakerPool = new List<int>();
                 foreach (int i in availableIndices)
                 {
+                    int cellCount = GetPieceCellCount(i);
                     bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
+                    int weight;
                     if (fits)
                     {
                         bool isIceAdj = CandidateHasIceAdjacentPlacement(i);
-                        int weight = isIceAdj ? 4 : 2;
-                        for (int w = 0; w < weight; w++) iceBreakerPool.Add(i);
+                        weight = isIceAdj ? 4 : 2;
+                        if (cellCount <= 1) weight = 1;
                     }
                     else
                     {
-                        iceBreakerPool.Add(i);
+                        weight = cellCount > 1 ? 2 : 1;
                     }
+                    for (int w = 0; w < weight; w++) iceBreakerPool.Add(i);
                 }
 
                 if (iceBreakerPool.Count > 0)
@@ -1998,11 +2001,23 @@ public class LevelManager : MonoBehaviour
                     var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
                     bool isLayerPiece = h != null && h.originLayerY == activeLayer;
 
-                    int weight = 1;
-                    if (fits && isLayerPiece)
-                        weight = cellCount > 1 ? 3 : 2;
+                    int weight;
+                    if (cellCount <= 1)
+                    {
+                        weight = 1;
+                    }
+                    else if (fits && isLayerPiece)
+                    {
+                        weight = cellCount;
+                    }
                     else if (fits)
+                    {
                         weight = 2;
+                    }
+                    else
+                    {
+                        weight = 2;
+                    }
 
                     if (fits && CandidateCompletesLayerWithHold(i))
                         weight += holdCompletionWeightBonus;
