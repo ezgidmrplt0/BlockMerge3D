@@ -1169,10 +1169,41 @@ public class GridManager : MonoBehaviour
                 ActiveLayerY--;
             }
 
+            // Yeni katmanı henüz gösterme — fade-in ile kademeli açılacak
+            int revealY = ActiveLayerY;
+
+            // Önce görünürlüğü güncelle (yeni katman renderer'ları enabled olsun)
             RefreshLayerVisibility();
             RefreshSpeciesSparkle();
-
             LayerPanelController.Instance?.OpenPanel(ActiveLayerY, instant: true);
+
+            // Yeni katmanın tüm objelerini scale=0 yap, sonra DOScale ile büyüt
+            List<Transform> newLayerTransforms = new List<Transform>();
+            foreach (var kvp in cellObjects)
+            {
+                if (kvp.Key.y == revealY && kvp.Value != null)
+                    newLayerTransforms.Add(kvp.Value.transform);
+            }
+            foreach (var kvp in targetRenderers)
+            {
+                if (kvp.Key.y == revealY && kvp.Value != null && kvp.Value.enabled)
+                    newLayerTransforms.Add(kvp.Value.transform);
+            }
+            foreach (var kvp in prefilledRenderers)
+            {
+                if (kvp.Key.y == revealY && kvp.Value != null)
+                    newLayerTransforms.Add(kvp.Value.transform);
+            }
+
+            float targetScale = CellSize;
+            foreach (var t in newLayerTransforms)
+            {
+                t.localScale = Vector3.zero;
+                t.DOScale(Vector3.one * targetScale, 0.35f)
+                    .SetEase(Ease.OutBack)
+                    .SetDelay(layerSlideDelay * 0.5f)
+                    .SetId(LEVEL_ANIM_ID);
+            }
 
             float totalAnimDuration = layerSlideDelay + 0.85f;
             System.Action layerFinish = () => { IsExplodingLayer = false; onLayerComplete?.Invoke(); };
