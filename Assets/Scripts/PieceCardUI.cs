@@ -293,7 +293,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
             fc.transform.rotation = faceRot;
     }
 
-    private void UpdatePiecePositionAndRotation()
+    public void UpdatePiecePositionAndRotation()
     {
         if (piece3D == null) return;
 

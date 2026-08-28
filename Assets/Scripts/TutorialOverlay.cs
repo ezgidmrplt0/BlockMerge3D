@@ -173,8 +173,7 @@ public class TutorialOverlay : MonoBehaviour
         }
         else if (IsLevel3)
         {
-            // Level 3 (Hold Öğreticisi): Parçayı Hold'a koy -> Parçaları yerleştir
-            steps.Add(TutorialStepType.DragPieceToHold);
+            // Level 3: 1. H parçayı koy -> 2. Orta üst tekli koy -> 3. Orta alt tekli koy
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
@@ -297,21 +296,6 @@ public class TutorialOverlay : MonoBehaviour
         {
             var cards = LevelManager.Instance.pieceCards;
 
-            // LEVEL 4 ÖZEL: 
-            // 1. & 2. Adımda (Döndürmeden önce): KESİNLİKLE en soldaki 1. parçayı (Card 0) hedefle.
-            // 4. Adımda (Döndürme sonrası): KESİNLİKLE en sağdaki 3'lü domuz parçasını (Card 2) hedefle.
-            if (IsLevel4)
-            {
-                if (stepIndex < 3)
-                {
-                    if (cards.Count > 0 && cards[0] != null && cards[0].HasPiece) return 0;
-                    if (cards.Count > 1 && cards[1] != null && cards[1].HasPiece) return 1;
-                }
-                else
-                {
-                    if (cards.Count > 2 && cards[2] != null && cards[2].HasPiece) return 2;
-                }
-            }
 
             // 1. Önce aktif katmana yerleşebilen ilk kartı hedefle
             for (int i = 0; i < cards.Count; i++)

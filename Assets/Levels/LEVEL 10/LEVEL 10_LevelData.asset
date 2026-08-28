@@ -15,12 +15,38 @@ MonoBehaviour:
   levelName: LEVEL 10
   mainShapePrefab: {fileID: 5057278326380236171, guid: b304300aed3cd4b4f943ef8ba026ff68, type: 3}
   complementaryPieces:
-  - {fileID: 6243862557960596487, guid: b62993ad87651f941be37e404c6bea3d, type: 3}
-  - {fileID: 1535215064179533052, guid: a9639a194d3301e4fb65ef4419c0daeb, type: 3}
-  - {fileID: 1403159212419599287, guid: a0d62148699bd204eac7b4244626b3de, type: 3}
-  - {fileID: 1342243340947267577, guid: 191252c08f19730429b34b9e8d0fc65e, type: 3}
+  - {fileID: 5193407126975379140, guid: b62993ad87651f941be37e404c6bea3d, type: 3}
+  - {fileID: 2599539261497811065, guid: a9639a194d3301e4fb65ef4419c0daeb, type: 3}
+  - {fileID: 8443176413823819957, guid: a0d62148699bd204eac7b4244626b3de, type: 3}
+  - {fileID: 1233866747196598839, guid: 191252c08f19730429b34b9e8d0fc65e, type: 3}
+  - {fileID: 5389920502718647626, guid: cb759e91c831a916e9ca890205a9b2a8, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
+  precomputedSolution:
+  - targetWorldCells:
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 1}
+    - {x: 1, y: 0, z: 0}
+    - {x: 2, y: 0, z: 0}
+    - {x: 2, y: 0, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 1, y: 0, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 0, z: 1}
+    - {x: 0, y: 0, z: 0}
+    isSacrifice: 1
+  - targetWorldCells:
+    - {x: 0, y: 1, z: 0}
+    - {x: 0, y: 1, z: 1}
+    - {x: 1, y: 1, z: 1}
+    - {x: 2, y: 1, z: 0}
+    - {x: 2, y: 1, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 1, y: 1, z: 0}
+    isSacrifice: 0
   timeLimit: 90
   targetScore: 0

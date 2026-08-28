@@ -15,14 +15,44 @@ MonoBehaviour:
   levelName: LEVEL 19
   mainShapePrefab: {fileID: 6969620474301770133, guid: b83ac79298acddc46b2495548879ca67, type: 3}
   complementaryPieces:
-  - {fileID: 5247407421821840366, guid: 5c83afbc97807d6439b79f9ebecfb315, type: 3}
-  - {fileID: 9043057182967382314, guid: 37a02b39c4cdac34f9e97bb16a12ae9a, type: 3}
-  - {fileID: 6464354166879916977, guid: 6c960dd84ac03a642bd52858055e4ef1, type: 3}
-  - {fileID: 1765152159359713271, guid: 9256bfae5558dd1408d1c9590da9cfb9, type: 3}
-  - {fileID: 3830787932603473523, guid: 7eb0217b5cf2ed14e9095379679bdc69, type: 3}
-  - {fileID: 6144666815694632524, guid: e3984ff74ce557644b38f634958dfe86, type: 3}
+  - {fileID: 1588273372402805684, guid: 5c83afbc97807d6439b79f9ebecfb315, type: 3}
+  - {fileID: 78942445651526804, guid: 37a02b39c4cdac34f9e97bb16a12ae9a, type: 3}
+  - {fileID: 6340425847377901045, guid: 6c960dd84ac03a642bd52858055e4ef1, type: 3}
+  - {fileID: 350170446029493058, guid: 9256bfae5558dd1408d1c9590da9cfb9, type: 3}
+  - {fileID: 6245015175765832337, guid: 7eb0217b5cf2ed14e9095379679bdc69, type: 3}
+  - {fileID: 1403775933179790308, guid: e3984ff74ce557644b38f634958dfe86, type: 3}
+  - {fileID: 2135544815768818280, guid: bb48c4c5485f7524499093edf5722bd3, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
+  precomputedSolution:
+  - targetWorldCells:
+    - {x: 0, y: 0, z: 1}
+    - {x: 1, y: 0, z: 0}
+    - {x: 1, y: 0, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 0, z: 0}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 1, z: 0}
+    - {x: 0, y: 1, z: 1}
+    - {x: 1, y: 1, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 1, y: 1, z: 0}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 2, z: 0}
+    - {x: 0, y: 2, z: 1}
+    - {x: 1, y: 2, z: 0}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 1, y: 2, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 2, z: 0}
+    - {x: 0, y: 2, z: 1}
+    isSacrifice: 1
   timeLimit: 90
   targetScore: 0

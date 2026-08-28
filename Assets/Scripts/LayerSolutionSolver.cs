@@ -14,6 +14,7 @@ public static class LayerSolutionSolver
         public GameObject prefab;
         public int prefabIndex;
         public List<Vector3Int> targetWorldCells;
+        public bool isSacrifice;
     }
 
     /// <summary>
@@ -23,11 +24,41 @@ public static class LayerSolutionSolver
         int layerY,
         List<Vector3Int> layerCells,
         List<GameObject> allPiecePrefabs,
-        GridManager gridManager)
+        GridManager gridManager,
+        List<PiecePlacement> precomputedSolution = null)
     {
         List<SolutionItem> result = new List<SolutionItem>();
         if (layerCells == null || layerCells.Count == 0 || allPiecePrefabs == null || allPiecePrefabs.Count == 0)
             return result;
+
+        // 0. Önceden hesaplanmış çözüm varsa doğrudan onu kullan
+        if (precomputedSolution != null && precomputedSolution.Count == allPiecePrefabs.Count)
+        {
+            var layerSet = new HashSet<Vector3Int>(layerCells);
+            for (int i = 0; i < precomputedSolution.Count; i++)
+            {
+                var placement = precomputedSolution[i];
+                if (placement == null || placement.targetWorldCells == null || placement.targetWorldCells.Count == 0)
+                    continue;
+
+                if (placement.targetWorldCells[0].y != layerY)
+                    continue;
+
+                bool allInLayer = placement.targetWorldCells.All(c => layerSet.Contains(c));
+                if (!allInLayer) continue;
+
+                result.Add(new SolutionItem
+                {
+                    prefab = allPiecePrefabs[i],
+                    prefabIndex = i,
+                    targetWorldCells = new List<Vector3Int>(placement.targetWorldCells),
+                    isSacrifice = placement.isSacrifice
+                });
+            }
+
+            if (result.Count > 0)
+                return result;
+        }
 
         // 1. Kontrol: allPiecePrefabs içinde bu katmana özel etiketli parçalar var mı? (originLayerY == layerY)
         List<int> taggedIndices = new List<int>();
@@ -47,8 +78,8 @@ public static class LayerSolutionSolver
             {
                 var prefab = allPiecePrefabs[idx];
                 var holder = prefab.GetComponent<CubeShapeDataHolder>();
-                List<Vector3Int> cells = holder != null && holder.occupiedCells.Count > 0 
-                    ? holder.occupiedCells 
+                List<Vector3Int> cells = holder != null && holder.occupiedCells.Count > 0
+                    ? holder.occupiedCells
                     : new List<Vector3Int> { Vector3Int.zero };
 
                 result.Add(new SolutionItem

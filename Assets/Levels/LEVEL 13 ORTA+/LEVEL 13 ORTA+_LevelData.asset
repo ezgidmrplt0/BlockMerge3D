@@ -15,15 +15,65 @@ MonoBehaviour:
   levelName: LEVEL 13 ORTA+
   mainShapePrefab: {fileID: 8706884345478287835, guid: 067a4013f8fb9564da9911b5bc67a65d, type: 3}
   complementaryPieces:
-  - {fileID: 1442122764728840364, guid: f907066a913f4e5418778529618c33f6, type: 3}
-  - {fileID: 5759952408803513777, guid: ecb4015593e404e41b0c8e7a97861d75, type: 3}
-  - {fileID: 623121281793937495, guid: 47e788bc01a90bf48b908040372032a5, type: 3}
-  - {fileID: 6867449991756199877, guid: 484fab2522c84a649852ef52f1486d8d, type: 3}
-  - {fileID: 6867449991756199877, guid: 484fab2522c84a649852ef52f1486d8d, type: 3}
-  - {fileID: 3633171713042945725, guid: 98dde30ba0f1a6b49b91770f70e5ecd4, type: 3}
-  - {fileID: 2083291060917170176, guid: 3f18276b67099654faf4854f0cc0ccf0, type: 3}
+  - {fileID: 4436124978186918241, guid: f907066a913f4e5418778529618c33f6, type: 3}
+  - {fileID: 8154926128339973024, guid: ecb4015593e404e41b0c8e7a97861d75, type: 3}
+  - {fileID: 8154926128339973024, guid: ecb4015593e404e41b0c8e7a97861d75, type: 3}
+  - {fileID: 4552588230984516509, guid: 47e788bc01a90bf48b908040372032a5, type: 3}
+  - {fileID: 7094820786300039875, guid: 484fab2522c84a649852ef52f1486d8d, type: 3}
+  - {fileID: 8181178764483454465, guid: 98dde30ba0f1a6b49b91770f70e5ecd4, type: 3}
+  - {fileID: 8181178764483454465, guid: 98dde30ba0f1a6b49b91770f70e5ecd4, type: 3}
+  - {fileID: 1445644597847883236, guid: 3f18276b67099654faf4854f0cc0ccf0, type: 3}
+  - {fileID: 551094557902067514, guid: 63ac6cadc8c71f8adb543e7d8315dcf9, type: 3}
+  - {fileID: 8287632004594628178, guid: a11b119979f6973c592a7ce7da66c29a, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
+  precomputedSolution:
+  - targetWorldCells:
+    - {x: 1, y: 0, z: 1}
+    - {x: 0, y: 0, z: 0}
+    - {x: 1, y: 0, z: 0}
+    - {x: 2, y: 0, z: 0}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 0, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 2, y: 0, z: 2}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 1}
+    isSacrifice: 1
+  - targetWorldCells:
+    - {x: 1, y: 1, z: 2}
+    - {x: 2, y: 1, z: 2}
+    - {x: 0, y: 1, z: 1}
+    - {x: 1, y: 1, z: 1}
+    - {x: 2, y: 1, z: 1}
+    - {x: 0, y: 1, z: 0}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 1, z: 2}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 1, y: 1, z: 0}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 2, y: 2, z: 0}
+    - {x: 2, y: 2, z: 1}
+    - {x: 2, y: 2, z: 2}
+    - {x: 1, y: 2, z: 2}
+    - {x: 0, y: 2, z: 2}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 1, y: 2, z: 0}
+    - {x: 1, y: 2, z: 1}
+    - {x: 0, y: 2, z: 1}
+    isSacrifice: 0
+  - targetWorldCells:
+    - {x: 0, y: 2, z: 2}
+    - {x: 0, y: 2, z: 1}
+    isSacrifice: 1
   timeLimit: 90
   targetScore: 0

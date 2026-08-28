@@ -32,7 +32,19 @@ public class LevelData : ScriptableObject
              "dinamik zorluk rolü devre dışı kalır (hitCount=1). Tutorial (ör. LEVEL 4) için.")]
     public bool forceSingleHitIce = false;
 
+    [Header("Pre-computed Solution")]
+    [Tooltip("Rebuild aracı tarafından yazılır. Her eleman complementaryPieces ile paralel: " +
+             "parçanın grid üzerindeki hedef hücrelerini (dünya koordinatı) tutar.")]
+    public List<PiecePlacement> precomputedSolution = new List<PiecePlacement>();
+
     [Header("Win Conditions")]
     public float timeLimit   = 60f;   // saniye; 0 = süresiz
     public int   targetScore = 100;   // 0 = eski grid-tamamlama mantığı
+}
+
+[System.Serializable]
+public class PiecePlacement
+{
+    public List<Vector3Int> targetWorldCells = new List<Vector3Int>();
+    public bool isSacrifice;
 }
