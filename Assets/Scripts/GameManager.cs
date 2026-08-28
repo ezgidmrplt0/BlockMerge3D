@@ -241,6 +241,7 @@ public class GameManager : MonoBehaviour
 
         // Analitik: level kaybedildi (süre doldu / hamle kalmadı).
         FirebaseManager.Instance?.LogLevelFail(currentLevelIndex, totalTime - remainingTime);
+        LevelManager.Instance?.MarkCurrentLevelFailedOrRetried();
 
         UIManager.Instance?.ShowLosePanel(Score, reason);
     }
@@ -308,6 +309,7 @@ public class GameManager : MonoBehaviour
         // Analitik: oyuncu bu leveli yeniden denedi (retries++). Ardından LoadCurrentLevel
         // → StartLevel yeni bir attempt (LogLevelStart) olarak da kaydeder.
         FirebaseManager.Instance?.LogLevelRetry(currentLevelIndex);
+        LevelManager.Instance?.MarkCurrentLevelFailedOrRetried();
         
         // 1. Önce arka planda seviye sıfırlanıp yüklensin (3D tahta sahnede oluşur)
         LoadCurrentLevel();

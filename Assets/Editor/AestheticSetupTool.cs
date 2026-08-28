@@ -7,18 +7,18 @@ public class AestheticSetupTool : EditorWindow
 {
     private Color[] premiumColors = new Color[]
     {
-        new Color(0.95f, 0.25f, 0.60f), // Canlı Magenta / Pembe
-        new Color(0.15f, 0.85f, 0.90f), // Turkuaz / Aqua
-        new Color(0.98f, 0.90f, 0.55f), // Pastel Sarı / Krem
-        new Color(0.65f, 0.55f, 0.90f), // Yumuşak Lavanta
-        new Color(0.95f, 0.60f, 0.40f), // Sıcak Şeftali / Turuncu
-        new Color(0.40f, 0.90f, 0.70f), // Mint Yeşili
-        new Color(0.45f, 0.65f, 0.95f)  // Gökyüzü Mavisi
+        new Color(0.96f, 0.18f, 0.22f), // Sıcak Canlı Kırmızı
+        new Color(1.00f, 0.45f, 0.05f), // Sıcak Canlı Turuncu
+        new Color(1.00f, 0.76f, 0.05f), // Sıcak Altın Sarısı
+        new Color(0.98f, 0.16f, 0.52f), // Sıcak Canlı Pembe / Fuşya
+        new Color(0.64f, 0.18f, 0.95f), // Sıcak Canlı Mor
+        new Color(0.32f, 0.85f, 0.15f), // Sıcak Canlı Fıstık Yeşili
+        new Color(0.05f, 0.75f, 0.95f)  // Canlı Elektrik Turkuaz / Aqua
     };
 
-    private float materialSmoothness = 0.1f;
+    private float materialSmoothness = 0.60f;
     private float materialMetallic = 0.0f;
-    private float materialEmissionMultiplier = 0.25f;
+    private float materialEmissionMultiplier = 0.0f;
 
     public System.Action onRepaintRequested;
 

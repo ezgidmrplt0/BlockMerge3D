@@ -87,15 +87,59 @@ public class LevelManager : MonoBehaviour
         Instance    = this;
         gridManager = GetComponent<GridManager>();
         if (gridManager == null) gridManager = gameObject.AddComponent<GridManager>();
+        EnsureScreenBackgroundCreated();
     }
 
     private void Start()
     {
-        // Material assets will be assigned via inspector by the AestheticSetupTool
+        EnsureScreenBackgroundCreated();
+    }
+
+    public void EnsureScreenBackgroundCreated()
+    {
+        Color darkNavyColor = new Color(0.043f, 0.067f, 0.125f, 1f); // Koyu Lacivert (#0B1120)
+
+        var mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            mainCam.clearFlags = CameraClearFlags.SolidColor;
+            mainCam.backgroundColor = darkNavyColor;
+        }
+
+        var sfb = FindObjectOfType<ScreenFillBackground>();
+        if (sfb == null)
+        {
+            GameObject bgGO = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            bgGO.name = "ScreenFillBackground";
+            var col = bgGO.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+
+            sfb = bgGO.AddComponent<ScreenFillBackground>();
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) shader = Shader.Find("Standard");
+
+            Material mat = new Material(shader);
+            mat.name = "BackgroundDarkNavyMat";
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", darkNavyColor);
+            else if (mat.HasProperty("_Color")) mat.SetColor("_Color", darkNavyColor);
+
+            var r = bgGO.GetComponent<Renderer>();
+            if (r != null)
+            {
+                r.sharedMaterial = mat;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+        }
+
+        sfb.ApplyBackgroundColor();
     }
 
     public void LoadLevel(LevelData level)
     {
+        EnsureScreenBackgroundCreated();
         ClearCurrentLevel();
 
         // currentLevel alanı vardı ama HİÇ atanmıyordu (yalnızca inspector'daki değer
@@ -205,6 +249,8 @@ public class LevelManager : MonoBehaviour
         // Öğretici adımları (varsa) burada başlar — kartlar spawn edilip panel
         // sıfırlandıktan SONRA, çünkü gösterge kart/buton konumlarını okuyor.
         TutorialOverlay.Instance?.BeginForLevel(level);
+
+        UpdateHintHighlights();
     }
 
     [Header("Color Palette Settings (Material-Based)")]
@@ -255,6 +301,8 @@ public class LevelManager : MonoBehaviour
 
         // Get the new next piece index
         PrepareNextPieceIndex();
+
+        UpdateHintHighlights();
     }
 
     public bool IsEarlyTutorialLevel()
@@ -383,6 +431,161 @@ public class LevelManager : MonoBehaviour
         if (index < 0 || index >= allPiecePrefabs.Count || allPiecePrefabs[index] == null) return 1;
         var h = allPiecePrefabs[index].GetComponent<CubeShapeDataHolder>();
         return (h != null && h.occupiedCells != null && h.occupiedCells.Count > 0) ? h.occupiedCells.Count : 1;
+    }
+
+    // ── İpucu (Hint) Sistemi ──────────────────────────────────────────────────
+    private static readonly HashSet<int> failedOrRetriedLevels = new HashSet<int>();
+    private int remainingHintMoves = 0;
+    private float lastPlayerActionTime = 0f;
+    private const float IDLE_HINT_DELAY = 6.0f; // 6 saniye takılırsa 1 hamlelik destek ver
+
+    public void MarkCurrentLevelFailedOrRetried()
+    {
+        int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+        failedOrRetriedLevels.Add(levelNum);
+        remainingHintMoves = 1; // Retry / Fail sonrası 1 hamlelik başlangıç yardımı ver
+        lastPlayerActionTime = Time.time;
+        UpdateHintHighlights();
+    }
+
+    public bool IsHintActiveForCurrentLevel()
+    {
+        int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+        return failedOrRetriedLevels.Contains(levelNum);
+    }
+
+    public void OnPlayerInteracted()
+    {
+        lastPlayerActionTime = Time.time;
+    }
+
+    private void Update()
+    {
+        // Retried/Failed yapılmış seviyede oyuncu 6 saniye boyunca hamle yapmadan takılırsa 1 hamlelik destek ver
+        if (IsHintActiveForCurrentLevel() && remainingHintMoves <= 0)
+        {
+            if (Time.time - lastPlayerActionTime >= IDLE_HINT_DELAY)
+            {
+                remainingHintMoves = 1;
+                lastPlayerActionTime = Time.time;
+                UpdateHintHighlights();
+            }
+        }
+    }
+
+    public void UpdateHintHighlights()
+    {
+        if (pieceCards == null || pieceCards.Count == 0) return;
+
+        bool isHintActive = IsHintActiveForCurrentLevel() && remainingHintMoves > 0;
+
+        if (!isHintActive)
+        {
+            foreach (var card in pieceCards)
+            {
+                card?.SetHintHighlight(false);
+            }
+            if (holdCard != null) holdCard.SetHintHighlight(false);
+            gridManager?.ClearHintGridHighlights();
+            return;
+        }
+
+        PieceCardUI bestCard = GetBestPlaceableCard(out List<Vector3Int> bestTargetCells);
+
+        foreach (var card in pieceCards)
+        {
+            if (card == null) continue;
+            bool shouldHighlight = (card == bestCard && card.HasPiece);
+            card.SetHintHighlight(shouldHighlight);
+        }
+
+        if (holdCard != null)
+        {
+            bool shouldHighlightHold = (holdCard == bestCard && holdCard.HasPiece);
+            holdCard.SetHintHighlight(shouldHighlightHold);
+        }
+
+        if (gridManager != null)
+        {
+            gridManager.SetHintGridHighlights(bestTargetCells);
+        }
+    }
+
+    private PieceCardUI GetBestPlaceableCard(out List<Vector3Int> bestTargetCells)
+    {
+        bestTargetCells = new List<Vector3Int>();
+        if (gridManager == null) return null;
+
+        List<PieceCardUI> candidates = new List<PieceCardUI>();
+        if (pieceCards != null)
+        {
+            foreach (var c in pieceCards)
+            {
+                if (c != null && c.HasPiece) candidates.Add(c);
+            }
+        }
+        if (holdCard != null && holdCard.HasPiece)
+        {
+            candidates.Add(holdCard);
+        }
+
+        if (candidates.Count == 0) return null;
+
+        Quaternion[] possibleRotations = new Quaternion[]
+        {
+            Quaternion.identity,
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0)
+        };
+
+        PieceCardUI bestCard = null;
+        int maxScore = -1;
+
+        foreach (var card in candidates)
+        {
+            if (card.Draggable == null || card.Draggable.gameObject == null) continue;
+            var holder = card.Draggable.gameObject.GetComponent<CubeShapeDataHolder>();
+            if (holder == null || holder.occupiedCells == null || holder.occupiedCells.Count == 0) continue;
+
+            int cardBestScore = -1;
+            List<Vector3Int> cardBestCells = null;
+
+            foreach (var rot in possibleRotations)
+            {
+                var rotatedCells = GridManager.RotateCells(holder.occupiedCells, rot);
+                var offsets = gridManager.GetPossibleOffsets(rotatedCells);
+                if (offsets.Count == 0) continue; // Yerleştirilemiyor
+
+                foreach (var off in offsets)
+                {
+                    int currentScore = 10;
+                    
+                    var mCol = gridManager.GetMergeColor(rotatedCells, off);
+                    if (mCol.HasValue)
+                    {
+                        currentScore += 100 * holder.occupiedCells.Count;
+                    }
+
+                    currentScore += holder.occupiedCells.Count * 2;
+
+                    if (currentScore > cardBestScore)
+                    {
+                        cardBestScore = currentScore;
+                        cardBestCells = rotatedCells.Select(c => c + off).ToList();
+                    }
+                }
+            }
+
+            if (cardBestScore > maxScore)
+            {
+                maxScore = cardBestScore;
+                bestCard = card;
+                if (cardBestCells != null) bestTargetCells = cardBestCells;
+            }
+        }
+
+        return bestCard ?? candidates.FirstOrDefault(c => c.HasPiece);
     }
 
     private int FindBestPieceIndex(out Quaternion rotation, out Color? recommendedColor, out bool foundMerge, List<int> candidateIndices = null)
@@ -621,6 +824,12 @@ public class LevelManager : MonoBehaviour
         // o kartı kalıcı olarak boş bırakıyordu. Artık idx'ten bağımsız olarak devam
         // ediyoruz; idx yalnızca activePieces'ten çıkarma adımını korumak için kullanılıyor.
         int idx = activePieces.IndexOf(piece.gameObject);
+
+        OnPlayerInteracted();
+        if (remainingHintMoves > 0)
+        {
+            remainingHintMoves--;
+        }
 
         AudioManager.Instance?.PlayPlacementSound();
         TutorialEvents.RaisePiecePlaced();

@@ -10,11 +10,27 @@ public class ScreenFillBackground : MonoBehaviour
     [Tooltip("Kameradan uzaklık (derinlik) — board ve taşların GERİSİNDE kalacak bir değer seç")]
     public float depth = 60f;
 
+    // Orijinal Koyu Lacivert Arka Plan Rengi (#0B1120)
+    public static readonly Color DarkNavy = new Color(0.043f, 0.067f, 0.125f, 1f);
+
     private Camera cam;
 
-    private static readonly Color DarkNavy = new Color(0.043f, 0.067f, 0.125f, 1f);
+    private void Awake()
+    {
+        ApplyBackgroundColor();
+    }
 
     private void Start()
+    {
+        ApplyBackgroundColor();
+    }
+
+    private void OnEnable()
+    {
+        ApplyBackgroundColor();
+    }
+
+    public void ApplyBackgroundColor()
     {
         if (cam == null) cam = Camera.main;
         if (cam != null)
@@ -26,8 +42,18 @@ public class ScreenFillBackground : MonoBehaviour
         var r = GetComponent<Renderer>();
         if (r != null)
         {
-            if (r.material.HasProperty("_BaseColor")) r.material.SetColor("_BaseColor", DarkNavy);
-            else if (r.material.HasProperty("_Color")) r.material.SetColor("_Color", DarkNavy);
+            if (r.sharedMaterial != null)
+            {
+                if (r.sharedMaterial.HasProperty("_BaseColor")) r.sharedMaterial.SetColor("_BaseColor", DarkNavy);
+                if (r.sharedMaterial.HasProperty("_Color")) r.sharedMaterial.SetColor("_Color", DarkNavy);
+                r.sharedMaterial.color = DarkNavy;
+            }
+            if (r.material != null)
+            {
+                if (r.material.HasProperty("_BaseColor")) r.material.SetColor("_BaseColor", DarkNavy);
+                if (r.material.HasProperty("_Color")) r.material.SetColor("_Color", DarkNavy);
+                r.material.color = DarkNavy;
+            }
         }
     }
 
@@ -35,6 +61,11 @@ public class ScreenFillBackground : MonoBehaviour
     {
         if (cam == null) cam = Camera.main;
         if (cam == null) return;
+
+        if (cam.backgroundColor != DarkNavy)
+        {
+            cam.backgroundColor = DarkNavy;
+        }
 
         transform.position = cam.ViewportToWorldPoint(new Vector3(0.5f, 0.5f, depth));
         transform.rotation = cam.transform.rotation;

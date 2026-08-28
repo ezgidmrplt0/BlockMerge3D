@@ -233,17 +233,25 @@ public class GridManager : MonoBehaviour
         lastHighlightedCells.Clear();
         foreach (var c in highlightedCells) lastHighlightedCells.Add(c);
 
-        // 2. Parıldayan hücrelerin animasyonu (altın sarısı puls efekti)
+        // 2. Parıldayan ipucu hücrelerinin animasyonu (yanıp sönme & güçlü altın neon parlama)
         if (highlightedCells.Count > 0)
         {
-            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 8f);
-            Color highlightColor = Color.Lerp(new Color(1.0f, 0.85f, 0.2f, 0.85f), new Color(1.0f, 1.0f, 0.5f, 0.95f), pulse);
-            Color emissionColor = new Color(0.9f, 0.7f, 0.1f) * (0.8f + 1.2f * pulse);
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 3.5f);
+            Color highlightColor = Color.Lerp(new Color(1.0f, 0.88f, 0.20f, 0.22f), new Color(1.0f, 0.88f, 0.20f, 0.42f), pulse);
+            Color emissionColor = new Color(0.15f, 0.12f, 0.02f) * (0.5f + 0.5f * pulse);
+
+            Material hintMat = GetOrCreateHintTransparentMaterial();
 
             foreach (var cell in highlightedCells)
             {
-                if (targetRenderers.TryGetValue(cell, out Renderer r) && r != null && r.enabled)
+                Renderer r = null;
+                if (targetRenderers.TryGetValue(cell, out var r1) && r1 != null) r = r1;
+                else if (prefilledRenderers.TryGetValue(cell, out var r2) && r2 != null) r = r2;
+                else if (cellObjects.TryGetValue(cell, out var go) && go != null) r = go.GetComponent<Renderer>();
+
+                if (r != null && r.enabled)
                 {
+                    if (r.sharedMaterial != hintMat) r.sharedMaterial = hintMat;
                     r.GetPropertyBlock(PropBlock);
                     PropBlock.SetColor("_BaseColor", highlightColor);
                     PropBlock.SetColor("_Color", highlightColor);
@@ -586,9 +594,12 @@ public class GridManager : MonoBehaviour
                     {
                         if (highlightedCells.Contains(cell))
                         {
-                            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 8f);
-                            Color highlightColor = Color.Lerp(new Color(1.0f, 0.85f, 0.2f, 0.85f), new Color(1.0f, 1.0f, 0.5f, 0.95f), pulse);
-                            Color emissionColor = new Color(0.9f, 0.7f, 0.1f) * (0.8f + 1.2f * pulse);
+                            Material hintMat = GetOrCreateHintTransparentMaterial();
+                            if (r.sharedMaterial != hintMat) r.sharedMaterial = hintMat;
+
+                            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 3.5f);
+                            Color highlightColor = Color.Lerp(new Color(1.0f, 0.88f, 0.20f, 0.22f), new Color(1.0f, 0.88f, 0.20f, 0.42f), pulse);
+                            Color emissionColor = new Color(0.15f, 0.12f, 0.02f) * (0.5f + 0.5f * pulse);
 
                             PropBlock.SetColor("_BaseColor", highlightColor);
                             PropBlock.SetColor("_Color", highlightColor);
@@ -596,6 +607,12 @@ public class GridManager : MonoBehaviour
                         }
                         else
                         {
+                            if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+                            {
+                                if (r.sharedMaterial != LevelManager.Instance.ghostTargetMaterial)
+                                    r.sharedMaterial = LevelManager.Instance.ghostTargetMaterial;
+                            }
+
                             Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
                             if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
                             {
@@ -2807,5 +2824,55 @@ public class GridManager : MonoBehaviour
                 t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
             }
         }
+    }
+
+    // ── İpucu (Hint) 3D Tahta Vurgulama Sistemi ─────────────────────────────
+    public void SetHintGridHighlights(List<Vector3Int> targetCells)
+    {
+        highlightedCells.Clear();
+
+        if (targetCells != null && targetCells.Count > 0)
+        {
+            foreach (var cell in targetCells)
+            {
+                highlightedCells.Add(cell);
+            }
+        }
+
+        RefreshLayerVisibility();
+    }
+
+    public void ClearHintGridHighlights()
+    {
+        highlightedCells.Clear();
+        RefreshLayerVisibility();
+    }
+
+    private Material hintTransparentMaterial;
+
+    private Material GetOrCreateHintTransparentMaterial()
+    {
+        if (hintTransparentMaterial != null) return hintTransparentMaterial;
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Simple Lit");
+        if (shader == null) shader = Shader.Find("Standard");
+
+        hintTransparentMaterial = new Material(shader);
+        hintTransparentMaterial.name = "HintTransparentMat";
+
+        if (hintTransparentMaterial.HasProperty("_Surface")) hintTransparentMaterial.SetFloat("_Surface", 1f); // Transparent
+        if (hintTransparentMaterial.HasProperty("_Blend")) hintTransparentMaterial.SetFloat("_Blend", 0f); // Alpha blend
+        if (hintTransparentMaterial.HasProperty("_SrcBlend")) hintTransparentMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        if (hintTransparentMaterial.HasProperty("_DstBlend")) hintTransparentMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        if (hintTransparentMaterial.HasProperty("_ZWrite")) hintTransparentMaterial.SetFloat("_ZWrite", 0f);
+
+        hintTransparentMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        hintTransparentMaterial.EnableKeyword("_ALPHAPREMULTIPLY_ON");
+        hintTransparentMaterial.EnableKeyword("_EMISSION");
+        hintTransparentMaterial.SetColor("_EmissionColor", Color.white);
+        hintTransparentMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 10;
+
+        return hintTransparentMaterial;
     }
 }

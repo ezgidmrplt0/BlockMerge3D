@@ -8,14 +8,14 @@ public class PieceSplitterWindow : EditorWindow
 {
     private static readonly Color[] PIECE_COLORS =
     {
-        new Color(1f,    0.38f, 0.38f),
-        new Color(0.38f, 0.78f, 0.42f),
-        new Color(0.38f, 0.58f, 1f),
-        new Color(1f,    0.85f, 0.25f),
-        new Color(0.85f, 0.38f, 0.9f),
-        new Color(0.3f,  0.88f, 0.88f),
-        new Color(1f,    0.58f, 0.25f),
-        new Color(0.75f, 0.75f, 0.8f),
+        new Color(0.96f, 0.18f, 0.22f), // Sıcak Kırmızı
+        new Color(1.00f, 0.45f, 0.05f), // Sıcak Turuncu
+        new Color(1.00f, 0.76f, 0.05f), // Sıcak Altın Sarısı
+        new Color(0.98f, 0.16f, 0.52f), // Sıcak Pembe
+        new Color(0.64f, 0.18f, 0.95f), // Canlı Mor
+        new Color(0.32f, 0.85f, 0.15f), // Sıcak Canlı Yeşil
+        new Color(0.05f, 0.75f, 0.95f), // Canlı Turkuaz/Mavi
+        new Color(0.98f, 0.35f, 0.65f), // Mercan Pembe
     };
 
     // --- State ---

@@ -695,11 +695,27 @@ async function loadData() {
 }
 
 // ── Build User Object ─────────────────────────────────────────
+// Bazı cihazların sistem saati ileride olabiliyor (yanlış ayarlı saat/saat dilimi) —
+// bu durumda last_seen/first_open "şimdi"den ileri bir zaman damgası taşıyor ve
+// ham fark negatif çıkıyor ("-2g önce" gibi anlamsız bir görüntü). Bunu ayrı bir
+// "saat hatası" durumu olarak işaretleyip negatif sayı göstermek yerine uyarı basıyoruz.
+function relDaysLabel(days) {
+  if (days === null) return '—';
+  if (days === 0) return 'Bugün';
+  if (days === 1) return 'Dün';
+  return days + ' gün önce';
+}
+
 function buildUser(uid, d) {
-  const lastTs   = d.last_seen?.toDate?.() || null;
+  const lastTs   = d.last_seen?.toDate?.()  || null;
   const firstTs  = d.first_open?.toDate?.() || null;
   const now      = Date.now();
-  const daysSince = lastTs ? (now - lastTs.getTime()) / 86400000 : 9999;
+
+  const lastSkew  = !!(lastTs  && lastTs.getTime()  > now);
+  const firstSkew = !!(firstTs && firstTs.getTime() > now);
+
+  const daysSince        = lastTs  ? Math.max(0, Math.floor((now - lastTs.getTime())  / 86400000)) : 9999;
+  const daysSinceInstall = firstTs ? Math.max(0, Math.floor((now - firstTs.getTime()) / 86400000)) : null;
 
   const status = daysSince > 7 ? 'churned' : daysSince > 3 ? 'risk' : 'active';
 
@@ -717,12 +733,14 @@ function buildUser(uid, d) {
     total_retries:      d.total_retries      || 0,
     last_seen:          lastTs  ? fmtDate(lastTs)  : '—',
     last_seen_ts:       lastTs  ? lastTs.getTime()  : 0,
+    last_seen_rel:      lastSkew  ? '⚠ Saat hatası' : relDaysLabel(lastTs ? daysSince : null),
     first_open:         firstTs ? fmtDate(firstTs) : '—',
     first_open_ts:      firstTs ? firstTs.getTime() : 0,
+    first_open_rel:     firstSkew ? '⚠ Saat hatası' : relDaysLabel(daysSinceInstall),
     platform:           d.platform    || '',
     app_version:        d.app_version || '',
     status,
-    daysSince: Math.floor(daysSince),
+    daysSince,
     raw: d
   };
 }
@@ -813,9 +831,12 @@ function renderTable(users) {
       <td>${u.total_retries}</td>
       <td>
         <div>${u.last_seen}</div>
-        ${u.daysSince < 9999 ? `<div style="font-size:11px;color:var(--text-muted)">${u.daysSince}g önce</div>` : ''}
+        <div style="font-size:11px;color:${u.last_seen_rel.startsWith('⚠') ? 'var(--warning)' : 'var(--text-muted)'}">${u.last_seen_rel}</div>
       </td>
-      <td style="font-size:12px;color:var(--text-muted)">${u.first_open}</td>
+      <td>
+        <div style="font-size:12px;color:var(--text-muted)">${u.first_open}</div>
+        <div style="font-size:11px;color:${u.first_open_rel.startsWith('⚠') ? 'var(--warning)' : 'var(--text-dim)'}">${u.first_open_rel}</div>
+      </td>
       <td>${badge(u.status)}</td>
     </tr>
   `).join('');

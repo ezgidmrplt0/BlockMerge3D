@@ -35,6 +35,11 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     private Vector3        localVisualCenter = Vector3.zero;
     private float          localVisualRadius = 1f;
 
+    [Header("Hint UI Referansı")]
+    public GameObject hintOutline;
+    private Sequence  hintTweenSequence;
+    private bool      isHintHighlighted;
+
     public bool HasPiece => piece3D != null;
     public DraggablePiece Draggable => draggable;
 
@@ -175,6 +180,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         piece3D = null;
         draggable = null;
         isDraggingOut = false;
+        SetHintHighlight(false);
         UpdateVisuals();
         return extracted;
     }
@@ -195,6 +201,7 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
         piece3D   = null;
         draggable = null;
+        SetHintHighlight(false);
         UpdateVisuals();
     }
 
@@ -508,10 +515,153 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
             col.a = 1.0f;
             cardBg.color = col;
         }
+
+        if (!HasPiece)
+        {
+            SetHintHighlight(false);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // İpucu (Hint) Parlama Vurgusu (Saf Sarı Parlak Çerçeve)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static Sprite customYellowBorderSprite;
+
+    private static Sprite GetOrCreateYellowBorderSprite()
+    {
+        if (customYellowBorderSprite != null) return customYellowBorderSprite;
+
+        int size = 64;
+        int border = 8;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Color[] colors = new Color[size * size];
+
+        float cornerRadius = 14f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = Mathf.Max(0, Mathf.Abs(x - size / 2f + 0.5f) - (size / 2f - cornerRadius));
+                float dy = Mathf.Max(0, Mathf.Abs(y - size / 2f + 0.5f) - (size / 2f - cornerRadius));
+                float outerDist = Mathf.Sqrt(dx * dx + dy * dy);
+
+                float idx = Mathf.Max(0, Mathf.Abs(x - size / 2f + 0.5f) - (size / 2f - border - cornerRadius));
+                float idy = Mathf.Max(0, Mathf.Abs(y - size / 2f + 0.5f) - (size / 2f - border - cornerRadius));
+                float innerDist = Mathf.Sqrt(idx * idx + idy * idy);
+
+                float alpha = 0f;
+
+                if (outerDist <= cornerRadius)
+                {
+                    float outerAlpha = Mathf.Clamp01(cornerRadius - outerDist + 0.5f);
+
+                    if (innerDist < (cornerRadius - border))
+                    {
+                        alpha = 0f; // Ortası şeffaf delik
+                    }
+                    else
+                    {
+                        float innerAlpha = Mathf.Clamp01(outerDist - (cornerRadius - border) + 0.5f);
+                        alpha = Mathf.Min(outerAlpha, innerAlpha);
+                    }
+                }
+
+                colors[y * size + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+
+        tex.SetPixels(colors);
+        tex.Apply();
+        tex.filterMode = FilterMode.Bilinear;
+
+        Vector4 borderVector = new Vector4(border + 2, border + 2, border + 2, border + 2);
+        customYellowBorderSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, borderVector);
+        return customYellowBorderSprite;
+    }
+
+    public void SetHintHighlight(bool enable)
+    {
+        if (!enable || !HasPiece)
+        {
+            if (isHintHighlighted || (hintOutline != null && hintOutline.activeSelf))
+            {
+                isHintHighlighted = false;
+                hintTweenSequence?.Kill();
+                hintTweenSequence = null;
+
+                if (hintOutline != null)
+                {
+                    hintOutline.SetActive(false);
+                }
+            }
+            return;
+        }
+
+        if (isHintHighlighted && hintOutline != null && hintOutline.activeSelf) return;
+        isHintHighlighted = true;
+
+        EnsureHintOutlineCreated();
+
+        if (hintOutline != null)
+        {
+            hintOutline.SetActive(true);
+            hintOutline.transform.SetAsLastSibling();
+
+            hintTweenSequence?.Kill();
+
+            var hintImg = hintOutline.GetComponent<Image>();
+            if (hintImg != null)
+            {
+                Color goldColor = new Color(1.0f, 0.88f, 0.0f, 1.0f); // Saf Parlak Canlı Altın Sarısı
+                hintImg.color = goldColor;
+
+                // Kartın boyutunu HİÇ değiştirmeden çerçevenin parlaklığını nefes aldırma animasyonu ile yükselt
+                hintTweenSequence = DOTween.Sequence();
+                hintTweenSequence.Append(hintImg.DOFade(0.40f, 0.5f).SetEase(Ease.InOutSine))
+                                 .SetLoops(-1, LoopType.Yoyo);
+            }
+        }
+    }
+
+    private void EnsureHintOutlineCreated()
+    {
+        if (hintOutline != null) return;
+
+        var existing = transform.Find("HintOutlineBorder");
+        if (existing != null)
+        {
+            hintOutline = existing.gameObject;
+            return;
+        }
+
+        GameObject outlineGO = new GameObject("HintOutlineBorder", typeof(RectTransform), typeof(Image));
+        outlineGO.transform.SetParent(transform, false);
+        outlineGO.transform.SetAsLastSibling();
+
+        var rt = outlineGO.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(16f, 16f); // Kartın etrafında 8px belirgin sarı çerçeve
+
+        var img = outlineGO.GetComponent<Image>();
+        img.raycastTarget = false;
+        img.sprite = GetOrCreateYellowBorderSprite();
+        img.type = Image.Type.Sliced;
+        img.color = new Color(1.0f, 0.88f, 0.0f, 1.0f);
+
+        hintOutline = outlineGO;
+        hintOutline.SetActive(false);
     }
 
     private void OnDestroy()
     {
+        hintTweenSequence?.Kill();
+        if (hintOutline != null) hintOutline.transform.DOKill();
+
         // RenderTexture'ı belleğe serbest bırak
         if (previewCam != null && previewCam.targetTexture != null)
         {

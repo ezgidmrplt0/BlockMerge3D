@@ -69,6 +69,8 @@ public class DraggablePiece : MonoBehaviour
         if (grid == null) return;
         if (grid.IsExplodingLayer) return;
 
+        LevelManager.Instance?.OnPlayerInteracted();
+
         // Kart önizlemesinde PieceCardUI tarafından kapatılan FaceCamera'yı geri aç —
         // artık gerçek oyun kamerasına göre yüzünü döndürmesi gerekiyor.
         foreach (var fc in GetComponentsInChildren<FaceCamera>(true))
