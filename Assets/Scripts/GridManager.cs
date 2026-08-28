@@ -2848,6 +2848,24 @@ public class GridManager : MonoBehaviour
         RefreshLayerVisibility();
     }
 
+    /// <summary>
+    /// Belirtilen katman Y'sinde henüz yerleştirilmiş parçayla dolmamış hedef hücreleri döndürür.
+    /// </summary>
+    public List<Vector3Int> GetLayerUnfilledCells(int layerY)
+    {
+        List<Vector3Int> result = new List<Vector3Int>();
+        if (targetCells == null) return result;
+
+        foreach (var cell in targetCells)
+        {
+            if (cell.y == layerY && !occupiedCells.Contains(cell) && !IsCellPrefilled(cell))
+            {
+                result.Add(cell);
+            }
+        }
+        return result;
+    }
+
     private Material hintTransparentMaterial;
 
     private Material GetOrCreateHintTransparentMaterial()

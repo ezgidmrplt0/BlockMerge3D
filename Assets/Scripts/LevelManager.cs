@@ -90,6 +90,70 @@ public class LevelManager : MonoBehaviour
         EnsureScreenBackgroundCreated();
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  DETERMİNİSTİK KATMAN ÇÖZÜMÜ & DECOY (ALAKASIZ) PARÇA SİSTEMİ
+    // ═══════════════════════════════════════════════════════════════════
+    public class SolutionStreamItem
+    {
+        public int prefabIndex;
+        public GameObject prefab;
+        public bool isSolutionPiece;
+        public List<Vector3Int> targetWorldCells;
+    }
+
+    private List<SolutionStreamItem> currentLayerSolutionStream = new List<SolutionStreamItem>();
+    private int currentStreamLayerY = -1;
+    private HashSet<int> activeSolutionPrefabIndices = new HashSet<int>();
+
+    public void RefreshLayerSolutionStream()
+    {
+        currentLayerSolutionStream.Clear();
+        activeSolutionPrefabIndices.Clear();
+
+        int activeLayer = gridManager != null ? gridManager.ActiveLayerY : 0;
+        currentStreamLayerY = activeLayer;
+
+        if (allPiecePrefabs == null || allPiecePrefabs.Count == 0) return;
+
+        List<Vector3Int> layerCells = gridManager != null 
+            ? gridManager.GetLayerUnfilledCells(activeLayer) 
+            : new List<Vector3Int>();
+
+        List<LayerSolutionSolver.SolutionItem> solutionItems = LayerSolutionSolver.SolveLayer(
+            activeLayer, layerCells, allPiecePrefabs, gridManager);
+
+        foreach (var item in solutionItems)
+        {
+            activeSolutionPrefabIndices.Add(item.prefabIndex);
+            currentLayerSolutionStream.Add(new SolutionStreamItem
+            {
+                prefabIndex = item.prefabIndex,
+                prefab = item.prefab,
+                isSolutionPiece = true,
+                targetWorldCells = item.targetWorldCells
+            });
+        }
+
+        int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+        List<int> availableIndices = Enumerable.Range(0, allPiecePrefabs.Count).ToList();
+
+        List<DecoyPieceGenerator.DecoyItem> decoyItems = DecoyPieceGenerator.GenerateDecoyPieces(
+            levelNum, solutionItems, allPiecePrefabs, gridManager, availableIndices);
+
+        foreach (var decoy in decoyItems)
+        {
+            currentLayerSolutionStream.Add(new SolutionStreamItem
+            {
+                prefabIndex = decoy.prefabIndex,
+                prefab = decoy.prefab,
+                isSolutionPiece = false,
+                targetWorldCells = null
+            });
+        }
+
+        currentLayerSolutionStream = currentLayerSolutionStream.OrderBy(_ => Random.value).ToList();
+    }
+
     private void Start()
     {
         EnsureScreenBackgroundCreated();
@@ -140,6 +204,8 @@ public class LevelManager : MonoBehaviour
     public void LoadLevel(LevelData level)
     {
         EnsureScreenBackgroundCreated();
+        currentStreamLayerY = -1;
+        currentLayerSolutionStream.Clear();
         ClearCurrentLevel();
 
         // currentLevel alanı vardı ama HİÇ atanmıyordu (yalnızca inspector'daki değer
@@ -515,6 +581,7 @@ public class LevelManager : MonoBehaviour
     {
         bestTargetCells = new List<Vector3Int>();
         if (gridManager == null) return null;
+        int activeLayer = gridManager.ActiveLayerY;
 
         List<PieceCardUI> candidates = new List<PieceCardUI>();
         if (pieceCards != null)
@@ -568,6 +635,10 @@ public class LevelManager : MonoBehaviour
                     }
 
                     currentScore += holder.occupiedCells.Count * 2;
+
+                    // Gerçek Çözüm Parçasına +500 Skor Bonusu Ver (İpucu her zaman alakasız parçayı değil çözümü göstersin)
+                    bool isSolutionPiece = (holder.originLayerY == activeLayer || activeSolutionPrefabIndices.Contains(holder.originLayerY));
+                    if (isSolutionPiece) currentScore += 500;
 
                     if (currentScore > cardBestScore)
                     {
@@ -2030,7 +2101,7 @@ public class LevelManager : MonoBehaviour
 
     private void PrepareNextPieceIndex()
     {
-        if (allPiecePrefabs.Count == 0)
+        if (allPiecePrefabs == null || allPiecePrefabs.Count == 0)
         {
             nextPieceIndex = -1;
             nextPieceSpeciesIndex = -1;
@@ -2038,206 +2109,25 @@ public class LevelManager : MonoBehaviour
             return;
         }
 
-        List<int> availableIndices = new List<int>();
-        for (int i = 0; i < allPiecePrefabs.Count; i++)
-        {
-            if (!spawnedPieceIndices.Contains(i) && !activePieceDataIndices.Contains(i))
-            {
-                availableIndices.Add(i);
-            }
-        }
-
-        if (availableIndices.Count == 0)
-        {
-            spawnedPieceIndices.Clear();
-            for (int i = 0; i < allPiecePrefabs.Count; i++)
-            {
-                if (!activePieceDataIndices.Contains(i))
-                {
-                    availableIndices.Add(i);
-                }
-            }
-            if (availableIndices.Count == 0)
-            {
-                for (int i = 0; i < allPiecePrefabs.Count; i++)
-                {
-                    availableIndices.Add(i);
-                }
-            }
-        }
-
         int activeLayer = gridManager != null ? gridManager.ActiveLayerY : 0;
-        bool hasIceOnActiveLayer = gridManager != null && gridManager.frozenCells != null && gridManager.frozenCells.Any(c => c.y == activeLayer);
 
-        int GetPieceOriginLayer(int pieceIndex)
+        if (currentStreamLayerY != activeLayer || currentLayerSolutionStream.Count == 0)
         {
-            if (pieceIndex < 0 || pieceIndex >= allPiecePrefabs.Count || allPiecePrefabs[pieceIndex] == null) return 0;
-            var h = allPiecePrefabs[pieceIndex].GetComponent<CubeShapeDataHolder>();
-            return (h != null && h.originLayerY >= 0) ? h.originLayerY : 0;
+            RefreshLayerSolutionStream();
         }
 
-        bool isSmartTriggered = false;
-        if (!IsEarlyTutorialLevel() && Random.value < smartSpawnProbability)
+        if (currentLayerSolutionStream.Count > 0)
         {
-            int bestIdx = FindBestPieceIndex(out Quaternion bestRot, out Color? recColor, out bool foundMerge, availableIndices);
-            if (bestIdx >= 0 && bestIdx < allPiecePrefabs.Count)
-            {
-                nextPieceIndex = bestIdx;
-                isSmartTriggered = true;
+            var nextItem = currentLayerSolutionStream[0];
+            currentLayerSolutionStream.RemoveAt(0);
 
-                if (recColor.HasValue)
-                {
-                    Material matchedMat = FindClosestMaterial(recColor.Value);
-                    int matIdx = FindMaterialIndex(matchedMat);
-                    if (matIdx >= 0)
-                    {
-                        nextPieceSpeciesIndex = matIdx;
-                    }
-                    else
-                    {
-                        nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
-                    }
-                }
-                else
-                {
-                    nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
-                }
-            }
+            nextPieceIndex = nextItem.prefabIndex;
+            nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
         }
-
-        if (!isSmartTriggered)
+        else
         {
-            if (IsEarlyTutorialLevel())
-            {
-                // İlk 5 seviye için onboarding'in sağlıklı çalışması adına bu "kolaylaştırma"
-                // korunuyor: kartlar boşaldıkça tahtaya GERÇEKTEN sığan ilk parça sırayla getirilir.
-                // Öncelik #1: bu parça tasarım zamanında TAM OLARAK şu an gerekli olan katman için
-                // çözülmüş mü (bkz. CubeShapeDataHolder.originLayerY). Öncelik #2 (etiketli havuz
-                // boşsa): salt geometrik "gerekli katmana sığar mı" testi. Normal seviyelerde (bkz.
-                // aşağıdaki else) bu KESİN önceliklendirme YOK — özellikle zor/orta seviyelerde oyunu
-                // gereğinden kolaylaştırmasın diye kaldırıldı; onun yerine sadece hafif ağırlıklı bir
-                // şans var.
-                List<int> taggedForRequiredLayer = new List<int>();
-                foreach (int i in availableIndices)
-                {
-                    var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
-                    if (h != null && h.originLayerY == activeLayer)
-                    {
-                        taggedForRequiredLayer.Add(i);
-                    }
-                }
-
-                List<int> fitsRequiredLayer = new List<int>();
-                foreach (int i in availableIndices)
-                {
-                    if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
-                    {
-                        fitsRequiredLayer.Add(i);
-                    }
-                }
-                if (fitsRequiredLayer.Count == 0)
-                {
-                    for (int i = 0; i < allPiecePrefabs.Count; i++)
-                    {
-                        if (CanShapeFitRequiredLayer(allPiecePrefabs[i]))
-                        {
-                            fitsRequiredLayer.Add(i);
-                        }
-                    }
-                }
-
-                List<int> pickFrom = taggedForRequiredLayer.Count > 0 ? taggedForRequiredLayer
-                    : (fitsRequiredLayer.Count > 0 ? fitsRequiredLayer : availableIndices);
-
-                nextPieceIndex = pickFrom.Count > 0 ? pickFrom[0] : availableIndices[0];
-                nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
-            }
-            else if (hasIceOnActiveLayer)
-            {
-                // ═══════════════════════════════════════════════════════════════════
-                // AŞAMA 1: BUZ KIRMA AŞAMASI (Katmanda henüz eritilmemiş buzlar var)
-                // ═══════════════════════════════════════════════════════════════════
-                // Oyuncuya öncelikle buzları patlatmaya/eritmeye yönelik parçalar sunulur.
-                // Buza komşu yerleşebilen (CandidateHasIceAdjacentPlacement) ve sığan parçalar önceliklidir.
-                List<int> iceBreakerPool = new List<int>();
-                foreach (int i in availableIndices)
-                {
-                    int cellCount = GetPieceCellCount(i);
-                    bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
-                    int weight;
-                    if (fits)
-                    {
-                        bool isIceAdj = CandidateHasIceAdjacentPlacement(i);
-                        weight = isIceAdj ? 4 : 2;
-                        if (cellCount <= 1) weight = 1;
-                    }
-                    else
-                    {
-                        weight = cellCount > 1 ? 2 : 1;
-                    }
-                    for (int w = 0; w < weight; w++) iceBreakerPool.Add(i);
-                }
-
-                if (iceBreakerPool.Count > 0)
-                {
-                    nextPieceIndex = iceBreakerPool[Random.Range(0, iceBreakerPool.Count)];
-                }
-                else
-                {
-                    nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
-                }
-
-                nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
-            }
-            else
-            {
-                // ═══════════════════════════════════════════════════════════════════
-                // AŞAMA 2: KATMAN ÇÖZÜM AŞAMASI (Buzsuz ortam hazırlandı)
-                // ═══════════════════════════════════════════════════════════════════
-                // Katmandaki buzlar eridi! Editörde bu katman için üretilmiş ana parçalar
-                // (originLayerY == activeLayer) oyuncunun seçimine sunulur.
-                List<int> weightedPool = new List<int>();
-
-                foreach (int i in availableIndices)
-                {
-                    int cellCount = GetPieceCellCount(i);
-                    bool fits = CanShapeFitRequiredLayer(allPiecePrefabs[i]);
-
-                    var h = allPiecePrefabs[i].GetComponent<CubeShapeDataHolder>();
-                    bool isLayerPiece = h != null && h.originLayerY == activeLayer;
-
-                    int weight;
-                    if (cellCount <= 1)
-                    {
-                        weight = 1;
-                    }
-                    else if (fits && isLayerPiece)
-                    {
-                        weight = cellCount;
-                    }
-                    else if (fits)
-                    {
-                        weight = 2;
-                    }
-                    else
-                    {
-                        weight = 2;
-                    }
-
-                    if (fits && CandidateCompletesLayerWithHold(i))
-                        weight += holdCompletionWeightBonus;
-
-                    for (int w = 0; w < weight; w++)
-                        weightedPool.Add(i);
-                }
-
-                if (weightedPool.Count > 0)
-                    nextPieceIndex = weightedPool[Random.Range(0, weightedPool.Count)];
-                else
-                    nextPieceIndex = availableIndices[Random.Range(0, availableIndices.Count)];
-
-                nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
-            }
+            nextPieceIndex = Random.Range(0, allPiecePrefabs.Count);
+            nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
         }
 
         nextPieceMaterial = (nextPieceSpeciesIndex >= 0 && pieceMaterials != null && nextPieceSpeciesIndex < pieceMaterials.Length) 
