@@ -204,7 +204,8 @@ public class UIManager : MonoBehaviour
     {
         if (scoreText != null)
         {
-            scoreText.text = $"KATMAN {currentFloor}/{totalFloors}";
+            int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+            scoreText.text = $"LEVEL {levelNum}";
         }
 
         if (scoreProgressBar != null)
@@ -232,7 +233,8 @@ public class UIManager : MonoBehaviour
     {
         if (scoreText != null)
         {
-            scoreText.text = $"KATMAN {currentFloor}/{totalFloors}";
+            int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
+            scoreText.text = $"LEVEL {levelNum}";
         }
 
         EnsureLayerDamageBar();
@@ -252,11 +254,11 @@ public class UIManager : MonoBehaviour
         {
             if (targetPoints > 0)
             {
-                layerDamageBarText.text = $"HASAR: {currentPoints} / {targetPoints}  ({Mathf.RoundToInt(floorProgress * 100)}%)";
+                layerDamageBarText.text = $"HASAR: {currentPoints} / {targetPoints}  (%{Mathf.RoundToInt(floorProgress * 100)})";
             }
             else
             {
-                layerDamageBarText.text = $"KATMAN HASARI: %{Mathf.RoundToInt(floorProgress * 100)}";
+                layerDamageBarText.text = $"HASAR: %{Mathf.RoundToInt(floorProgress * 100)}";
             }
         }
 
@@ -329,7 +331,7 @@ public class UIManager : MonoBehaviour
         layerDamageBarText.fontStyle = FontStyles.Bold;
         layerDamageBarText.alignment = TextAlignmentOptions.Center;
         layerDamageBarText.color = Color.white;
-        layerDamageBarText.text = "KATMAN HASARI: %0";
+        layerDamageBarText.text = "HASAR: %0";
     }
 
     // ─── Timer ────────────────────────────────────────────────────────────────

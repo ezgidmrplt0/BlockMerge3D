@@ -85,13 +85,9 @@ public class LevelManager : MonoBehaviour
     [Header("Tower Collapse & Cracking Progression")]
     private int currentFloor = 1;
     private int totalFloors = 1;
-    private int linesClearedInCurrentFloor = 0;
-    private int targetLinesPerFloor = 2;
     private int pointsAccumulatedInFloor = 0;
-    private int targetPointsPerFloor = 200;
-    private int maxCrackStages = 2;
+    private int targetPointsPerFloor = 400;
     private int comboStreak = 0;
-    private HashSet<string> completedLinesOnFloor = new HashSet<string>();
 
     private void Awake()
     {
@@ -272,13 +268,9 @@ public class LevelManager : MonoBehaviour
                     ? Mathf.Max(1, gridManager.GridMaxY - gridManager.GridMinY + 1) 
                     : 1;
                 currentFloor = 1;
-                linesClearedInCurrentFloor = 0;
                 pointsAccumulatedInFloor = 0;
-                targetLinesPerFloor = level != null && level.linesPerLayer > 0 ? level.linesPerLayer : 3;
-                targetPointsPerFloor = level != null && level.pointsPerLayer > 0 ? level.pointsPerLayer : 500;
-                maxCrackStages = level != null && level.crackStages > 0 ? level.crackStages : 2;
                 comboStreak = 0;
-                completedLinesOnFloor.Clear();
+                targetPointsPerFloor = level != null && level.pointsPerLayer > 0 ? level.pointsPerLayer : 400;
                 UIManager.Instance?.UpdateLayerDamageBar(currentFloor, totalFloors, 0f, 0, targetPointsPerFloor);
             }
         }
@@ -982,18 +974,22 @@ public class LevelManager : MonoBehaviour
             // Tüketilen parçanın yerine HEMEN yenisini getir
             SpawnRandomPiece();
 
-            // 1. Line Match (Satır/Sütun Tamamlama) Kontrolü - Küpler ASLA silinmez!
-            int newlyMatchedLines = gridManager.CheckLineMatchesWithoutClearing(completedLinesOnFloor);
+            // 1. Satır / Sütun / 2x2 Alan Tamamlama Kontrolü ve Patlatma (Grid gri yuvaları her zaman korunur)
+            var blastResult = gridManager.CheckAndClearActiveLayerLines(newlyPlacedCells, (clearedLines, clearedCells) =>
+            {
+                gridManager.RefreshLayerVisibility();
+                gridManager.RefreshSpeciesSparkle();
+            });
 
-            if (newlyMatchedLines > 0)
+            if (blastResult.clearedLines > 0)
             {
                 comboStreak++;
-                int matchScore = (newlyMatchedLines * 120) * comboStreak;
+                int matchScore = (blastResult.clearedLines * 120 + blastResult.clearedCells * 15) * comboStreak;
                 GameManager.Instance?.AddScore(matchScore);
                 pointsAccumulatedInFloor += matchScore;
 
                 AudioManager.Instance?.PlayLineClearSound(comboStreak);
-                UIManager.Instance?.ShowComboPopup(comboStreak, newlyMatchedLines);
+                UIManager.Instance?.ShowComboPopup(comboStreak, blastResult.clearedLines);
             }
             else
             {
@@ -1005,30 +1001,21 @@ public class LevelManager : MonoBehaviour
                 AudioManager.Instance?.PlayCrackSound(1);
             }
 
-            // Katmanı Tam Doldurma Bonusu
-            bool isFullLayerFill = gridManager.IsLayerComplete(gridManager.ActiveLayerY);
-            if (isFullLayerFill)
-            {
-                int perfectBonus = 100;
-                GameManager.Instance?.AddScore(perfectBonus);
-                pointsAccumulatedInFloor += perfectBonus;
-            }
-
-            // 2. Katman Hasar Barı İlerlemesini Güncelle
+            // Katman Hasar Barını Güncelle
             float floorProgress = Mathf.Clamp01((float)pointsAccumulatedInFloor / Mathf.Max(1, targetPointsPerFloor));
             UIManager.Instance?.UpdateLayerDamageBar(currentFloor, totalFloors, floorProgress, pointsAccumulatedInFloor, targetPointsPerFloor);
 
-            // 3. Katman Hedefi Doldu mu (SADECE puan/hasar barı %100 dolduğunda patlar!) -> Katman Yıkımı!
-            bool isLayerFinished = pointsAccumulatedInFloor >= targetPointsPerFloor || gridManager.IsComplete();
+            // 2. Katmanın Hasar Barı Tamamlandı mı? (%100 dolduğunda katman tamamen yıkılır!)
+            bool isLayerFinished = pointsAccumulatedInFloor >= targetPointsPerFloor;
 
-            if (isFinishedLayerOrAll(isLayerFinished))
+            if (isLayerFinished)
             {
                 pointsAccumulatedInFloor = 0;
-                completedLinesOnFloor.Clear();
+                comboStreak = 0;
                 currentFloor++;
                 AudioManager.Instance?.PlayLineClearSound(1);
 
-                // Tüm katman ve üzerindeki parçalar fiziksel olarak yere dökülerek yıkılır!
+                // Tüm katman fiziksel olarak yıkılarak çöker!
                 gridManager.CollapseActiveLayerAndDropTower(onComplete: () =>
                 {
                     if (gridManager.ActiveLayerY > gridManager.GridMaxY || gridManager.allShapeCells.Count == 0 || currentFloor > totalFloors)

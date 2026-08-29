@@ -756,6 +756,26 @@ public class GridManager : MonoBehaviour
         return State.IsLayerComplete(layerY);
     }
 
+    public int GetTotalCellsInLayer(int layerY)
+    {
+        int total = 0;
+        foreach (var c in allShapeCells)
+        {
+            if (c.y == layerY) total++;
+        }
+        return total;
+    }
+
+    public int GetOccupiedCellsInLayer(int layerY)
+    {
+        int filled = 0;
+        foreach (var c in allShapeCells)
+        {
+            if (c.y == layerY && occupiedCells.Contains(c)) filled++;
+        }
+        return filled;
+    }
+
     public float GetLayerFillRatio(int layerY)
     {
         int total = 0;
@@ -777,6 +797,7 @@ public class GridManager : MonoBehaviour
         SyncGridState();
         return State.TryFindFirstIncompleteLayer(out layerY);
     }
+
 
     // layerY: patlatılacak (tamamlanmış) katman — artık her zaman ActiveLayerY olmak zorunda
     // değil, oyuncu herhangi bir katmanı tamamlamış olabilir (bkz. LevelManager.OnPiecePlaced).
@@ -1390,8 +1411,13 @@ public class GridManager : MonoBehaviour
     /// <summary>Geriye dönük uyumluluk wrapper'ı</summary>
     public (int cleared, int bonusLines) CheckAndClearLines(System.Action onComplete = null)
     {
-        var result = CheckAndClearActiveLayerLines((lines, cells) => onComplete?.Invoke());
+        var result = CheckAndClearActiveLayerLines(null, (lines, cells) => onComplete?.Invoke());
         return (result.clearedLines, 0);
+    }
+
+    public (int clearedLines, int clearedCells) CheckAndClearActiveLayerLines(System.Action<int, int> onComplete)
+    {
+        return CheckAndClearActiveLayerLines(null, onComplete);
     }
 
     /// <summary>
@@ -1399,10 +1425,16 @@ public class GridManager : MonoBehaviour
     /// Block Blast tarzı patlatır, temizler ve yok eder.
     /// onComplete(clearedLinesCount, clearedCellsCount) döndürür.
     /// </summary>
-    public (int clearedLines, int clearedCells) CheckAndClearActiveLayerLines(System.Action<int, int> onComplete = null)
+    public (int clearedLines, int clearedCells) CheckAndClearActiveLayerLines(List<Vector3Int> newlyPlacedCells, System.Action<int, int> onComplete = null)
     {
         int targetY = ActiveLayerY;
         var linesToBlast = new List<List<Vector3Int>>();
+
+        int totalInLayer = GetTotalCellsInLayer(targetY);
+        int occInLayer = GetOccupiedCellsInLayer(targetY);
+        bool isLayer100PercentFull = totalInLayer > 0 && occInLayer >= totalInLayer;
+
+        HashSet<Vector3Int> newSet = newlyPlacedCells != null ? new HashSet<Vector3Int>(newlyPlacedCells) : null;
 
         // 1. Yatay Satırlar (Sabit Z, Değişen X)
         for (int z = gridMinZ; z <= gridMaxZ; z++)
@@ -1428,7 +1460,13 @@ public class GridManager : MonoBehaviour
 
             if (targetCellsInLine >= 2 && isFull && line.Count > 0)
             {
-                linesToBlast.Add(line);
+                // Parçanın tek başına doldurduğu satır, katman henüz tamamlanmamışsa hemen patlamaz;
+                // oyuncunun en az 1 tamamlayıcı parça daha yerleştirmesi beklenir.
+                bool isPurelyNewPiece = newSet != null && line.All(c => newSet.Contains(c));
+                if (!isPurelyNewPiece || isLayer100PercentFull)
+                {
+                    linesToBlast.Add(line);
+                }
             }
         }
 
@@ -1456,7 +1494,36 @@ public class GridManager : MonoBehaviour
 
             if (targetCellsInLine >= 2 && isFull && line.Count > 0)
             {
-                linesToBlast.Add(line);
+                bool isPurelyNewPiece = newSet != null && line.All(c => newSet.Contains(c));
+                if (!isPurelyNewPiece || isLayer100PercentFull)
+                {
+                    linesToBlast.Add(line);
+                }
+            }
+        }
+
+        // 3. 2x2 Dolu Kare Alanlar
+        for (int x = gridMinX; x < gridMaxX; x++)
+        {
+            for (int z = gridMinZ; z < gridMaxZ; z++)
+            {
+                Vector3Int p1 = new Vector3Int(x, targetY, z);
+                Vector3Int p2 = new Vector3Int(x + 1, targetY, z);
+                Vector3Int p3 = new Vector3Int(x, targetY, z + 1);
+                Vector3Int p4 = new Vector3Int(x + 1, targetY, z + 1);
+
+                if (targetCells.Contains(p1) && targetCells.Contains(p2) &&
+                    targetCells.Contains(p3) && targetCells.Contains(p4) &&
+                    occupiedCells.Contains(p1) && occupiedCells.Contains(p2) &&
+                    occupiedCells.Contains(p3) && occupiedCells.Contains(p4))
+                {
+                    var square = new List<Vector3Int> { p1, p2, p3, p4 };
+                    bool isPurelyNewPiece = newSet != null && square.All(c => newSet.Contains(c));
+                    if (!isPurelyNewPiece || isLayer100PercentFull)
+                    {
+                        linesToBlast.Add(square);
+                    }
+                }
             }
         }
 
