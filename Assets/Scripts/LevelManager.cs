@@ -82,12 +82,31 @@ public class LevelManager : MonoBehaviour
     private Vector3 nextPieceVisualCenter = Vector3.zero;
     private float previewRotationAngle = 0f;
 
+    [Header("Tower Collapse & Cracking Progression")]
+    private int currentFloor = 1;
+    private int totalFloors = 1;
+    private int linesClearedInCurrentFloor = 0;
+    private int targetLinesPerFloor = 2;
+    private int pointsAccumulatedInFloor = 0;
+    private int targetPointsPerFloor = 200;
+    private int maxCrackStages = 2;
+    private int comboStreak = 0;
+    private HashSet<string> completedLinesOnFloor = new HashSet<string>();
+
     private void Awake()
     {
         Instance    = this;
         gridManager = GetComponent<GridManager>();
         if (gridManager == null) gridManager = gameObject.AddComponent<GridManager>();
         EnsureScreenBackgroundCreated();
+
+        // Temizlik: Önizleme kartı ve sahnesi varsa temizle
+        var oldCard = GameObject.Find("TowerMiniPreviewCard");
+        if (oldCard != null) Destroy(oldCard);
+        var oldStage = GameObject.Find("[TowerMiniPreview_Stage]");
+        if (oldStage != null) Destroy(oldStage);
+        var oldManager = GameObject.Find("[TowerMiniPreview_Manager]");
+        if (oldManager != null) Destroy(oldManager);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -249,6 +268,18 @@ public class LevelManager : MonoBehaviour
                 gridManager.Initialize(activeMainPiece, holder.cellSize, holder.spacing, activeMainPiece.transform.position);
                 ApplyTargetGhost(activeMainPiece);
 
+                totalFloors = gridManager != null && gridManager.allShapeCells.Count > 0 
+                    ? Mathf.Max(1, gridManager.GridMaxY - gridManager.GridMinY + 1) 
+                    : 1;
+                currentFloor = 1;
+                linesClearedInCurrentFloor = 0;
+                pointsAccumulatedInFloor = 0;
+                targetLinesPerFloor = level != null && level.linesPerLayer > 0 ? level.linesPerLayer : 3;
+                targetPointsPerFloor = level != null && level.pointsPerLayer > 0 ? level.pointsPerLayer : 500;
+                maxCrackStages = level != null && level.crackStages > 0 ? level.crackStages : 2;
+                comboStreak = 0;
+                completedLinesOnFloor.Clear();
+                UIManager.Instance?.UpdateLayerDamageBar(currentFloor, totalFloors, 0f, 0, targetPointsPerFloor);
             }
         }
 
@@ -945,36 +976,81 @@ public class LevelManager : MonoBehaviour
         // Check if there are frozen cells to thaw
         gridManager.CheckAndResolveFrozenCells(newlyPlacedCells, onComplete: (iceResolved) =>
         {
-            var lpc = FindObjectOfType<LayerPanelController>();
-
-            // Tüketilen parçanın (boşalan kartın) yerine HEMEN yenisini getir (patlama animasyonunu beklemeden!)
             gridManager.RefreshLayerVisibility();
             gridManager.RefreshSpeciesSparkle();
+
+            // Tüketilen parçanın yerine HEMEN yenisini getir
             SpawnRandomPiece();
 
-            if (gridManager.IsLayerComplete(placedLayerY))
+            // 1. Line Match (Satır/Sütun Tamamlama) Kontrolü - Küpler ASLA silinmez!
+            int newlyMatchedLines = gridManager.CheckLineMatchesWithoutClearing(completedLinesOnFloor);
+
+            if (newlyMatchedLines > 0)
             {
-                gridManager.IsExplodingLayer = true;
-                gridManager.ExplodeLayer(placedLayerY,
-                    onLayerComplete: () => {
-                        if (lpc != null && gridManager != null)
-                        {
-                            lpc.BuildLayerButtons();
-                            lpc.OpenPanel(gridManager.ActiveLayerY);
-                        }
-                        CheckGameOver(placedLayerY);
-                    },
-                    onLevelComplete: () => {
-                        GameManager.Instance?.CheckWin();
-                    }
-                );
+                comboStreak++;
+                int matchScore = (newlyMatchedLines * 120) * comboStreak;
+                GameManager.Instance?.AddScore(matchScore);
+                pointsAccumulatedInFloor += matchScore;
+
+                AudioManager.Instance?.PlayLineClearSound(comboStreak);
+                UIManager.Instance?.ShowComboPopup(comboStreak, newlyMatchedLines);
             }
             else
             {
-                CheckGameOver(placedLayerY);
+                comboStreak = 0;
+                int placementScore = 20 * Mathf.Max(1, newlyPlacedCells.Count);
+                GameManager.Instance?.AddScore(placementScore);
+                pointsAccumulatedInFloor += placementScore;
+
+                AudioManager.Instance?.PlayCrackSound(1);
+            }
+
+            // Katmanı Tam Doldurma Bonusu
+            bool isFullLayerFill = gridManager.IsLayerComplete(gridManager.ActiveLayerY);
+            if (isFullLayerFill)
+            {
+                int perfectBonus = 100;
+                GameManager.Instance?.AddScore(perfectBonus);
+                pointsAccumulatedInFloor += perfectBonus;
+            }
+
+            // 2. Katman Hasar Barı İlerlemesini Güncelle
+            float floorProgress = Mathf.Clamp01((float)pointsAccumulatedInFloor / Mathf.Max(1, targetPointsPerFloor));
+            UIManager.Instance?.UpdateLayerDamageBar(currentFloor, totalFloors, floorProgress, pointsAccumulatedInFloor, targetPointsPerFloor);
+
+            // 3. Katman Hedefi Doldu mu (SADECE puan/hasar barı %100 dolduğunda patlar!) -> Katman Yıkımı!
+            bool isLayerFinished = pointsAccumulatedInFloor >= targetPointsPerFloor || gridManager.IsComplete();
+
+            if (isFinishedLayerOrAll(isLayerFinished))
+            {
+                pointsAccumulatedInFloor = 0;
+                completedLinesOnFloor.Clear();
+                currentFloor++;
+                AudioManager.Instance?.PlayLineClearSound(1);
+
+                // Tüm katman ve üzerindeki parçalar fiziksel olarak yere dökülerek yıkılır!
+                gridManager.CollapseActiveLayerAndDropTower(onComplete: () =>
+                {
+                    if (gridManager.ActiveLayerY > gridManager.GridMaxY || gridManager.allShapeCells.Count == 0 || currentFloor > totalFloors)
+                    {
+                        // TÜM KATMANLAR BİTTİ VE YIKILDI -> ZAFER!
+                        GameManager.Instance?.CheckWin();
+                    }
+                    else
+                    {
+                        UIManager.Instance?.UpdateLayerDamageBar(currentFloor, totalFloors, 0f, 0, targetPointsPerFloor);
+                        CheckGameOver(gridManager.ActiveLayerY);
+                    }
+                });
+            }
+            else
+            {
+                CheckGameOver(gridManager.ActiveLayerY);
             }
         });
     }
+
+    private bool isFinishedLayerOrAll(bool flag) => flag;
 
     private void HandlePostPiecePlaced(int placedLayerY)
     {

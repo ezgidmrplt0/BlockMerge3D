@@ -37,9 +37,15 @@ public class LevelData : ScriptableObject
              "parçanın grid üzerindeki hedef hücrelerini (dünya koordinatı) tutar.")]
     public List<PiecePlacement> precomputedSolution = new List<PiecePlacement>();
 
-    [Header("Win Conditions")]
+    [Header("Win Conditions / Tower Collapse & Cracking")]
     public float timeLimit   = 60f;   // saniye; 0 = süresiz
     public int   targetScore = 100;   // 0 = eski grid-tamamlama mantığı
+    [Tooltip("Her bir katmanı çökertmek için gereken satır/sütun patlatma sayısı.")]
+    public int   linesPerLayer = 3;
+    [Tooltip("Her bir katmanı çatlatıp yok etmek için gereken puan eşiği (0 ise linesPerLayer kullanılır).")]
+    public int   pointsPerLayer = 400;
+    [Tooltip("Katmanın çökmeden önce kaç aşamada çatlayacağı (1 = anında, 2 = 2 aşamalı çatlak, 3 = 3 aşamalı çatlak).")]
+    public int   crackStages = 2;
 }
 
 [System.Serializable]

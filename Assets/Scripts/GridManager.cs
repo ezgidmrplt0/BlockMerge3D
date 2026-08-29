@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using DG.Tweening;
 
@@ -40,6 +41,7 @@ public class GridManager : MonoBehaviour
     // IceVisualMarker). Değer 0'a inince buz gerçekten erir; ara vuruşlarda IceBreakEffect.PlayIceChip
     // oynar ve buz frozenCells'te kalmaya devam eder (bkz. CheckAndResolveFrozenCells).
     private Dictionary<Vector3Int, int> iceRemainingHits = new Dictionary<Vector3Int, int>();
+    private Dictionary<Vector3Int, int> cellRemainingHits = new Dictionary<Vector3Int, int>();
 
     private static GameObject IcePrefab
     {
@@ -313,6 +315,7 @@ public class GridManager : MonoBehaviour
         allShapeCells.Clear();
         cellMatIndex.Clear();
         frozenCells.Clear();
+        cellRemainingHits.Clear();
         ClearAllCellObjects();
 
         targetRenderers.Clear();
@@ -463,30 +466,18 @@ public class GridManager : MonoBehaviour
         iceRemainingHits.Clear();
         if (shapeHolder != null && shapeHolder.frozenCells != null)
         {
-            Debug.Log($"[GridManager] Initialize: shapeHolder.frozenCells.Count = {shapeHolder.frozenCells.Count}");
-            int currentLevelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
-
             foreach (var cell in shapeHolder.frozenCells)
             {
                 frozenCells.Add(cell);
                 iceRemainingHits[cell] = 1;
             }
         }
-        else
-        {
-            Debug.Log("[GridManager] Initialize: shapeHolder or shapeHolder.frozenCells is NULL!");
-        }
 
         SyncGridState();
 
-        // Doldurulması gereken ilk katmanı bul (alttan üste — bkz. TryFindNextRequiredLayer).
-        // targetCells yerine allShapeCells kullanılır; böylece gizli/prefilled/frozen
-        // hücreleri bulunan katmanlar da doğru şekilde hesaba katılır.
-        if (!TryFindNextRequiredLayer(out int nextRequiredLayer))
-            ActiveLayerY = gridMaxY;
-        else
-            ActiveLayerY = nextRequiredLayer;
-        lineClearEnabled = false; // Layer-by-layer mode
+        // Katmanları tek tek sırayla göster (0'dan başlayarak)
+        ActiveLayerY = gridMinY;
+        lineClearEnabled = false;
         RefreshLayerVisibility();
     }
 
@@ -513,9 +504,9 @@ public class GridManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(s)) return 0;
         string clean = "";
-        foreach (char c in s)
+        foreach (char ch in s)
         {
-            if (char.IsDigit(c) || c == '-') clean += c;
+            if (char.IsDigit(ch) || ch == '-') clean += ch;
             else break;
         }
         if (int.TryParse(clean, out int val)) return val;
@@ -527,57 +518,26 @@ public class GridManager : MonoBehaviour
 
     public void RefreshLayerVisibility()
     {
-        bool isPanelMode = true;
-        if (CameraOrbit.Instance != null && !CameraOrbit.Instance.IsInPanelMode)
-        {
-            CameraOrbit.Instance.IsInPanelMode = true;
-        }
-
         bool applyScale = !IsExplodingLayer;
 
-        // Hedef (ghost) renderer'ları kontrol et
+        // Hedef (ghost) renderer'ları kontrol et - Sadece o anki aktif katman görünür (tek tek katman)
         foreach (var kvp in targetRenderers)
         {
             Vector3Int cell = kvp.Key;
             Renderer r = kvp.Value;
-
-            // ERİME SÜRERKEN DOKUNMA. IceBreakEffect.PlayIceMelt solma efektini
-            // renderer.material üzerinden yapıyor; buradaki renk yazımı ise
-            // MaterialPropertyBlock ile ve o materyal özelliklerini EZİYOR.
-            // Erime ortasında araya giren bir tazeleme (ör. prefilled hücre
-            // patlayınca RestoreAsGhostTarget'ın senkron çağırdığı tazeleme)
-            // solmakta olan buzun üzerine ghost rengini damgalıyor ve buz
-            // gri/tuhaf bir renge bürünüyordu. Erime bitince callback zaten
-            // hücreyi ghost'a çevirip tazelemeyi kendisi tetikliyor.
+            if (r == null) continue;
             if (meltingIceCells.Contains(cell)) continue;
 
-            if (r != null)
+            if (cell.y == ActiveLayerY)
             {
-                if (isPanelMode)
-                {
-                    if (cell.y == ActiveLayerY)
-                    {
-                        r.enabled = true;
-                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                    }
-                    else
-                    {
-                        r.enabled = false;
-                    }
-                }
-                else
-                {
-                    r.enabled = true; // 3D modunda hepsi görünür
-                    if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                }
+                // O anki aktif katman: açık hedefleri göster, dolu olanları gizle
+                r.enabled = !occupiedCells.Contains(cell);
+                if (applyScale) r.transform.localScale = Vector3.one * CellSize;
 
-                // Hücre gerçek (opak) bir parça ile doluysa hedef/ghost küpünü TAMAMEN gizle.
-                if (occupiedCells.Contains(cell) && !frozenCells.Contains(cell))
-                {
-                    r.enabled = false;
-                }
+                var col = r.GetComponent<Collider>();
+                if (col != null) col.enabled = !occupiedCells.Contains(cell);
 
-                // Buz artık kendi 3D modeliyle gösteriliyor
+                // Buz 3D modeli
                 bool isFrozenHere = frozenCells.Contains(cell);
                 if (isFrozenHere)
                 {
@@ -585,14 +545,8 @@ public class GridManager : MonoBehaviour
                     var iceGo = GetIceVisual(cell);
                     if (iceGo != null)
                     {
-                        bool hideIce = isPanelMode && cell.y != ActiveLayerY;
-                        iceGo.SetActive(!hideIce);
-                        Debug.Log($"[GridManager] RefreshLayerVisibility: cell={cell}, hideIce={hideIce}, iceGo.activeSelf={iceGo.activeSelf}, scale={iceGo.transform.localScale}");
-                        if (!hideIce) r.enabled = false;
-                    }
-                    else
-                    {
-                        Debug.Log($"[GridManager] RefreshLayerVisibility: cell={cell}, iceGo is NULL!");
+                        iceGo.SetActive(true);
+                        r.enabled = false;
                     }
                 }
                 else
@@ -603,130 +557,190 @@ public class GridManager : MonoBehaviour
                 if (r.enabled)
                 {
                     r.GetPropertyBlock(PropBlock);
-                    if (isFrozenHere)
+                    if (highlightedCells.Contains(cell))
                     {
-                        Color iceColor = new Color(0.06f, 0.32f, 0.58f, 0.90f);
-                        if (isPanelMode && cell.y < ActiveLayerY) iceColor.a = 0.2f; // Faded ice
-                        PropBlock.SetColor("_BaseColor", iceColor);
-                        PropBlock.SetColor("_Color", iceColor);
+                        Material hintMat = GetOrCreateHintTransparentMaterial();
+                        if (r.sharedMaterial != hintMat) r.sharedMaterial = hintMat;
 
-                        Color emissionColor = new Color(0.01f, 0.06f, 0.15f) * (isPanelMode && cell.y < ActiveLayerY ? 0.2f : 1.0f);
+                        float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 3.5f);
+                        Color highlightColor = Color.Lerp(new Color(1.0f, 0.88f, 0.20f, 0.22f), new Color(1.0f, 0.88f, 0.20f, 0.42f), pulse);
+                        Color emissionColor = new Color(0.15f, 0.12f, 0.02f) * (0.5f + 0.5f * pulse);
+
+                        PropBlock.SetColor("_BaseColor", highlightColor);
+                        PropBlock.SetColor("_Color", highlightColor);
                         PropBlock.SetColor("_EmissionColor", emissionColor);
                     }
                     else
                     {
-                        if (highlightedCells.Contains(cell))
+                        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
                         {
-                            Material hintMat = GetOrCreateHintTransparentMaterial();
-                            if (r.sharedMaterial != hintMat) r.sharedMaterial = hintMat;
-
-                            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 3.5f);
-                            Color highlightColor = Color.Lerp(new Color(1.0f, 0.88f, 0.20f, 0.22f), new Color(1.0f, 0.88f, 0.20f, 0.42f), pulse);
-                            Color emissionColor = new Color(0.15f, 0.12f, 0.02f) * (0.5f + 0.5f * pulse);
-
-                            PropBlock.SetColor("_BaseColor", highlightColor);
-                            PropBlock.SetColor("_Color", highlightColor);
-                            PropBlock.SetColor("_EmissionColor", emissionColor);
+                            if (r.sharedMaterial != LevelManager.Instance.ghostTargetMaterial)
+                                r.sharedMaterial = LevelManager.Instance.ghostTargetMaterial;
                         }
-                        else
-                        {
-                            if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
-                            {
-                                if (r.sharedMaterial != LevelManager.Instance.ghostTargetMaterial)
-                                    r.sharedMaterial = LevelManager.Instance.ghostTargetMaterial;
-                            }
 
-                            Color defaultColor = new Color(0.41f, 0.57f, 0.35f, 0.53f);
-                            if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
-                            {
-                                defaultColor = LevelManager.Instance.ghostTargetMaterial.color;
-                            }
+                        Color defaultColor = LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null
+                            ? LevelManager.Instance.ghostTargetMaterial.color
+                            : new Color(0.41f, 0.57f, 0.35f, 0.53f);
 
-                            if (isPanelMode && cell.y < ActiveLayerY)
-                            {
-                                if (lowerLayerDarkenFactor > 0f)
-                                {
-                                    defaultColor = Color.Lerp(defaultColor, Color.black, lowerLayerDarkenFactor);
-                                }
-                                defaultColor.a *= lowerLayerBlockAlpha; // Faded target base
-                            }
-                            PropBlock.SetColor("_BaseColor", defaultColor);
-                            PropBlock.SetColor("_Color", defaultColor);
-                            PropBlock.SetColor("_EmissionColor", Color.clear);
-                        }
+                        PropBlock.SetColor("_BaseColor", defaultColor);
+                        PropBlock.SetColor("_Color", defaultColor);
+                        PropBlock.SetColor("_EmissionColor", Color.clear);
                     }
                     r.SetPropertyBlock(PropBlock);
                 }
             }
+            else
+            {
+                // Aktif olmayan diğer katmanlar tamamen gizli
+                r.enabled = false;
+                var col = r.GetComponent<Collider>();
+                if (col != null) col.enabled = false;
+            }
         }
 
-        // Prefilled blokları kontrol et (katman görünürlüğü)
+        // Prefilled blokları kontrol et (sadece aktif katmanda görünür)
         foreach (var kvp in prefilledRenderers)
         {
             Vector3Int cell = kvp.Key;
             Renderer r = kvp.Value;
             if (r != null)
             {
-                if (isPanelMode)
-                {
-                    if (cell.y == ActiveLayerY)
-                    {
-                        r.enabled = true;
-                        if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                        r.SetPropertyBlock(null); // Prefilled küp kendi orijinal renk/materyalini korur
-                    }
-                    else
-                    {
-                        r.enabled = false;
-                    }
-                }
-                else
-                {
-                    r.enabled = true; // 3D modunda hepsi görünür
-                    if (applyScale) r.transform.localScale = Vector3.one * CellSize;
-                    r.SetPropertyBlock(null); // Prefilled küp kendi orijinal renk/materyalini korur
-                }
+                r.enabled = (cell.y == ActiveLayerY);
+                if (applyScale) r.transform.localScale = Vector3.one * CellSize;
+                r.SetPropertyBlock(null);
+
+                var col = r.GetComponent<Collider>();
+                if (col != null) col.enabled = (cell.y == ActiveLayerY);
             }
         }
 
+        // Yerleştirilen blokları kontrol et (sadece aktif katmanda görünür)
         foreach (var kvp in cellObjects)
         {
             Vector3Int cell = kvp.Key;
             GameObject cube = kvp.Value;
             if (cube != null)
             {
-                if (isPanelMode)
+                cube.SetActive(cell.y == ActiveLayerY);
+                if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
+                
+                Renderer r = cube.GetComponentInChildren<Renderer>();
+                if (r != null)
                 {
-                    if (cell.y == ActiveLayerY)
-                    {
-                        cube.SetActive(true);
-                        if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
-                        
-                        Renderer r = cube.GetComponentInChildren<Renderer>();
-                        if (r != null)
-                        {
-                            r.SetPropertyBlock(null); // Küp kendi orijinal renk/materyalini korur
-                        }
-                    }
-                    else
-                    {
-                        cube.SetActive(false);
-                    }
+                    r.SetPropertyBlock(null);
                 }
-                else
-                {
-                    cube.SetActive(true);
-                    if (applyScale) cube.transform.localScale = Vector3.one * CellSize;
-                    
-                    Renderer r = cube.GetComponentInChildren<Renderer>();
-                    if (r != null)
-                    {
-                        r.SetPropertyBlock(null); // Küp kendi orijinal renk/materyalini korur
-                    }
-                }
+
+                var col = cube.GetComponentInChildren<Collider>();
+                if (col != null) col.enabled = (cell.y == ActiveLayerY);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kombolar ve patlamalar olduğunda yerleştirilen grid bloklarını ve hücrelerini çatlatır.
+    /// Sarsıntı, çatlak kıvılcımları/parçacıkları ve çıtırtı sesleri üretir.
+    /// </summary>
+    public void AnimateGridCracking(int comboCount, int linesCleared, System.Action onComplete = null)
+    {
+        int intensity = Mathf.Clamp(comboCount, 1, 4);
+
+        // Kamera hafif sarsıntı
+        if (Camera.main != null)
+        {
+            Camera.main.transform.DOComplete();
+            Camera.main.transform.DOShakePosition(0.18f + 0.05f * intensity, 0.1f * intensity, 16);
+        }
+
+        // Haptic titreşim
+        if (GameManager.Instance != null && GameManager.Instance.IsVibrationEnabled)
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            Handheld.Vibrate();
+#endif
+        }
+
+        // Ses
+        AudioManager.Instance?.PlayCrackSound(intensity);
+
+        // Aktif katmandaki yerleştirilen blokları ve prefilled blokları sars & çatlat
+        foreach (var c in allShapeCells)
+        {
+            if (c.y != ActiveLayerY) continue;
+
+            if (cellObjects.TryGetValue(c, out var go) && go != null)
+            {
+                go.transform.DOComplete();
+                go.transform.DOShakePosition(0.22f, 0.08f * intensity, 16);
+                go.transform.DOPunchScale(new Vector3(0.12f, -0.1f, 0.12f) * (0.35f * intensity), 0.22f, 6, 0.5f);
+
+                Color crackCol = intensity > 2 ? new Color(1f, 0.4f, 0.1f) : new Color(1f, 0.9f, 0.5f);
+                CreateShatterEffect(go.transform.position, crackCol);
+            }
+
+            if (prefilledRenderers.TryGetValue(c, out var pr) && pr != null)
+            {
+                pr.transform.DOComplete();
+                pr.transform.DOShakePosition(0.22f, 0.08f * intensity, 16);
+                CreateShatterEffect(pr.transform.position, new Color(1f, 0.85f, 0.4f));
             }
         }
 
+        DOVirtual.DelayedCall(0.25f, () => onComplete?.Invoke());
+    }
+
+    /// <summary>
+    /// Katmana hasar verir, blokları sarsarak çatlatır ve kıvılcım/toz efektleri çıkarır.
+    /// </summary>
+    public void AnimateLayerCrack(int layerY, int currentStage, int maxStages, System.Action onComplete = null)
+    {
+        // Kamera hafif sarsıntı
+        if (Camera.main != null)
+        {
+            Camera.main.transform.DOComplete();
+            Camera.main.transform.DOShakePosition(0.2f, 0.12f * Mathf.Clamp(currentStage, 1, 3), 16);
+        }
+
+        // Haptic titreşim
+        if (GameManager.Instance != null && GameManager.Instance.IsVibrationEnabled)
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            Handheld.Vibrate();
+#endif
+        }
+
+        // Ses
+        AudioManager.Instance?.PlayCrackSound(currentStage);
+
+        float stageRatio = Mathf.Clamp01((float)currentStage / Mathf.Max(1, maxStages));
+
+        // Katmandaki blokları ve kılavuzları sars
+        foreach (var c in allShapeCells)
+        {
+            if (c.y != layerY) continue;
+
+            if (cellObjects.TryGetValue(c, out var go) && go != null)
+            {
+                go.transform.DOComplete();
+                go.transform.DOShakePosition(0.25f, 0.15f * stageRatio, 15);
+                go.transform.DOPunchScale(new Vector3(0.12f, -0.1f, 0.12f) * stageRatio, 0.25f, 5, 0.5f);
+                CreateShatterEffect(go.transform.position, new Color(1f, 0.85f, 0.4f, 0.7f));
+            }
+
+            if (prefilledRenderers.TryGetValue(c, out var pr) && pr != null)
+            {
+                pr.transform.DOComplete();
+                pr.transform.DOShakePosition(0.25f, 0.15f * stageRatio, 15);
+                CreateShatterEffect(pr.transform.position, new Color(1f, 0.85f, 0.4f, 0.7f));
+            }
+
+            if (targetRenderers.TryGetValue(c, out var tr) && tr != null && tr.enabled)
+            {
+                tr.transform.DOComplete();
+                tr.transform.DOShakePosition(0.2f, 0.1f * stageRatio, 12);
+            }
+        }
+
+        DOVirtual.DelayedCall(0.28f, () => onComplete?.Invoke());
     }
 
 
@@ -740,6 +754,21 @@ public class GridManager : MonoBehaviour
     {
         SyncGridState();
         return State.IsLayerComplete(layerY);
+    }
+
+    public float GetLayerFillRatio(int layerY)
+    {
+        int total = 0;
+        int filled = 0;
+        foreach (var c in allShapeCells)
+        {
+            if (c.y == layerY)
+            {
+                total++;
+                if (occupiedCells.Contains(c)) filled++;
+            }
+        }
+        return total > 0 ? (float)filled / total : 0f;
     }
 
     // Sıralı katman mekaniği: Oyuncunun doldurması gereken bir sonraki katman en alt tamamlanmamış katmandır.
@@ -1358,160 +1387,396 @@ public class GridManager : MonoBehaviour
         }
     }
 
+    /// <summary>Geriye dönük uyumluluk wrapper'ı</summary>
     public (int cleared, int bonusLines) CheckAndClearLines(System.Action onComplete = null)
     {
-        if (!lineClearEnabled) { onComplete?.Invoke(); return (0, 0); }
+        var result = CheckAndClearActiveLayerLines((lines, cells) => onComplete?.Invoke());
+        return (result.clearedLines, 0);
+    }
 
-        var allLines = new List<List<Vector3Int>>();
+    /// <summary>
+    /// Aktif katmandaki dolu satırları (X ekseni) ve sütunları (Z ekseni) tespit eder,
+    /// Block Blast tarzı patlatır, temizler ve yok eder.
+    /// onComplete(clearedLinesCount, clearedCellsCount) döndürür.
+    /// </summary>
+    public (int clearedLines, int clearedCells) CheckAndClearActiveLayerLines(System.Action<int, int> onComplete = null)
+    {
+        int targetY = ActiveLayerY;
+        var linesToBlast = new List<List<Vector3Int>>();
 
-        for (int y = gridMinY; y <= gridMaxY; y++)
-            for (int z = gridMinZ; z <= gridMaxZ; z++)
-            {
-                var line = BuildLine(y, z, true, false, false);
-                if (line != null) allLines.Add(line);
-            }
-        for (int x = gridMinX; x <= gridMaxX; x++)
-            for (int z = gridMinZ; z <= gridMaxZ; z++)
-            {
-                var line = BuildLine(x, z, false, true, false);
-                if (line != null) allLines.Add(line);
-            }
-        for (int x = gridMinX; x <= gridMaxX; x++)
-            for (int y = gridMinY; y <= gridMaxY; y++)
-            {
-                var line = BuildLine(x, y, false, false, true);
-                if (line != null) allLines.Add(line);
-            }
-
-        if (allLines.Count == 0) { onComplete?.Invoke(); return (0, 0); }
-
-        int bonusLineCount = 0;
-        var toClear = new HashSet<Vector3Int>();
-
-        foreach (var line in allLines)
+        // 1. Yatay Satırlar (Sabit Z, Değişen X)
+        for (int z = gridMinZ; z <= gridMaxZ; z++)
         {
-            if (!IsLineMonochrome(line)) continue;
-            bonusLineCount++;
-            foreach (var cell in line) toClear.Add(cell);
+            var line = new List<Vector3Int>();
+            int targetCellsInLine = 0;
+            bool isFull = true;
+
+            for (int x = gridMinX; x <= gridMaxX; x++)
+            {
+                Vector3Int cell = new Vector3Int(x, targetY, z);
+                if (targetCells.Contains(cell))
+                {
+                    targetCellsInLine++;
+                    if (!occupiedCells.Contains(cell))
+                    {
+                        isFull = false;
+                        break;
+                    }
+                    line.Add(cell);
+                }
+            }
+
+            if (targetCellsInLine >= 2 && isFull && line.Count > 0)
+            {
+                linesToBlast.Add(line);
+            }
         }
 
-        if (toClear.Count == 0) { onComplete?.Invoke(); return (0, 0); }
+        // 2. Dikey Sütunlar (Sabit X, Değişen Z)
+        for (int x = gridMinX; x <= gridMaxX; x++)
+        {
+            var line = new List<Vector3Int>();
+            int targetCellsInLine = 0;
+            bool isFull = true;
+
+            for (int z = gridMinZ; z <= gridMaxZ; z++)
+            {
+                Vector3Int cell = new Vector3Int(x, targetY, z);
+                if (targetCells.Contains(cell))
+                {
+                    targetCellsInLine++;
+                    if (!occupiedCells.Contains(cell))
+                    {
+                        isFull = false;
+                        break;
+                    }
+                    line.Add(cell);
+                }
+            }
+
+            if (targetCellsInLine >= 2 && isFull && line.Count > 0)
+            {
+                linesToBlast.Add(line);
+            }
+        }
+
+        if (linesToBlast.Count == 0)
+        {
+            onComplete?.Invoke(0, 0);
+            return (0, 0);
+        }
+
+        var toClear = new HashSet<Vector3Int>();
+        foreach (var line in linesToBlast)
+        {
+            foreach (var cell in line)
+            {
+                toClear.Add(cell);
+            }
+        }
+
+        int linesCount = linesToBlast.Count;
+        int clearedCellsCount = toClear.Count;
+
+        // Kamera hafif sarsıntı
+        if (Camera.main != null)
+        {
+            Camera.main.transform.DOComplete();
+            Camera.main.transform.DOShakePosition(0.28f, 0.22f * Mathf.Clamp(linesCount, 1, 3), 22);
+        }
 
         var sorted = new List<Vector3Int>(toClear);
-        sorted.Sort((a, b) => (a.x + a.y + a.z).CompareTo(b.x + b.y + b.z));
+        sorted.Sort((a, b) => (a.x + a.z).CompareTo(b.x + b.z));
 
         int pendingCount = sorted.Count;
-        System.Action onOneDone = null;
-        onOneDone = () =>
+        System.Action onOneDone = () =>
         {
             pendingCount--;
-            if (pendingCount <= 0) onComplete?.Invoke();
+            if (pendingCount <= 0)
+            {
+                RefreshLayerVisibility();
+                onComplete?.Invoke(linesCount, clearedCellsCount);
+            }
         };
 
         for (int i = 0; i < sorted.Count; i++)
         {
             var cell = sorted[i];
+            cellColors.TryGetValue(cell, out Color blastColor);
+            if (blastColor == default) blastColor = Color.cyan;
+
             occupiedCells.Remove(cell);
             cellColors.Remove(cell);
+            cellMatIndex.Remove(cell);
+            cellRemainingHits.Remove(cell);
 
-            // Hücre boşaldığında kılavuz saydam görseli geri göster
-            if (targetRenderers.TryGetValue(cell, out var r) && r != null)
-            {
-                r.enabled = true;
-            }
-
-            bool objectFound = false;
-
-            // Oyuncu tarafından yerleştirilen parçaları kontrol et
-            if (cellObjects.TryGetValue(cell, out var go))
+            GameObject targetGo = null;
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
             {
                 cellObjects.Remove(cell);
-                AnimateAndDestroy(go, i * 0.03f, true, onOneDone);
-                objectFound = true;
+                targetGo = go;
             }
-            
-            // Prefilled blokları kontrol et
-            if (prefilledRenderers.TryGetValue(cell, out var prefilledRenderer) && prefilledRenderer != null)
+            else if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
             {
                 prefilledRenderers.Remove(cell);
-                var prefilledGo = prefilledRenderer.gameObject;
-                if (prefilledGo != null)
+                targetGo = pr.gameObject;
+            }
+
+            if (targetGo != null)
+            {
+                // 3D Taş/Küp parçalanma ve patlayarak yok olma efekti
+                IceBreakEffect.Play(targetGo, blastColor, () =>
                 {
-                    AnimateAndDestroy(prefilledGo, i * 0.03f, true, objectFound ? null : onOneDone);
-                    objectFound = true;
-                }
-            }
+                    Destroy(targetGo);
+                    onOneDone();
+                }, hideTarget: true);
 
-            if (!objectFound)
-            {
-                // Hiç nesne yoksa yine de sayacı düşür
-                onOneDone();
-            }
-        }
-
-        return (sorted.Count, bonusLineCount);
-    }
-
-    private List<Vector3Int> BuildLine(int a, int b, bool xAxis, bool yAxis, bool zAxis)
-    {
-        var line = new List<Vector3Int>();
-        int lo = xAxis ? gridMinX : (yAxis ? gridMinY : gridMinZ);
-        int hi = xAxis ? gridMaxX : (yAxis ? gridMaxY : gridMaxZ);
-        int targetCellCountInLine = 0;
-
-        for (int v = lo; v <= hi; v++)
-        {
-            Vector3Int cell = xAxis ? new Vector3Int(v, a, b)
-                            : yAxis  ? new Vector3Int(a, v, b)
-                                     : new Vector3Int(a, b, v);
-
-            if (targetCells.Contains(cell))
-            {
-                targetCellCountInLine++;
-                if (!occupiedCells.Contains(cell)) return null;
-                line.Add(cell);
-            }
-        }
-
-        if (targetCellCountInLine < 2) return null;
-        return line.Count > 0 ? line : null;
-    }
-
-    private bool IsLineMonochrome(List<Vector3Int> line)
-    {
-        bool hasFirstMatIdx = cellMatIndex.TryGetValue(line[0], out int firstMatIdx);
-        bool hasFirstColor = cellColors.TryGetValue(line[0], out Color firstColor);
-
-        if (!hasFirstMatIdx && !hasFirstColor) return false;
-
-        for (int i = 1; i < line.Count; i++)
-        {
-            bool hasMatIdx = cellMatIndex.TryGetValue(line[i], out int matIdx);
-            bool hasColor = cellColors.TryGetValue(line[i], out Color color);
-
-            if (!hasMatIdx && !hasColor) return false;
-
-            if (hasFirstMatIdx && hasMatIdx && (firstMatIdx != -1 || matIdx != -1))
-            {
-                if (firstMatIdx != matIdx)
+                // Hedef ghost hücresini açık kılavuz olarak geri aç
+                if (targetRenderers.TryGetValue(cell, out var r) && r != null)
                 {
-                    return false;
-                }
-            }
-            else if (hasFirstColor && hasColor)
-            {
-                if (!ColorsApproxEqual(color, firstColor))
-                {
-                    return false;
+                    r.enabled = true;
+                    r.transform.DOPunchScale(Vector3.one * 0.15f, 0.2f, 5, 0.5f);
                 }
             }
             else
             {
-                return false;
+                onOneDone();
             }
         }
 
-        return true;
+        return (linesCount, clearedCellsCount);
+    }
+
+    /// <summary>
+    /// Aktif katmandaki dolu satırları ve sütunları tespit eder.
+    /// Küpleri SİLMEZ; sadece parıldama/vuruş efekti uygular ve yeni eşleşen satır/sütun sayısını döndürür.
+    /// </summary>
+    public int CheckLineMatchesWithoutClearing(HashSet<string> alreadyMatchedLines, System.Action<List<Vector3Int>> onMatchedCells = null)
+    {
+        int targetY = ActiveLayerY;
+        int newlyMatchedLinesCount = 0;
+        var matchedCells = new List<Vector3Int>();
+
+        // 1. Yatay Satırlar (Sabit Z, Değişen X)
+        for (int z = gridMinZ; z <= gridMaxZ; z++)
+        {
+            string lineId = $"H_{targetY}_{z}";
+            if (alreadyMatchedLines.Contains(lineId)) continue;
+
+            var line = new List<Vector3Int>();
+            int targetCount = 0;
+            bool isFull = true;
+
+            for (int x = gridMinX; x <= gridMaxX; x++)
+            {
+                Vector3Int cell = new Vector3Int(x, targetY, z);
+                if (targetCells.Contains(cell))
+                {
+                    targetCount++;
+                    if (!occupiedCells.Contains(cell))
+                    {
+                        isFull = false;
+                        break;
+                    }
+                    line.Add(cell);
+                }
+            }
+
+            if (targetCount >= 2 && isFull && line.Count > 0)
+            {
+                alreadyMatchedLines.Add(lineId);
+                newlyMatchedLinesCount++;
+                matchedCells.AddRange(line);
+            }
+        }
+
+        // 2. Dikey Sütunlar (Sabit X, Değişen Z)
+        for (int x = gridMinX; x <= gridMaxX; x++)
+        {
+            string lineId = $"V_{targetY}_{x}";
+            if (alreadyMatchedLines.Contains(lineId)) continue;
+
+            var line = new List<Vector3Int>();
+            int targetCount = 0;
+            bool isFull = true;
+
+            for (int z = gridMinZ; z <= gridMaxZ; z++)
+            {
+                Vector3Int cell = new Vector3Int(x, targetY, z);
+                if (targetCells.Contains(cell))
+                {
+                    targetCount++;
+                    if (!occupiedCells.Contains(cell))
+                    {
+                        isFull = false;
+                        break;
+                    }
+                    line.Add(cell);
+                }
+            }
+
+            if (targetCount >= 2 && isFull && line.Count > 0)
+            {
+                alreadyMatchedLines.Add(lineId);
+                newlyMatchedLinesCount++;
+                matchedCells.AddRange(line);
+            }
+        }
+
+        // Eşleşen küplerin üzerinde görsel parıldama ve vuruş efekti
+        if (matchedCells.Count > 0)
+        {
+            foreach (var cell in matchedCells)
+            {
+                GameObject go = null;
+                if (cellObjects.TryGetValue(cell, out var playerObj) && playerObj != null) go = playerObj;
+                else if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null) go = pr.gameObject;
+
+                if (go != null)
+                {
+                    go.transform.DOComplete();
+                    go.transform.DOPunchScale(Vector3.one * 0.22f, 0.25f, 6, 0.5f);
+
+                    var rend = go.GetComponentInChildren<Renderer>();
+                    if (rend != null && rend.material != null && rend.material.HasProperty("_EmissionColor"))
+                    {
+                        rend.material.EnableKeyword("_EMISSION");
+                        rend.material.DOColor(new Color(1f, 0.9f, 0.3f) * 2.5f, "_EmissionColor", 0.14f).SetLoops(2, LoopType.Yoyo);
+                    }
+                }
+            }
+            onMatchedCells?.Invoke(matchedCells);
+        }
+
+        return newlyMatchedLinesCount;
+    }
+
+    /// <summary>
+    /// Kule Çökertme (Tower Collapse): Aktif katmanı tamamen imha eder.
+    /// Katta bulunan tüm parçalar ve grid blokları fiziksel olarak aşağı dökülür / yıkılır,
+    /// ardından bir sonraki katman aktifleşir.
+    /// </summary>
+    public void CollapseActiveLayerAndDropTower(System.Action onComplete = null)
+    {
+        IsExplodingLayer = true;
+
+        // Kamera güçlü sarsıntı
+        if (Camera.main != null)
+        {
+            Camera.main.transform.DOComplete();
+            Camera.main.transform.DOShakePosition(0.55f, 0.4f, 25);
+        }
+
+        // Haptic titreşim
+        if (GameManager.Instance != null && GameManager.Instance.IsVibrationEnabled)
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            Handheld.Vibrate();
+#endif
+        }
+
+        // Ses
+        AudioManager.Instance?.PlayCollapseSound();
+
+        int clearedY = ActiveLayerY;
+
+        // 1. Aktif katmanda kalan tüm blokları topla
+        List<Vector3Int> cellsToRemove = new List<Vector3Int>();
+        foreach (var c in allShapeCells)
+        {
+            if (c.y == clearedY) cellsToRemove.Add(c);
+        }
+
+        List<GameObject> rubbleObjects = new List<GameObject>();
+
+        foreach (var cell in cellsToRemove)
+        {
+            occupiedCells.Remove(cell);
+            targetCells.Remove(cell);
+            allShapeCells.Remove(cell);
+            frozenCells.Remove(cell);
+            cellMatIndex.Remove(cell);
+            cellColors.Remove(cell);
+            cellRemainingHits.Remove(cell);
+
+            if (cellObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                cellObjects.Remove(cell);
+                rubbleObjects.Add(go);
+            }
+
+            if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
+            {
+                prefilledRenderers.Remove(cell);
+                rubbleObjects.Add(pr.gameObject);
+            }
+
+            if (targetRenderers.TryGetValue(cell, out var tr) && tr != null)
+            {
+                targetRenderers.Remove(cell);
+                rubbleObjects.Add(tr.gameObject);
+            }
+        }
+
+        // 2. Yıkılan blokların aşağı dökülme ve takla atma animasyonu (Fiziksel enkaz hissi)
+        for (int i = 0; i < rubbleObjects.Count; i++)
+        {
+            var obj = rubbleObjects[i];
+            if (obj == null) continue;
+
+            obj.transform.SetParent(null); // Bağımsız dünya koordinatında düşsün
+
+            Vector3 startPos = obj.transform.position;
+            Vector3 randomScatter = new Vector3(
+                Random.Range(-1.4f, 1.4f),
+                Random.Range(0.4f, 1.2f),
+                Random.Range(-1.4f, 1.4f)
+            );
+            Vector3 fallTarget = startPos + randomScatter + Vector3.down * 14f;
+            Vector3 randomTumble = new Vector3(
+                Random.Range(-400f, 400f),
+                Random.Range(-400f, 400f),
+                Random.Range(-400f, 400f)
+            );
+
+            float delay = Random.Range(0f, 0.12f);
+
+            var seq = DOTween.Sequence();
+            if (delay > 0) seq.AppendInterval(delay);
+
+            // Pop & Çatlama kıvılcımı
+            CreateShatterEffect(startPos, new Color(1f, 0.8f, 0.4f, 0.8f));
+
+            // Yukarı hafif fırlayıp aşağı serbest düşüş (Gravity fall)
+            seq.Append(obj.transform.DOMove(startPos + randomScatter * 0.35f, 0.15f).SetEase(Ease.OutQuad));
+            seq.Append(obj.transform.DOMove(fallTarget, 0.75f).SetEase(Ease.InQuad));
+            seq.Join(obj.transform.DORotate(randomTumble, 0.9f, RotateMode.FastBeyond360).SetEase(Ease.Linear));
+            seq.Insert(0.5f + delay, obj.transform.DOScale(Vector3.zero, 0.35f).SetEase(Ease.InBack));
+            seq.OnComplete(() =>
+            {
+                if (obj != null) Destroy(obj);
+            });
+        }
+
+        // 3. Bir sonraki katmana geç
+        ActiveLayerY++;
+
+        // Kalan şekil için sınırları güncelle
+        if (allShapeCells.Count > 0)
+        {
+            gridMinY = allShapeCells.Min(c => c.y);
+            gridMaxY = allShapeCells.Max(c => c.y);
+        }
+
+        SyncGridState();
+
+        DOVirtual.DelayedCall(0.45f, () =>
+        {
+            IsExplodingLayer = false;
+            RefreshLayerVisibility();
+            RefreshSpeciesSparkle();
+            onComplete?.Invoke();
+        });
     }
 
     public static bool ColorsApproxEqual(Color a, Color b)

@@ -348,6 +348,12 @@ public class GameManager : MonoBehaviour
 
     // ─── Scoring ─────────────────────────────────────────────────────────────
 
+    public void AddScore(int points)
+    {
+        Score += points;
+        UIManager.Instance?.AnimateScore(Score);
+    }
+
     public void OnLinesCleared(int cellsCleared, int bonusLines)
     {
         int gained = cellsCleared * pointsPerCell;

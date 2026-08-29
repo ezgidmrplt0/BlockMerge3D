@@ -80,6 +80,26 @@ public static class PlacementValidator
     }
 
     /// <summary>
+    /// Aktif katmana yerleştirilebilecek herhangi bir parça / geçerli hamle olup olmadığını kontrol eder.
+    /// </summary>
+    public static bool HasAnyValidMove(
+        IReadOnlyList<List<Vector3Int>> pieceCellList,
+        int activeLayerY,
+        GridState state)
+    {
+        if (state == null || pieceCellList == null) return false;
+
+        foreach (var cells in pieceCellList)
+        {
+            if (cells == null || cells.Count == 0) continue;
+            var offsets = GetPossibleOffsetsOnLayer(cells, activeLayerY, state);
+            if (offsets != null && offsets.Count > 0) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Parçanın havada asılı kalmadığını, alttan desteklendiğini doğrular.
     /// </summary>
     public static bool IsSupported(
@@ -135,17 +155,20 @@ public static class PlacementValidator
                 // Convert world hit to cell
                 Vector3Int hitCell = state.WorldToCell(hit.collider.transform.position, boardTransform);
 
-                if (state.TargetCells.Contains(hitCell) || state.OccupiedCells.Contains(hitCell))
+                // Sadece o anki aktif katmandaki (activeLayerY) hedefleri dikkate al
+                if (hitCell.y == activeLayerY && (state.TargetCells.Contains(hitCell) || state.OccupiedCells.Contains(hitCell)))
                 {
                     Vector3Int normalInt = new Vector3Int(
                         Mathf.RoundToInt(hit.normal.x),
-                        Mathf.RoundToInt(hit.normal.y),
+                        0, // Dikey ofset ekleme, aynı katmanda kalsın
                         Mathf.RoundToInt(hit.normal.z)
                     );
 
                     Vector3Int targetAnchorCell = state.OccupiedCells.Contains(hitCell)
                         ? (hitCell + normalInt)
                         : hitCell;
+
+                    if (targetAnchorCell.y != activeLayerY) targetAnchorCell.y = activeLayerY;
 
                     int closestIndex = 0;
                     float minWorldDist = float.MaxValue;
@@ -187,7 +210,7 @@ public static class PlacementValidator
             }
         }
 
-        // 2. Proximity-based Snapping Fallback
+        // 2. Proximity-based Snapping Fallback (SADECE activeLayerY)
         var seen = new HashSet<Vector3Int>();
         float bestValidD = maxDist * 1.8f;
         Vector3Int bestValidOff = Vector3Int.zero;
@@ -195,6 +218,8 @@ public static class PlacementValidator
 
         foreach (var t in state.TargetCells)
         {
+            if (t.y != activeLayerY) continue; // Üst/alt katmanlara yapışmayı kesin olarak engelle
+
             foreach (var c in cells)
             {
                 var off = t - c;

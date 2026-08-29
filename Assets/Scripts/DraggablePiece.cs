@@ -109,18 +109,11 @@ public class DraggablePiece : MonoBehaviour
         lastPosition        = transform.position;
         if (grid != null) grid.StartVisualFocus(this);
 
-        // Sürükleme düzlemini hazırla
-        // Panel modunda aktif katmanın Y düzlemine kilitle
-        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode && GridManager.Instance != null)
-        {
-            Vector3 layerWorldPos = GridManager.Instance.CellToWorld(
-                new Vector3Int(0, GridManager.Instance.ActiveLayerY, 0));
-            dragPlane = new Plane(Vector3.up, layerWorldPos);
-        }
-        else
-        {
-            dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
-        }
+        // Sürükleme düzlemini aktif katmanın Y düzlemine kilitle
+        Vector3 layerWorldPos = (grid != null) 
+            ? grid.CellToWorld(new Vector3Int(0, grid.ActiveLayerY, 0)) 
+            : (mainCam != null ? mainCam.transform.position + mainCam.transform.forward * 10f : Vector3.zero);
+        dragPlane = new Plane(Vector3.up, layerWorldPos);
         transform.localScale = Vector3.one * dragStartScale;
         UpdateChildPositions();
         ApplySpeciesRotation();
@@ -254,18 +247,11 @@ public class DraggablePiece : MonoBehaviour
         lastPosition        = transform.position;
         if (grid != null) grid.StartVisualFocus(this);
 
-        // Origin dunya pozisyonuna geri döndük
-        // Panel modunda aktif katmanın Y düzlemine kilitle
-        if (CameraOrbit.Instance != null && CameraOrbit.Instance.IsInPanelMode && GridManager.Instance != null)
-        {
-            Vector3 layerWorldPos = GridManager.Instance.CellToWorld(
-                new Vector3Int(0, GridManager.Instance.ActiveLayerY, 0));
-            dragPlane = new Plane(Vector3.up, layerWorldPos);
-        }
-        else
-        {
-            dragPlane = new Plane(-mainCam.transform.forward, grid.Origin);
-        }
+        // Sürükleme düzlemini aktif katmanın Y düzlemine kilitle
+        Vector3 layerWorldPos = (grid != null) 
+            ? grid.CellToWorld(new Vector3Int(0, grid.ActiveLayerY, 0)) 
+            : (mainCam != null ? mainCam.transform.position + mainCam.transform.forward * 10f : Vector3.zero);
+        dragPlane = new Plane(Vector3.up, layerWorldPos);
         Ray initRay = mainCam.ScreenPointToRay(Input.mousePosition);
         dragOffset3D = dragPlane.Raycast(initRay, out float initDist)
             ? transform.position - initRay.GetPoint(initDist)
@@ -574,20 +560,7 @@ public class DraggablePiece : MonoBehaviour
             transform.position = grid.OffsetToRoot(offset);
             transform.localScale = Vector3.one;
 
-            // 1. Çizgileri kontrol et; merge animasyonu bittikten sonra kazanma bildir
-            //    onComplete lambda: merge bitti → GameManager'a sinyal ver (win panel açılır)
-            GameManager.Instance?.BeginBlockingAnimation();
-            var (cleared, bonusLines) = grid.CheckAndClearLines(onComplete: () =>
-            {
-                GameManager.Instance?.EndBlockingAnimation();
-            });
-
-            // 2. Puan ve kazanma kontrolü (merge animasyonu başladıysa win panel ertelenir)
-            if (cleared > 0) GameManager.Instance?.OnLinesCleared(cleared, bonusLines);
-            else              GameManager.Instance?.CheckWin();
-
-
-            // 3. LevelManager'a parça yerleşimini bildir (böylece Game Over kontrolü temizlenmiş tahta üzerinden yapılır)
+            // LevelManager'a parça yerleşimini bildir (Block Blast patlamaları, katman çökertme ve kombo döngüsü)
             LevelManager.Instance?.OnPiecePlaced(this);
         }
         else

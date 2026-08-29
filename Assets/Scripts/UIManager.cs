@@ -139,6 +139,199 @@ public class UIManager : MonoBehaviour
             targetScoreText.text = target > 0 ? $"/ {target}" : "";
     }
 
+    private GameObject activeComboPopup;
+
+    public void ShowComboPopup(int comboCount, int linesCount)
+    {
+        var canvas = GameObject.Find("UICanvas");
+        if (canvas == null) return;
+
+        if (activeComboPopup != null)
+        {
+            Destroy(activeComboPopup);
+        }
+
+        string msg;
+        if (linesCount >= 3) msg = "TRIPLE BLAST! 💥";
+        else if (linesCount == 2) msg = "DOUBLE BLAST! ⚡";
+        else if (comboCount > 1) msg = $"COMBO x{comboCount}! 🔥";
+        else msg = "GREAT! ✨";
+
+        GameObject popGO = new GameObject("ComboPopup", typeof(RectTransform), typeof(CanvasGroup));
+        activeComboPopup = popGO;
+        popGO.transform.SetParent(canvas.transform, false);
+
+        var rt = popGO.GetComponent<RectTransform>();
+        rt.anchoredPosition = new Vector2(0, 100);
+        rt.sizeDelta = new Vector2(500, 100);
+
+        var cg = popGO.GetComponent<CanvasGroup>();
+
+        var textGO = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+        textGO.transform.SetParent(popGO.transform, false);
+        var textRT = textGO.GetComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.sizeDelta = Vector2.zero;
+
+        var tmp = textGO.GetComponent<TextMeshProUGUI>();
+        tmp.text = msg;
+        tmp.fontSize = 42;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = linesCount >= 2 || comboCount >= 2 ? new Color(1f, 0.85f, 0.2f) : Color.white;
+        tmp.enableVertexGradient = true;
+        tmp.colorGradient = new VertexGradient(
+            new Color(1f, 0.95f, 0.4f),
+            new Color(1f, 0.95f, 0.4f),
+            new Color(1f, 0.4f, 0.1f),
+            new Color(1f, 0.4f, 0.1f)
+        );
+
+        popGO.transform.localScale = Vector3.zero;
+        Sequence seq = DOTween.Sequence();
+        seq.Append(popGO.transform.DOScale(1.2f, 0.2f).SetEase(Ease.OutBack));
+        seq.Append(popGO.transform.DOScale(1f, 0.1f));
+        seq.Join(rt.DOAnchorPosY(160, 0.75f).SetEase(Ease.OutQuad));
+        seq.Insert(0.55f, cg.DOFade(0f, 0.25f));
+        seq.OnComplete(() =>
+        {
+            if (popGO != null) Destroy(popGO);
+        });
+    }
+
+    public void UpdateTowerFloorProgress(int currentFloor, int totalFloors, float floorProgress)
+    {
+        if (scoreText != null)
+        {
+            scoreText.text = $"KATMAN {currentFloor}/{totalFloors}";
+        }
+
+        if (scoreProgressBar != null)
+        {
+            scoreProgressBar.DOFillAmount(Mathf.Clamp01(floorProgress), 0.3f).SetEase(Ease.OutCubic);
+        }
+    }
+
+    [Header("Layer Damage Bar")]
+    public GameObject      layerDamageBarContainer;
+    public Image           layerDamageBarFill;
+    public TextMeshProUGUI layerDamageBarText;
+
+    private void OnValidate()
+    {
+        #if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            EnsureLayerDamageBar();
+        }
+        #endif
+    }
+
+    public void UpdateLayerDamageBar(int currentFloor, int totalFloors, float floorProgress, int currentPoints = 0, int targetPoints = 0)
+    {
+        if (scoreText != null)
+        {
+            scoreText.text = $"KATMAN {currentFloor}/{totalFloors}";
+        }
+
+        EnsureLayerDamageBar();
+
+        if (layerDamageBarFill != null)
+        {
+            float fill = Mathf.Clamp01(floorProgress);
+            layerDamageBarFill.DOKill();
+            layerDamageBarFill.DOFillAmount(fill, 0.32f).SetEase(Ease.OutCubic);
+
+            // Doluluk arttıkça renk: Elektrik Mavisi -> Canlı Altın/Turuncu
+            Color barColor = Color.Lerp(new Color(0.15f, 0.78f, 1f), new Color(1f, 0.65f, 0.1f), fill);
+            layerDamageBarFill.DOColor(barColor, 0.25f);
+        }
+
+        if (layerDamageBarText != null)
+        {
+            if (targetPoints > 0)
+            {
+                layerDamageBarText.text = $"HASAR: {currentPoints} / {targetPoints}  ({Mathf.RoundToInt(floorProgress * 100)}%)";
+            }
+            else
+            {
+                layerDamageBarText.text = $"KATMAN HASARI: %{Mathf.RoundToInt(floorProgress * 100)}";
+            }
+        }
+
+        if (layerDamageBarContainer != null)
+        {
+            layerDamageBarContainer.transform.DOKill();
+            layerDamageBarContainer.transform.DOPunchScale(Vector3.one * 0.07f, 0.2f, 5, 0.5f);
+        }
+    }
+
+    private void EnsureLayerDamageBar()
+    {
+        if (layerDamageBarContainer != null) return;
+
+        var canvas = FindObjectOfType<Canvas>();
+        if (canvas == null) return;
+
+        Transform existing = canvas.transform.Find("LayerDamageBarRoot");
+        if (existing != null)
+        {
+            layerDamageBarContainer = existing.gameObject;
+            layerDamageBarFill = existing.Find("Fill")?.GetComponent<Image>();
+            layerDamageBarText = existing.Find("Text")?.GetComponent<TextMeshProUGUI>();
+            return;
+        }
+
+        // Ana Container
+        layerDamageBarContainer = new GameObject("LayerDamageBarRoot", typeof(RectTransform), typeof(Image));
+        layerDamageBarContainer.transform.SetParent(canvas.transform, false);
+
+        var rt = layerDamageBarContainer.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 1f);
+        rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -68f);
+        rt.sizeDelta = new Vector2(250f, 22f);
+
+        var bg = layerDamageBarContainer.GetComponent<Image>();
+        bg.color = new Color(0.08f, 0.12f, 0.18f, 0.9f);
+
+        var outline = layerDamageBarContainer.AddComponent<Outline>();
+        outline.effectColor = new Color(0.2f, 0.6f, 0.9f, 0.7f);
+        outline.effectDistance = new Vector2(1.5f, -1.5f);
+
+        // Fill Image
+        GameObject fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+        fillGo.transform.SetParent(layerDamageBarContainer.transform, false);
+        var fillRT = fillGo.GetComponent<RectTransform>();
+        fillRT.anchorMin = Vector2.zero;
+        fillRT.anchorMax = Vector2.one;
+        fillRT.sizeDelta = new Vector2(-4f, -4f);
+
+        layerDamageBarFill = fillGo.GetComponent<Image>();
+        layerDamageBarFill.type = Image.Type.Filled;
+        layerDamageBarFill.fillMethod = Image.FillMethod.Horizontal;
+        layerDamageBarFill.fillOrigin = (int)Image.OriginHorizontal.Left;
+        layerDamageBarFill.color = new Color(0.15f, 0.78f, 1f);
+        layerDamageBarFill.fillAmount = 0f;
+
+        // Text
+        GameObject textGo = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+        textGo.transform.SetParent(layerDamageBarContainer.transform, false);
+        var textRT = textGo.GetComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.sizeDelta = Vector2.zero;
+
+        layerDamageBarText = textGo.GetComponent<TextMeshProUGUI>();
+        layerDamageBarText.fontSize = 11;
+        layerDamageBarText.fontStyle = FontStyles.Bold;
+        layerDamageBarText.alignment = TextAlignmentOptions.Center;
+        layerDamageBarText.color = Color.white;
+        layerDamageBarText.text = "KATMAN HASARI: %0";
+    }
+
     // ─── Timer ────────────────────────────────────────────────────────────────
 
     public void UpdateTimer(float remaining, float total)

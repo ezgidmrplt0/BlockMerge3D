@@ -163,4 +163,35 @@ public class AudioManager : MonoBehaviour
         if (boardRotateSound == null) return;
         PlaySFX(boardRotateSound, 1f);
     }
+
+    /// <summary>Block Blast tarzı satır/sütun patladığında tetiklenir.</summary>
+    public void PlayLineClearSound(int combo = 1)
+    {
+        float pitch = Mathf.Clamp(1f + (combo - 1) * 0.15f, 1f, 2.2f);
+        if (iceMeltSound != null)
+            PlaySFX(iceMeltSound, pitch);
+        else if (placementSound != null)
+            PlaySFX(placementSound, pitch);
+    }
+
+    /// <summary>Kule katmanı çöktüğünde ve üst katmanlar düştüğünde tetiklenir.</summary>
+    public void PlayCollapseSound()
+    {
+        if (clawGrabSound != null)
+            PlaySFX(clawGrabSound, 0.85f);
+        else if (iceMeltSound != null)
+            PlaySFX(iceMeltSound, 0.8f);
+        else if (placementSound != null)
+            PlaySFX(placementSound, 0.75f);
+    }
+
+    /// <summary>Kule katmanı hasar alıp çatladığında tetiklenir.</summary>
+    public void PlayCrackSound(int stage = 1)
+    {
+        float pitch = Mathf.Clamp(1.35f + stage * 0.2f, 1.2f, 2.5f);
+        if (iceMeltSound != null)
+            PlaySFX(iceMeltSound, pitch);
+        else if (placementSound != null)
+            PlaySFX(placementSound, pitch);
+    }
 }
