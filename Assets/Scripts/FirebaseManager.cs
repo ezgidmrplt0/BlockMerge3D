@@ -10,7 +10,9 @@ public class FirebaseManager : MonoBehaviour
 {
     public static FirebaseManager Instance;
 
+#if USE_FIREBASE
     private bool isReady = false;
+#endif
 
     // Aktif level ve oturum için zaman takibi (level_quit için)
     private int  activeLevel      = -1;
@@ -78,7 +80,7 @@ public class FirebaseManager : MonoBehaviour
         FirestoreAnalytics.Instance?.LogLevelStart(levelIndex);
     }
 
-    public void LogLevelComplete(int levelIndex, float durationSeconds, float timeRemaining = 0f)
+    public void LogLevelComplete(int levelIndex, float durationSeconds, float timeRemaining = 0f, int movesCount = -1)
     {
         levelActive = false;
 
@@ -87,13 +89,14 @@ public class FirebaseManager : MonoBehaviour
         FirebaseAnalytics.LogEvent("level_complete",
             new Parameter("level_index",      levelIndex),
             new Parameter("duration_seconds", durationSeconds),
-            new Parameter("time_remaining",   timeRemaining));
+            new Parameter("time_remaining",   timeRemaining),
+            new Parameter("moves_count",      movesCount));
 #endif
 
-        FirestoreAnalytics.Instance?.LogLevelComplete(levelIndex, durationSeconds);
+        FirestoreAnalytics.Instance?.LogLevelComplete(levelIndex, durationSeconds, movesCount);
     }
 
-    public void LogLevelFail(int levelIndex, float durationSeconds)
+    public void LogLevelFail(int levelIndex, float durationSeconds, int movesCount = -1, int failedLayerY = -1)
     {
         levelActive = false;
 
@@ -101,10 +104,12 @@ public class FirebaseManager : MonoBehaviour
         if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_fail",
             new Parameter("level_index",      levelIndex),
-            new Parameter("duration_seconds", durationSeconds));
+            new Parameter("duration_seconds", durationSeconds),
+            new Parameter("moves_count",      movesCount),
+            new Parameter("failed_layer",     failedLayerY));
 #endif
 
-        FirestoreAnalytics.Instance?.LogLevelFail(levelIndex, durationSeconds);
+        FirestoreAnalytics.Instance?.LogLevelFail(levelIndex, durationSeconds, movesCount, failedLayerY);
     }
 
     public void LogLevelRetry(int levelIndex)
@@ -138,7 +143,7 @@ public class FirebaseManager : MonoBehaviour
     /// <summary>
     /// Kullanıcı level ortasında uygulamayı kapattığında tetiklenir.
     /// </summary>
-    private void LogLevelQuit(int levelIndex, float durationSeconds)
+    private void LogLevelQuit(int levelIndex, float durationSeconds, int movesCount = -1, int quitLayerY = -1)
     {
         if (levelIndex < 0) return;
 
@@ -146,10 +151,29 @@ public class FirebaseManager : MonoBehaviour
         if (!isReady) return;
         FirebaseAnalytics.LogEvent("level_quit",
             new Parameter("level_index",      levelIndex),
-            new Parameter("duration_seconds", durationSeconds));
+            new Parameter("duration_seconds", durationSeconds),
+            new Parameter("moves_count",      movesCount),
+            new Parameter("quit_layer",       quitLayerY));
 #endif
 
-        FirestoreAnalytics.Instance?.LogLevelQuit(levelIndex, durationSeconds);
+        FirestoreAnalytics.Instance?.LogLevelQuit(levelIndex, durationSeconds, movesCount, quitLayerY);
+    }
+
+    /// <summary>
+    /// Booster veya power-up kullanıldığında tetiklenir.
+    /// </summary>
+    public void LogBoosterUsed(string boosterType, int levelIndex = -1, int layerY = -1)
+    {
+#if USE_FIREBASE
+        if (isReady)
+        {
+            FirebaseAnalytics.LogEvent("booster_used",
+                new Parameter("booster_type", boosterType),
+                new Parameter("level_index",  levelIndex),
+                new Parameter("layer_index",  layerY));
+        }
+#endif
+        FirestoreAnalytics.Instance?.LogBoosterUsed(boosterType, levelIndex, layerY);
     }
 
     // ─────────────────────────────────────────────────────────────

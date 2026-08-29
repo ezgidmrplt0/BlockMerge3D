@@ -48,12 +48,30 @@ public class DraggablePiece : MonoBehaviour
     private float dragStartScale = 1f;
     private Vector3 lastPosition;
 
+    // Zero-GC önbellek tamponları
+    private readonly List<Vector3Int> cachedSnappedBoardCells = new List<Vector3Int>(32);
+    private readonly List<Transform> cachedChildTransforms = new List<Transform>(32);
+
     public static DraggablePiece activeDrag;
     public static bool IsDragging => activeDrag != null;
 
     public bool IsBeingDragged => isDragging;
     public bool IsPlaced       => isPlaced;
     public List<Vector3Int> CurrentCells => currentCells;
+
+    /// <summary>
+    /// Mobilde parmağın altındaki grid hücrelerinin görünür kalmasını sağlayan ergonomik dikey ofset (Touch Lift).
+    /// </summary>
+    private Vector3 GetPointerScreenPosition()
+    {
+        Vector3 pos = Input.mousePosition;
+        if (Application.isMobilePlatform || Input.touchCount > 0)
+        {
+            // Ekran yüksekliğinin %5.5'i kadar yukarı kaldır (~1.5-2 cm)
+            pos.y += Screen.height * 0.055f;
+        }
+        return pos;
+    }
 
     public static void RequestRotateY() { if (activeDrag != null) activeDrag.RotateAroundY(); }
     public static void RequestRotateX() { if (activeDrag != null) activeDrag.RotateAroundX(); }
@@ -277,7 +295,8 @@ public class DraggablePiece : MonoBehaviour
         UpdateBoardCells();
 
         Vector3 targetDragPos = transform.position;
-        Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
+        Vector3 pointerScreenPos = GetPointerScreenPosition();
+        Ray mouseRay = mainCam.ScreenPointToRay(pointerScreenPos);
         bool hasDragPlaneHit = dragPlane.Raycast(mouseRay, out float dist);
         if (hasDragPlaneHit)
         {
@@ -287,8 +306,8 @@ public class DraggablePiece : MonoBehaviour
         // Geçiş esnasında snapping yapılmaz
         bool canSnap = dragLerpProgress >= 1f;
 
-        // Ekranın alt bölgesindeyse (kart slotları alanı) snap yapılmaz ve iptal modu tetiklenir
-        bool isInCancelZone = Input.mousePosition.y < Screen.height * 0.22f;
+        // Ekranın alt bölgesindeyse (kart slotları alanı) snap yapılmaz ve iptal modu tetiklenir (parmağın fiziksel konumuna göre)
+        bool isInCancelZone = Input.mousePosition.y < Screen.height * 0.18f;
 
         // Snap testi parçanın MEVCUT konumundan değil, farenin sürüklediği HEDEF
         // konumdan yapılır. Aksi halde geri besleme döngüsü oluşuyordu: parça snap
@@ -319,10 +338,13 @@ public class DraggablePiece : MonoBehaviour
                 transform.DOPunchScale(new Vector3(0.08f, -0.1f, 0.08f), 0.15f, 10, 1f);
             }
 
-            // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat
-            var snappedBoardCells = new List<Vector3Int>();
-            foreach (var c in currentCells) snappedBoardCells.Add(c + snapOff);
-            grid.UpdateSnappedPreviewCells(snappedBoardCells);
+            // Snaplendigi yerdeki rehber grid hucrelerinin gorunurlugunu gecici olarak kapat (Zero-GC)
+            cachedSnappedBoardCells.Clear();
+            for (int i = 0; i < currentCells.Count; i++)
+            {
+                cachedSnappedBoardCells.Add(currentCells[i] + snapOff);
+            }
+            grid.UpdateSnappedPreviewCells(cachedSnappedBoardCells);
 
             // Ilk mekanik: kamera-isini yaklasimi ile snap konumundaki hucreler gizlenir
             grid.UpdateOccludingCells(mainCam.transform.position, currentCells, snapOff);
@@ -596,9 +618,20 @@ public class DraggablePiece : MonoBehaviour
         if (visualCells == null || visualCells.Count == 0) return transform.position;
         float step = grid.Step;
 
-        int minX = visualCells.Min(c => c.x), maxX = visualCells.Max(c => c.x);
-        int minY = visualCells.Min(c => c.y), maxY = visualCells.Max(c => c.y);
-        int minZ = visualCells.Min(c => c.z), maxZ = visualCells.Max(c => c.z);
+        int minX = visualCells[0].x, maxX = visualCells[0].x;
+        int minY = visualCells[0].y, maxY = visualCells[0].y;
+        int minZ = visualCells[0].z, maxZ = visualCells[0].z;
+
+        for (int i = 1; i < visualCells.Count; i++)
+        {
+            var c = visualCells[i];
+            if (c.x < minX) minX = c.x;
+            if (c.x > maxX) maxX = c.x;
+            if (c.y < minY) minY = c.y;
+            if (c.y > maxY) maxY = c.y;
+            if (c.z < minZ) minZ = c.z;
+            if (c.z > maxZ) maxZ = c.z;
+        }
 
         Vector3 localCenter = new Vector3(
             (minX + maxX + 1) * 0.5f,
@@ -686,9 +719,13 @@ public class DraggablePiece : MonoBehaviour
 
     private void UpdateChildPositions()
     {
-        var children = new List<Transform>();
-        foreach (Transform t in transform) children.Add(t);
-        if (children.Count != visualCells.Count) return;
+        if (cachedChildTransforms.Count != transform.childCount)
+        {
+            cachedChildTransforms.Clear();
+            foreach (Transform t in transform) cachedChildTransforms.Add(t);
+        }
+
+        if (cachedChildTransforms.Count != visualCells.Count) return;
 
         float half = grid.CellSize * 0.5f;
 
@@ -696,19 +733,19 @@ public class DraggablePiece : MonoBehaviour
         {
             // SNAP DURUMUNDA: Blokları tahtadaki hücrelerin gerçek dunya pozisyonlarına eşitle!
             Vector3Int snapOff = grid.RootToOffset(transform.position);
-            for (int i = 0; i < children.Count; i++)
+            for (int i = 0; i < cachedChildTransforms.Count; i++)
             {
                 Vector3 worldCellPos = grid.CellToWorld(currentCells[i] + snapOff);
-                children[i].localPosition = transform.InverseTransformPoint(worldCellPos);
+                cachedChildTransforms[i].localPosition = transform.InverseTransformPoint(worldCellPos);
             }
         }
         else
         {
             // SÜRÜKLEME VEYA SLOT DURUMUNDA: Ekrana paralel / düz konumlandır
-            for (int i = 0; i < children.Count; i++)
+            for (int i = 0; i < cachedChildTransforms.Count; i++)
             {
                 var c = visualCells[i];
-                children[i].localPosition = new Vector3(
+                cachedChildTransforms[i].localPosition = new Vector3(
                     c.x * grid.Step + half,
                     c.y * grid.Step + half,
                     c.z * grid.Step + half);

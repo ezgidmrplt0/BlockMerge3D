@@ -7,6 +7,8 @@ public class GridManager : MonoBehaviour
 {
     public static GridManager Instance { get; private set; }
 
+    public GridState State { get; private set; } = new GridState();
+
     public HashSet<Vector3Int> targetCells   = new HashSet<Vector3Int>();
     public HashSet<Vector3Int> allShapeCells = new HashSet<Vector3Int>();
     public HashSet<Vector3Int> occupiedCells = new HashSet<Vector3Int>();
@@ -475,7 +477,9 @@ public class GridManager : MonoBehaviour
             Debug.Log("[GridManager] Initialize: shapeHolder or shapeHolder.frozenCells is NULL!");
         }
 
-        // Doldurulması gereken ilk katmanı bul (üstten alta — bkz. TryFindNextRequiredLayer).
+        SyncGridState();
+
+        // Doldurulması gereken ilk katmanı bul (alttan üste — bkz. TryFindNextRequiredLayer).
         // targetCells yerine allShapeCells kullanılır; böylece gizli/prefilled/frozen
         // hücreleri bulunan katmanlar da doğru şekilde hesaba katılır.
         if (!TryFindNextRequiredLayer(out int nextRequiredLayer))
@@ -484,6 +488,25 @@ public class GridManager : MonoBehaviour
             ActiveLayerY = nextRequiredLayer;
         lineClearEnabled = false; // Layer-by-layer mode
         RefreshLayerVisibility();
+    }
+
+    public void SyncGridState()
+    {
+        if (State == null) State = new GridState();
+        State.Clear();
+        State.CellSize = CellSize;
+        State.Spacing = Spacing;
+        State.Origin = Origin;
+        State.SetBounds(gridMinX, gridMaxX, gridMinY, gridMaxY, gridMinZ, gridMaxZ);
+
+        foreach (var c in targetCells) State.TargetCells.Add(c);
+        foreach (var c in allShapeCells) State.AllShapeCells.Add(c);
+        foreach (var c in occupiedCells) State.OccupiedCells.Add(c);
+        foreach (var c in frozenCells) State.FrozenCells.Add(c);
+        foreach (var kv in prefilledRenderers) State.PrefilledCells.Add(kv.Key);
+        foreach (var kv in cellColors) State.CellColors[kv.Key] = kv.Value;
+        foreach (var kv in cellMatIndex) State.CellMatIndex[kv.Key] = kv.Value;
+        foreach (var kv in iceRemainingHits) State.IceRemainingHits[kv.Key] = kv.Value;
     }
 
     private static int ParseCoordinate(string s)
@@ -715,54 +738,15 @@ public class GridManager : MonoBehaviour
     // çünkü artık herhangi bir katmana yerleştirme yapılabiliyor.
     public bool IsLayerComplete(int layerY)
     {
-        int cellsInLayer    = 0;
-        int occupiedInLayer = 0;
-
-        foreach (var c in allShapeCells)
-        {
-            if (c.y == layerY)
-            {
-                cellsInLayer++;
-                if (occupiedCells.Contains(c)) occupiedInLayer++;
-            }
-        }
-
-        return cellsInLayer > 0 && occupiedInLayer >= cellsInLayer;
+        SyncGridState();
+        return State.IsLayerComplete(layerY);
     }
 
-    // Sıralı katman mekaniği artık ÜSTTEN ALTA çalışıyor — oyuncunun doldurması gereken bir
-    // sonraki katman her zaman en YÜKSEK tamamlanmamış katman (gridMaxY'den gridMinY'ye doğru
-    // taranır). Bkz. Docs/SiraliKatmanMekanigi_Tasarim.md.
+    // Sıralı katman mekaniği: Oyuncunun doldurması gereken bir sonraki katman en alt tamamlanmamış katmandır.
     private bool TryFindNextRequiredLayer(out int layerY)
     {
-        for (int y = gridMaxY; y >= gridMinY; y--)
-        {
-            bool hasCells = false;
-            bool layerFull = true;
-
-            foreach (var cell in allShapeCells)
-            {
-                if (cell.y != y) continue;
-
-                hasCells = true;
-                if (!occupiedCells.Contains(cell))
-                {
-                    layerFull = false;
-                    break;
-                }
-            }
-
-            if (!hasCells) continue;
-
-            if (!layerFull)
-            {
-                layerY = y;
-                return true;
-            }
-        }
-
-        layerY = gridMaxY;
-        return false;
+        SyncGridState();
+        return State.TryFindFirstIncompleteLayer(out layerY);
     }
 
     // layerY: patlatılacak (tamamlanmış) katman — artık her zaman ActiveLayerY olmak zorunda
@@ -1131,32 +1115,55 @@ public class GridManager : MonoBehaviour
 
         if (gridMaxY > gridMinY) gridMaxY--;
 
-        // --- GÖRSEL ÇÖKME (VISUAL COLLAPSE) ---
-        float collapseDelay = layerSlideDelay + 0.35f;
+        // --- GÖRSEL ÇÖKME (ELASTIC CASCADE & SQUASH-STRETCH LANDING) ---
+        float collapseBaseDelay = layerSlideDelay + 0.32f;
+
         foreach (var kvp in cellObjects)
         {
-            if (kvp.Key.y >= clearedY)
+            if (kvp.Key.y >= clearedY && kvp.Value != null)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.35f).SetEase(Ease.OutQuad).SetDelay(collapseDelay).SetId(LEVEL_ANIM_ID);
+                float stagger = (Mathf.Abs(kvp.Key.x) + Mathf.Abs(kvp.Key.z)) * 0.03f;
+                float delay = collapseBaseDelay + stagger;
+                float targetY = t.localPosition.y - Step;
+
+                Sequence dropSeq = DOTween.Sequence().SetDelay(delay).SetId(LEVEL_ANIM_ID);
+                dropSeq.Append(t.DOLocalMoveY(targetY, 0.38f).SetEase(Ease.OutBack, 1.15f));
+                dropSeq.AppendCallback(() =>
+                {
+                    t.DOPunchScale(new Vector3(0.14f, -0.16f, 0.14f), 0.22f, 6, 0.5f).SetId(LEVEL_ANIM_ID);
+                });
             }
         }
 
         foreach (var kvp in targetRenderers)
         {
-            if (kvp.Key.y >= clearedY)
+            if (kvp.Key.y >= clearedY && kvp.Value != null)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.35f).SetEase(Ease.OutQuad).SetDelay(collapseDelay).SetId(LEVEL_ANIM_ID);
+                float stagger = (Mathf.Abs(kvp.Key.x) + Mathf.Abs(kvp.Key.z)) * 0.03f;
+                float delay = collapseBaseDelay + stagger;
+                float targetY = t.localPosition.y - Step;
+
+                t.DOLocalMoveY(targetY, 0.38f).SetEase(Ease.OutBack, 1.15f).SetDelay(delay).SetId(LEVEL_ANIM_ID);
             }
         }
 
         foreach (var kvp in prefilledRenderers)
         {
-            if (kvp.Key.y >= clearedY)
+            if (kvp.Key.y >= clearedY && kvp.Value != null)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.35f).SetEase(Ease.OutQuad).SetDelay(collapseDelay).SetId(LEVEL_ANIM_ID);
+                float stagger = (Mathf.Abs(kvp.Key.x) + Mathf.Abs(kvp.Key.z)) * 0.03f;
+                float delay = collapseBaseDelay + stagger;
+                float targetY = t.localPosition.y - Step;
+
+                Sequence dropSeq = DOTween.Sequence().SetDelay(delay).SetId(LEVEL_ANIM_ID);
+                dropSeq.Append(t.DOLocalMoveY(targetY, 0.38f).SetEase(Ease.OutBack, 1.15f));
+                dropSeq.AppendCallback(() =>
+                {
+                    t.DOPunchScale(new Vector3(0.14f, -0.16f, 0.14f), 0.22f, 6, 0.5f).SetId(LEVEL_ANIM_ID);
+                });
             }
         }
 
@@ -1166,36 +1173,139 @@ public class GridManager : MonoBehaviour
             RefreshLayerVisibility();
             RefreshSpeciesSparkle();
 
-            float totalAnimDuration = layerSlideDelay + 0.3f;
+            float totalAnimDuration = layerSlideDelay + 0.35f;
             Debug.Log($"[WIN_TIMING] ExplodeLayer SON KATMAN — t={Time.time:F3}, winCallback {totalAnimDuration:F2}sn sonra");
             System.Action winFinish = () => { Debug.Log($"[WIN_TIMING] onLevelComplete fired — t={Time.time:F3}"); IsExplodingLayer = false; onLevelComplete?.Invoke(); };
             DOVirtual.DelayedCall(totalAnimDuration, () => winFinish()).SetId(LEVEL_ANIM_ID);
         }
         else
         {
+            int targetNextLayer = ActiveLayerY;
             if (ActiveLayerY == clearedY)
             {
                 if (TryFindNextRequiredLayer(out int nextLayer))
                 {
-                    ActiveLayerY = nextLayer;
+                    targetNextLayer = nextLayer;
                 }
                 else
-                    ActiveLayerY = gridMaxY;
+                    targetNextLayer = gridMaxY;
             }
             else if (ActiveLayerY > clearedY)
             {
-                ActiveLayerY--;
+                targetNextLayer = ActiveLayerY - 1;
             }
 
-            RefreshLayerVisibility();
-            RefreshSpeciesSparkle();
+            ActiveLayerY = targetNextLayer;
 
-            LayerPanelController.Instance?.OpenPanel(ActiveLayerY, instant: true);
-
-            float totalAnimDuration = layerSlideDelay + 0.85f;
-            System.Action layerFinish = () => { IsExplodingLayer = false; onLayerComplete?.Invoke(); };
-            DOVirtual.DelayedCall(totalAnimDuration, () => layerFinish()).SetId(LEVEL_ANIM_ID);
+            // Patlama ve parçalanma animasyonu tamamen bittikten sonra sıradaki katmanı pürüzsüz dalga ile ortaya çıkar
+            float explosionEndDelay = layerSlideDelay + 0.65f;
+            DOVirtual.DelayedCall(explosionEndDelay, () =>
+            {
+                AnimateLayerEntrance(ActiveLayerY, () =>
+                {
+                    IsExplodingLayer = false;
+                    onLayerComplete?.Invoke();
+                });
+            }).SetId(LEVEL_ANIM_ID);
         }
+    }
+
+    /// <summary>
+    /// Katman patlaması bittiğinde, sıradaki katmanın hücrelerini dalga şeklinde (radial pop-in)
+    /// ve yumuşak kamera odağıyla pürüzsüzce ortaya çıkarır.
+    /// </summary>
+    public void AnimateLayerEntrance(int layerY, System.Action onComplete = null)
+    {
+        RefreshLayerVisibility();
+        RefreshSpeciesSparkle();
+        LayerPanelController.Instance?.RefreshButtonColors();
+
+        Vector3 layerCenter = Vector3.zero;
+        int count = 0;
+        List<Transform> entranceTransforms = new List<Transform>();
+        List<Vector3Int> entranceCells = new List<Vector3Int>();
+
+        foreach (var kvp in targetRenderers)
+        {
+            if (kvp.Key.y == layerY && kvp.Value != null && kvp.Value.enabled)
+            {
+                entranceTransforms.Add(kvp.Value.transform);
+                entranceCells.Add(kvp.Key);
+                layerCenter += kvp.Value.transform.position;
+                count++;
+            }
+        }
+
+        foreach (var kvp in prefilledRenderers)
+        {
+            if (kvp.Key.y == layerY && kvp.Value != null && kvp.Value.enabled)
+            {
+                entranceTransforms.Add(kvp.Value.transform);
+                entranceCells.Add(kvp.Key);
+                layerCenter += kvp.Value.transform.position;
+                count++;
+            }
+        }
+
+        foreach (var kvp in cellObjects)
+        {
+            if (kvp.Key.y == layerY && kvp.Value != null)
+            {
+                entranceTransforms.Add(kvp.Value.transform);
+                entranceCells.Add(kvp.Key);
+                layerCenter += kvp.Value.transform.position;
+                count++;
+            }
+        }
+
+        if (count > 0)
+        {
+            layerCenter /= count;
+        }
+        else
+        {
+            layerCenter = CellToWorld(new Vector3Int(0, layerY, 0));
+        }
+
+        // Bütün giriş yapacak hücreleri önce sıfır ölçeğe al
+        for (int i = 0; i < entranceTransforms.Count; i++)
+        {
+            var t = entranceTransforms[i];
+            if (t != null)
+            {
+                t.localScale = Vector3.zero;
+            }
+        }
+
+        // Merkezden dışa doğru dalga şeklinde pop-in animasyonu
+        float maxDelay = 0f;
+        for (int i = 0; i < entranceTransforms.Count; i++)
+        {
+            var t = entranceTransforms[i];
+            var cell = entranceCells[i];
+            if (t == null) continue;
+
+            float dist = Mathf.Sqrt(cell.x * cell.x + cell.z * cell.z);
+            float delay = dist * 0.035f;
+            if (delay > maxDelay) maxDelay = delay;
+
+            t.DOScale(Vector3.one * CellSize, 0.32f)
+             .SetEase(Ease.OutBack, 1.25f)
+             .SetDelay(delay)
+             .SetId(LEVEL_ANIM_ID);
+        }
+
+        // Kamera yumuşakça yeni katmana odaklansın
+        if (CameraOrbit.Instance != null)
+        {
+            CameraOrbit.Instance.ZoomToLayer(layerCenter, null, instant: false);
+        }
+
+        float totalDuration = maxDelay + 0.35f;
+        DOVirtual.DelayedCall(totalDuration, () =>
+        {
+            onComplete?.Invoke();
+        }).SetId(LEVEL_ANIM_ID);
     }
 
     public void SetCellColor(Vector3Int cell, Color color)
@@ -1531,6 +1641,8 @@ public class GridManager : MonoBehaviour
     {
         if (container == null) return;
 
+        Vector3 centerPos = container.transform.position;
+
         if (blocks != null)
         {
             foreach (var block in blocks)
@@ -1541,9 +1653,6 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        Vector3 slideDir = (Random.value > 0.5f ? Vector3.right : Vector3.left) * 12f + Vector3.up * 1.5f;
-        Vector3 targetPos = container.transform.position + slideDir;
-
         Sequence seq = DOTween.Sequence().SetId(LEVEL_ANIM_ID);
 
         if (startDelay > 0f)
@@ -1551,14 +1660,72 @@ public class GridManager : MonoBehaviour
             seq.AppendInterval(startDelay);
         }
 
+        // 1. Parlama ve Sarsıntı (Impact / Pulse)
         seq.AppendCallback(() =>
         {
             AudioManager.Instance?.PlayPlacementSound();
-            CameraOrbit.Instance?.Shake(0.25f, 0.12f);
+            CameraOrbit.Instance?.Shake(0.35f, 0.2f);
+
+            if (blocks != null)
+            {
+                foreach (var block in blocks)
+                {
+                    if (block == null) continue;
+                    block.transform.DOPunchScale(Vector3.one * 0.22f, 0.18f, 8, 0.5f).SetId(LEVEL_ANIM_ID);
+                }
+            }
         });
 
-        seq.Append(container.transform.DOMove(targetPos, 0.85f).SetEase(Ease.InOutCubic));
-        seq.Join(container.transform.DOScale(Vector3.zero, 0.85f).SetEase(Ease.InOutCubic));
+        seq.AppendInterval(0.1f);
+
+        // 2. Radyal 3D Dağılma & Parçalanma Animasyonu (Radial 3D Voxel Burst)
+        seq.AppendCallback(() =>
+        {
+            if (blocks != null)
+            {
+                foreach (var block in blocks)
+                {
+                    if (block == null) continue;
+
+                    Vector3 bPos = block.transform.position;
+                    Vector3 radialDir = (bPos - centerPos);
+                    radialDir.y = 0f;
+                    if (radialDir.sqrMagnitude < 0.01f)
+                    {
+                        radialDir = Random.insideUnitSphere;
+                        radialDir.y = 0f;
+                    }
+                    radialDir = radialDir.normalized * Random.Range(2.5f, 4.2f) + Vector3.up * Random.Range(0.6f, 1.8f);
+
+                    Vector3 targetBurstPos = bPos + radialDir;
+                    Vector3 randomRot = new Vector3(
+                        Random.Range(-360f, 360f),
+                        Random.Range(-360f, 360f),
+                        Random.Range(-360f, 360f)
+                    );
+
+                    float animDuration = Random.Range(0.42f, 0.55f);
+
+                    block.transform.DOMove(targetBurstPos, animDuration).SetEase(Ease.OutQuad).SetId(LEVEL_ANIM_ID);
+                    block.transform.DORotate(randomRot, animDuration, RotateMode.FastBeyond360).SetEase(Ease.OutQuad).SetId(LEVEL_ANIM_ID);
+                    block.transform.DOScale(Vector3.zero, animDuration).SetEase(Ease.InBack).SetId(LEVEL_ANIM_ID);
+
+                    // Mini shatter parçacıkları
+                    if (GridManager.Instance != null)
+                    {
+                        Color shardCol = Color.white;
+                        var rend = block.GetComponentInChildren<Renderer>();
+                        if (rend != null && rend.sharedMaterial != null)
+                        {
+                            shardCol = GetMaterialColor(rend.sharedMaterial);
+                        }
+                        GridManager.Instance.CreateShatterEffect(bPos, shardCol);
+                    }
+                }
+            }
+        });
+
+        seq.AppendInterval(0.6f);
         seq.OnComplete(() =>
         {
             if (container != null)
@@ -1610,191 +1777,28 @@ public class GridManager : MonoBehaviour
 
     public bool TryFindSnapOffset(List<Vector3Int> cells, Ray ray, float maxDist, out Vector3Int result)
     {
-        result = Vector3Int.zero;
-        
-        // 1. Raycast-based precision target alignment (hitCell + hitNormal)
-        Camera mainCam = Camera.main;
-        if (mainCam != null)
-        {
-            Ray mouseRay = mainCam.ScreenPointToRay(Input.mousePosition);
-            RaycastHit[] hits = Physics.RaycastAll(mouseRay, 100f);
-            
-            // Sort hits by distance
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            
-            foreach (var hit in hits)
-            {
-                // Ignore hits on the dragged piece itself or its children
-                if (hit.collider == null) continue;
-                if (DraggablePiece.activeDrag != null && 
-                    (hit.transform.IsChildOf(DraggablePiece.activeDrag.transform) || hit.transform == DraggablePiece.activeDrag.transform))
-                {
-                    continue;
-                }
-                
-                // Get the grid coordinate of the hit block
-                Vector3Int hitCell = RootToOffset(hit.collider.transform.position);
-                
-                // Verify the hit cell is a valid grid cell (guide cell or occupied cell)
-                if (targetCells.Contains(hitCell) || occupiedCells.Contains(hitCell))
-                {
-                    // Convert hit normal to Vector3Int cardinal direction
-                    Vector3Int normalInt = new Vector3Int(
-                        Mathf.RoundToInt(hit.normal.x),
-                        Mathf.RoundToInt(hit.normal.y),
-                        Mathf.RoundToInt(hit.normal.z)
-                    );
-                    
-                    Vector3Int targetAnchorCell = occupiedCells.Contains(hitCell) ? (hitCell + normalInt) : hitCell;
-                    
-                    // Find which block of the dragged piece is closest in world space to the hit point
-                    int closestIndex = 0;
-                    float minWorldDist = float.MaxValue;
-                    for (int i = 0; i < cells.Count; i++)
-                    {
-                        // Sürüklenen parçanın bloklarının gerçek dünya koordinatlarını kontrol ediyoruz.
-                        // Eskiden kullanılan CellToWorld(cells[i]) board referansına göre sıfır noktasını
-                        // baz alıyordu ve parça henüz yuvadayken bile snaplenmesine yol açıyordu.
-                        Vector3 blockWorldPos = (DraggablePiece.activeDrag != null && i < DraggablePiece.activeDrag.transform.childCount)
-                            ? DraggablePiece.activeDrag.transform.GetChild(i).position
-                            : CellToWorld(cells[i]);
+        Transform boardTransform = LevelManager.Instance != null && LevelManager.Instance.ActiveMainPiece != null
+            ? LevelManager.Instance.ActiveMainPiece.transform
+            : null;
+        Transform draggedTransform = DraggablePiece.activeDrag != null
+            ? DraggablePiece.activeDrag.transform
+            : null;
 
-                        float dist = Vector3.Distance(blockWorldPos, hit.point);
-                        if (dist < minWorldDist)
-                        {
-                            minWorldDist = dist;
-                            closestIndex = i;
-                        }
-                    }
-
-                    // Hassasiyet eşiği: Sürüklenen parça hit noktasına yeterince yakın değilse snap yapma.
-                    // maxDist değeri parça boyutu (grid.Step) kadardır. 2 katı (yaklaşık 2 hücre mesafe) makul bir eşiktir.
-                    if (minWorldDist > maxDist * 2.0f)
-                    {
-                        continue;
-                    }
-                    
-                    Vector3Int snapOff = targetAnchorCell - cells[closestIndex];
-
-                    // Check if this snap offset keeps the entire piece within target boundaries
-                    bool outOfBounds = false;
-                    foreach (var cell in cells)
-                    {
-                        Vector3Int g = cell + snapOff;
-                        if (!targetCells.Contains(g) || g.y != ActiveLayerY)
-                        {
-                            outOfBounds = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!outOfBounds && CanPlace(cells, snapOff))
-                    {
-                        result = snapOff;
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // 2. Proximity-based Snapping Fallback (when dragging in empty space near the grid)
-        // Yalnızca gerçekten yerleştirilebilir (dolu olmayan) konumlar aday olur;
-        // dolu bir yere yakınsa parça oraya "yapışmaz", sürüklenen elde kalır.
-        var seen = new HashSet<Vector3Int>();
-
-        // Hassasiyet eşiği: Boşlukta sürüklerken aşırı uzaktan yapışmayı önlemek için 1.8 katı bir mesafe kullanıyoruz
-        float bestValidD = maxDist * 1.8f;
-        Vector3Int bestValidOff = Vector3Int.zero;
-        bool foundValid = false;
-
-        foreach (var t in targetCells)
-        {
-            foreach (var c in cells)
-            {
-                var off = t - c;
-                if (!seen.Add(off)) continue;
-
-                // Check if all snapped cells are within the target grid shape boundaries
-                bool outOfBounds = false;
-                foreach (var cell in cells)
-                {
-                    Vector3Int g = cell + off;
-                    if (!targetCells.Contains(g) || g.y != ActiveLayerY)
-                    {
-                        outOfBounds = true;
-                        break;
-                    }
-                }
-                if (outOfBounds) continue;
-                if (!CanPlace(cells, off)) continue;
-
-                // Visual Center of the snapped piece cells
-                Vector3 snappedCenter = Vector3.zero;
-                foreach (var cell in cells)
-                {
-                    snappedCenter += CellToWorld(cell + off);
-                }
-                snappedCenter /= cells.Count;
-
-                // Distance from center to the drag ray
-                float d = Vector3.Cross(ray.direction, snappedCenter - ray.origin).magnitude;
-
-                if (d < bestValidD)
-                {
-                    bestValidD = d;
-                    bestValidOff = off;
-                    foundValid = true;
-                }
-            }
-        }
-
-        if (foundValid)
-        {
-            result = bestValidOff;
-            return true;
-        }
-
-        return false;
+        SyncGridState();
+        return PlacementValidator.TryFindSnapOffset(
+            cells, ray, maxDist, State, ActiveLayerY, Camera.main, draggedTransform, boardTransform, out result);
     }
 
     public bool IsSupported(List<Vector3Int> cells, Vector3Int offset)
     {
-        // A rigid piece is structurally supported if at least one of its blocks is supported underneath (either floor or occupied cell)
-        foreach (var c in cells)
-        {
-            var g = c + offset;
-            // 1. Supported by floor
-            if (g.y <= 0 || g.y <= gridMinY) return true;
-
-            // 2. Supported by an occupied cell directly underneath
-            if (occupiedCells.Contains(new Vector3Int(g.x, g.y - 1, g.z))) return true;
-        }
-
-        // If no blocks have any support underneath, the entire piece is floating in mid-air!
-        return false;
+        SyncGridState();
+        return PlacementValidator.IsSupported(cells, offset, State);
     }
 
-    // [GERİ ALINDI] "Herhangi bir katmana yerleştir" denemesi kötü bir UX'e yol açtı: sürükle-bırak,
-    // o an bakılan katmana sığmayan bir parçayı sessizce BAŞKA (uzak, görünmeyen) bir katmana
-    // "ışınlıyordu". Gerçek istek bu değildi — oyuncu HANGİ katmandaysa SADECE o katmanda işlem
-    // yapabilmeli, başka bir katmanda çalışmak için panelden o katmana GEÇMELİ (bu zaten serbestti,
-    // bkz. LayerPanelController.OpenPanel). Bu yüzden gerçek yerleştirme kuralı yine SADECE
-    // ActiveLayerY'ye izin veriyor. "Elimdeki hiçbir parça şu an gerekli katmana sığmıyor mu"
-    // sorusu (fail kontrolü/kart önceliklendirme) ayrı bir sorgu — bkz. GetPossibleOffsetsOnLayer
-    // ve LevelManager.CanShapeFitRequiredLayer.
     public bool CanPlace(List<Vector3Int> cells, Vector3Int offset)
     {
-        if (IsExplodingLayer) return false;
-        foreach (var c in cells)
-        {
-            var g = c + offset;
-            if (!targetCells.Contains(g) || g.y != ActiveLayerY) return false;
-            if (occupiedCells.Contains(g)) return false;
-            if (frozenCells.Contains(g)) return false;
-            if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
-        }
-
-        return true;
+        SyncGridState();
+        return PlacementValidator.CanPlace(cells, offset, State, ActiveLayerY, IsExplodingLayer);
     }
 
     public bool TryPlace(List<Vector3Int> cells, Vector3Int offset)
@@ -1922,41 +1926,16 @@ public class GridManager : MonoBehaviour
         return valid;
     }
 
-    // CanPlace/GetPossibleOffsets'ten farklı olarak GERÇEK yerleştirme kuralını (ActiveLayerY
-    // kısıtı) uygulamaz — "bu parça, layerY'ye GEÇİLSEYDİ oraya sığar mıydı" sorusuna cevap verir.
-    // Sadece LevelManager.CanShapeFitRequiredLayer tarafından (fail kontrolü/kart önceliklendirme
-    // için, layerY = ActiveLayerY verilerek) kullanılır — gerçek yerleştirme HÂLÂ sadece
-    // ActiveLayerY'ye izin veriyor (bkz. CanPlace).
     public List<Vector3Int> GetPossibleOffsetsOnLayer(List<Vector3Int> cells, int layerY)
     {
-        var valid = new List<Vector3Int>();
-        var seen  = new HashSet<Vector3Int>();
-        foreach (var t in targetCells)
-        {
-            if (t.y != layerY) continue;
-            if (occupiedCells.Contains(t)) continue;
-            foreach (var c in cells)
-            {
-                var off = t - c;
-                if (!seen.Add(off)) continue;
-                if (CanPlaceOnLayer(cells, off, layerY)) valid.Add(off);
-            }
-        }
-        return valid;
+        SyncGridState();
+        return PlacementValidator.GetPossibleOffsetsOnLayer(cells, layerY, State);
     }
 
     public bool CanPlaceOnLayer(List<Vector3Int> cells, Vector3Int offset, int layerY)
     {
-        foreach (var c in cells)
-        {
-            var g = c + offset;
-            if (!targetCells.Contains(g) || g.y != layerY) return false;
-            if (occupiedCells.Contains(g)) return false;
-            if (frozenCells.Contains(g)) return false;
-            if (cellObjects.ContainsKey(g) && cellObjects[g] != null) return false;
-        }
-
-        return true;
+        SyncGridState();
+        return PlacementValidator.CanPlaceOnLayer(cells, offset, layerY, State);
     }
 
     public Color? GetMergeColor(List<Vector3Int> cells, Vector3Int offset)
@@ -2800,28 +2779,47 @@ public class GridManager : MonoBehaviour
     {
         foreach (var kvp in cellObjects)
         {
-            if (kvp.Key.y >= clearedY)
+            if (kvp.Key.y >= clearedY && kvp.Value != null)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
+                float stagger = (Mathf.Abs(kvp.Key.x) + Mathf.Abs(kvp.Key.z)) * 0.03f;
+                float targetY = t.localPosition.y - Step;
+
+                Sequence dropSeq = DOTween.Sequence().SetDelay(stagger);
+                dropSeq.Append(t.DOLocalMoveY(targetY, 0.38f).SetEase(Ease.OutBack, 1.15f));
+                dropSeq.AppendCallback(() =>
+                {
+                    t.DOPunchScale(new Vector3(0.14f, -0.16f, 0.14f), 0.22f, 6, 0.5f);
+                });
             }
         }
 
         foreach (var kvp in targetRenderers)
         {
-            if (kvp.Key.y >= clearedY)
+            if (kvp.Key.y >= clearedY && kvp.Value != null)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
+                float stagger = (Mathf.Abs(kvp.Key.x) + Mathf.Abs(kvp.Key.z)) * 0.03f;
+                float targetY = t.localPosition.y - Step;
+
+                t.DOLocalMoveY(targetY, 0.38f).SetEase(Ease.OutBack, 1.15f).SetDelay(stagger);
             }
         }
 
         foreach (var kvp in prefilledRenderers)
         {
-            if (kvp.Key.y >= clearedY)
+            if (kvp.Key.y >= clearedY && kvp.Value != null)
             {
                 var t = kvp.Value.transform;
-                t.DOLocalMoveY(t.localPosition.y - Step, 0.45f).SetEase(Ease.OutQuad);
+                float stagger = (Mathf.Abs(kvp.Key.x) + Mathf.Abs(kvp.Key.z)) * 0.03f;
+                float targetY = t.localPosition.y - Step;
+
+                Sequence dropSeq = DOTween.Sequence().SetDelay(stagger);
+                dropSeq.Append(t.DOLocalMoveY(targetY, 0.38f).SetEase(Ease.OutBack, 1.15f));
+                dropSeq.AppendCallback(() =>
+                {
+                    t.DOPunchScale(new Vector3(0.14f, -0.16f, 0.14f), 0.22f, 6, 0.5f);
+                });
             }
         }
     }

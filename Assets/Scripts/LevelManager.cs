@@ -904,6 +904,7 @@ public class LevelManager : MonoBehaviour
 
         AudioManager.Instance?.PlayPlacementSound();
         TutorialEvents.RaisePiecePlaced();
+        FirestoreAnalytics.Instance?.IncrementMoveCount();
 
         // İlgili kartı veya Hold slotunu boşalt
         if (piece.gameObject == holdPiece)

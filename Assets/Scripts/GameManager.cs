@@ -45,7 +45,15 @@ public class GameManager : MonoBehaviour
     private const int LEVEL_RESET_VERSION = 1;
     private const string PREF_RESET_VERSION = "LevelResetVersion";
 
-    private void Awake() { Instance = this; }
+    private void Awake()
+    {
+        Instance = this;
+
+        // Mobil FPS ve Performans Optimizasyonu (30 FPS kilidini kaldırıp 60/120 FPS akıcılık sağlar)
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = 60;
+        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+    }
 
     private void Start()
     {
@@ -159,7 +167,8 @@ public class GameManager : MonoBehaviour
         timerRunning  = false;
 
         // Analitik: level kazanıldı. Geçen süre = toplam - kalan.
-        FirebaseManager.Instance?.LogLevelComplete(currentLevelIndex, totalTime - remainingTime, remainingTime);
+        int winMoves = FirestoreAnalytics.Instance != null ? FirestoreAnalytics.Instance.CurrentLevelMoves : -1;
+        FirebaseManager.Instance?.LogLevelComplete(currentLevelIndex, totalTime - remainingTime, remainingTime, winMoves);
 
         // Parça yerleşim/merge animasyonu devam ediyorsa bitene kadar bekle
         if (blockingAnimations > 0)
@@ -239,8 +248,10 @@ public class GameManager : MonoBehaviour
         levelComplete = true;
         timerRunning = false;
 
-        // Analitik: level kaybedildi (süre doldu / hamle kalmadı).
-        FirebaseManager.Instance?.LogLevelFail(currentLevelIndex, totalTime - remainingTime);
+        // Analitik: level kaybedildi (süre doldu / hamle kalmadı, kaç hamlede ve hangi katmanda).
+        int failMoves = FirestoreAnalytics.Instance != null ? FirestoreAnalytics.Instance.CurrentLevelMoves : -1;
+        int failLayer = GridManager.Instance != null ? GridManager.Instance.ActiveLayerY : 0;
+        FirebaseManager.Instance?.LogLevelFail(currentLevelIndex, totalTime - remainingTime, failMoves, failLayer);
         LevelManager.Instance?.MarkCurrentLevelFailedOrRetried();
 
         UIManager.Instance?.ShowLosePanel(Score, reason);

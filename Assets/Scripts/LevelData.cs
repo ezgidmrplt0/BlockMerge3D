@@ -47,4 +47,6 @@ public class PiecePlacement
 {
     public List<Vector3Int> targetWorldCells = new List<Vector3Int>();
     public bool isSacrifice;
+    [Tooltip("Bu parçanın ait olduğu hedef katman indeksi (-1 = otomatik/katman bağımsız).")]
+    public int targetLayerIndex = -1;
 }

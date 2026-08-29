@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AnimalBlast3D — Admin Analytics</title>
+  <title>AnimalBlast3D — Admin Analytics & Churn Dashboard</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -16,6 +16,8 @@
       --success:      #10b981;
       --warning:      #f59e0b;
       --danger:       #ef4444;
+      --cyan:         #06b6d4;
+      --purple:       #a855f7;
       --text:         #f0f0ff;
       --text-muted:   #8892a4;
       --text-dim:     #3d4460;
@@ -75,22 +77,26 @@
       background: radial-gradient(circle at top right, var(--card-glow, transparent), transparent 60%);
       pointer-events: none;
     }
-    .stat-card.blue  { --card-glow: rgba(99,102,241,0.08); }
-    .stat-card.green { --card-glow: rgba(16,185,129,0.08); }
-    .stat-card.red   { --card-glow: rgba(239,68,68,0.08);  }
-    .stat-card.amber { --card-glow: rgba(245,158,11,0.08); }
+    .stat-card.blue   { --card-glow: rgba(99,102,241,0.08); }
+    .stat-card.green  { --card-glow: rgba(16,185,129,0.08); }
+    .stat-card.red    { --card-glow: rgba(239,68,68,0.08);  }
+    .stat-card.amber  { --card-glow: rgba(245,158,11,0.08); }
+    .stat-card.purple { --card-glow: rgba(168,85,247,0.08); }
+    .stat-card.cyan   { --card-glow: rgba(6,182,212,0.08); }
     .stat-card::before {
       content: '';
       position: absolute; top: 0; left: 0; right: 0; height: 2px;
       border-radius: 14px 14px 0 0;
     }
-    .stat-card.blue::before  { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
-    .stat-card.green::before { background: linear-gradient(90deg, #10b981, #34d399); }
-    .stat-card.red::before   { background: linear-gradient(90deg, #ef4444, #f87171); }
-    .stat-card.amber::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .stat-card.blue::before   { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+    .stat-card.green::before  { background: linear-gradient(90deg, #10b981, #34d399); }
+    .stat-card.red::before    { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .stat-card.amber::before  { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .stat-card.purple::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
+    .stat-card.cyan::before   { background: linear-gradient(90deg, #06b6d4, #22d3ee); }
     .stat-icon { position: absolute; right: 16px; top: 16px; font-size: 22px; opacity: 0.35; }
     .stat-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
-    .stat-value { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+    .stat-value { font-size: 34px; font-weight: 800; letter-spacing: -1px; }
     .stat-sub   { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
 
     /* ── Toolbar ──────────────────────────────────────── */
@@ -148,55 +154,37 @@
     tbody tr:hover td { background: rgba(99,102,241,0.04); cursor: pointer; }
 
     .mono { font-family: 'Courier New', monospace; font-size: 12px; color: var(--text-muted); }
-    .platform-tag {
-      display: inline-block; font-size: 10px; background: var(--surface2);
-      border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
-      color: var(--text-muted); margin-top: 3px;
-    }
-    .level-bar-wrap { display: flex; align-items: center; gap: 8px; }
-    .level-bar-track { width: 56px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-    .level-bar-fill  { height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 2px; transition: width 0.4s; }
     .badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 9px; border-radius: 20px;
-      font-size: 11px; font-weight: 600; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;
     }
-    .badge.active  { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.2); }
-    .badge.risk    { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
-    .badge.churned { background: rgba(239,68,68,0.12);  color: var(--danger);  border: 1px solid rgba(239,68,68,0.2);  }
-    .num-danger { color: var(--danger); font-weight: 700; }
-    .num-ok     { color: var(--success); }
+    .badge.active  { background: rgba(16,185,129,0.12); color: var(--success); }
+    .badge.risk    { background: rgba(245,158,11,0.12); color: var(--warning); }
+    .badge.churned { background: rgba(239,68,68,0.12);  color: var(--danger);  }
+    .badge.layer   { background: rgba(99,102,241,0.14); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); }
+    .badge.booster { background: rgba(168,85,247,0.14); color: #d8b4fe; border: 1px solid rgba(168,85,247,0.3); }
+    .badge.easy    { background: rgba(16,185,129,0.15); color: #34d399; }
+    .badge.med     { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    .badge.hard    { background: rgba(239,68,68,0.15);  color: #f87171; }
 
-    /* ── Loading / Empty ─────────────────────────────── */
-    .loading, .empty {
-      text-align: center; padding: 60px 20px; color: var(--text-muted);
-    }
-    .spinner {
-      width: 30px; height: 30px; border: 2px solid var(--border);
-      border-top-color: var(--accent); border-radius: 50%;
-      animation: spin 0.7s linear infinite; margin: 0 auto 14px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .empty-icon { font-size: 36px; margin-bottom: 12px; }
-
-    /* ── Detail Panel ─────────────────────────────────── */
+    /* ── Drawer Panel ────────────────────────────────── */
     .overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-      z-index: 200; opacity: 0; pointer-events: none;
-      transition: opacity 0.28s;
+      backdrop-filter: blur(4px); z-index: 200;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s;
     }
     .overlay.open { opacity: 1; pointer-events: all; }
     .panel {
-      position: fixed; right: 0; top: 0; bottom: 0; width: 780px;
+      position: fixed; top: 0; right: 0; bottom: 0; width: 680px; max-width: 95vw;
       background: var(--surface); border-left: 1px solid var(--border);
       z-index: 201; transform: translateX(100%);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      overflow-y: auto; display: flex; flex-direction: column;
+      transition: transform 0.28s cubic-bezier(0.16,1,0.3,1);
+      display: flex; flex-direction: column; overflow-y: auto;
     }
     .panel.open { transform: translateX(0); }
     .panel-head {
       padding: 18px 24px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: flex-start; justify-content: space-between;
+      display: flex; align-items: center; justify-content: space-between;
       position: sticky; top: 0; background: var(--surface); z-index: 1;
     }
     .panel-title { font-size: 15px; font-weight: 700; }
@@ -218,18 +206,19 @@
       border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
       font-size: 13px; color: var(--danger); line-height: 1.5;
     }
-    .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .pitem {
       background: var(--surface2); border-radius: 10px; padding: 14px;
       border: 1px solid var(--border);
     }
     .pitem-label { font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }
-    .pitem-value { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+    .pitem-value { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
     .pitem-value.v-accent  { color: var(--accent); }
     .pitem-value.v-success { color: var(--success); }
     .pitem-value.v-danger  { color: var(--danger); }
     .pitem-value.v-warning { color: var(--warning); }
-    .pitem-value.v-sm      { font-size: 14px; font-weight: 500; }
+    .pitem-value.v-purple  { color: var(--purple); }
+    .pitem-value.v-sm      { font-size: 13px; font-weight: 500; }
 
     .lvl-table { width: 100%; border-collapse: collapse; }
     .lvl-table th {
@@ -251,7 +240,7 @@
     .tabs {
       display: flex; gap: 4px; margin-bottom: 22px;
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 4px; width: fit-content;
+      border-radius: 12px; padding: 4px; width: fit-content; flex-wrap: wrap;
     }
     .tab-btn {
       background: none; border: none; border-radius: 9px;
@@ -277,17 +266,33 @@
     .section-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
     .note-box {
       background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 10px; padding: 10px 14px; font-size: 12px;
+      border-radius: 10px; padding: 12px 14px; font-size: 12px;
       color: var(--text-muted); margin-bottom: 16px; line-height: 1.5;
     }
+    .note-box.insight {
+      background: rgba(99,102,241,0.06); border-color: rgba(99,102,241,0.25);
+      color: #c7d2fe;
+    }
 
-    /* ── Bar List (events / audience) ───────────────────── */
-    .bar-list { display: flex; flex-direction: column; gap: 10px; }
-    .bar-row { display: grid; grid-template-columns: 170px 1fr 60px; align-items: center; gap: 12px; }
-    .bar-row-label { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* ── Bar List ────────────────────────────────────── */
+    .bar-list { display: flex; flex-direction: column; gap: 12px; }
+    .bar-row { display: grid; grid-template-columns: 180px 1fr 90px; align-items: center; gap: 12px; }
+    .bar-row-label { font-size: 12px; color: var(--text); font-weight: 500; }
     .bar-row-track { height: 10px; background: var(--surface2); border-radius: 5px; overflow: hidden; }
     .bar-row-fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #6366f1, #8b5cf6); transition: width 0.4s; }
-    .bar-row-val { font-size: 12px; font-weight: 700; text-align: right; color: var(--text-muted); }
+    .bar-row-fill.orange { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .bar-row-fill.purple { background: linear-gradient(90deg, #8b5cf6, #ec4899); }
+    .bar-row-fill.cyan   { background: linear-gradient(90deg, #06b6d4, #3b82f6); }
+    .bar-row-val { font-size: 12px; font-weight: 700; text-align: right; color: var(--text); }
+
+    /* ── Split Grid for Gameplay Tab ─────────────────── */
+    .two-col-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+    }
+    @media (max-width: 1024px) {
+      .two-col-grid { grid-template-columns: 1fr; }
+      .profile-grid { grid-template-columns: 1fr 1fr; }
+    }
 
     /* ── KPI Benchmarks ──────────────────────────────── */
     .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 4px; }
@@ -318,7 +323,17 @@
     .cohort-table tr:last-child td { border-bottom: none; }
     .cohort-cell { border-radius: 6px; padding: 4px 6px; font-weight: 600; display: inline-block; min-width: 40px; }
     .cohort-empty { color: var(--text-dim); }
-    .cohort-size { font-size: 10px; color: var(--text-muted); font-weight: 400; }
+
+    /* ── Loading Spinner ─────────────────────────────── */
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 36px; color: var(--text-muted); }
+    .spinner {
+      width: 26px; height: 26px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; color: var(--text-muted); text-align: center; }
+    .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.6; }
 
     /* ── Scrollbar ────────────────────────────────────── */
     ::-webkit-scrollbar { width: 5px; }
@@ -340,7 +355,7 @@
     <div class="logo">🎮</div>
     <div>
       <div class="brand-title">AnimalBlast3D</div>
-      <div class="brand-sub">Admin Analytics Dashboard</div>
+      <div class="brand-sub">Admin Analytics & Churn Dashboard</div>
     </div>
   </div>
   <div class="header-right">
@@ -353,84 +368,180 @@
 
   <!-- TABS -->
   <div class="tabs">
-    <button class="tab-btn active" id="tabBtnUsers"     onclick="switchTab('users')">👥 Kullanıcılar</button>
+    <button class="tab-btn active" id="tabBtnGameplay"   onclick="switchTab('gameplay')">🎮 Oynanış & Churn</button>
+    <button class="tab-btn"        id="tabBtnUsers"      onclick="switchTab('users')">👥 Kullanıcılar</button>
     <button class="tab-btn"        id="tabBtnRetention"  onclick="switchTab('retention')">📈 Retention</button>
     <button class="tab-btn"        id="tabBtnEngagement" onclick="switchTab('engagement')">⏱ Engagement</button>
     <button class="tab-btn"        id="tabBtnEvents"     onclick="switchTab('events')">🎯 Events</button>
     <button class="tab-btn"        id="tabBtnAudience"   onclick="switchTab('audience')">🌍 Audience</button>
   </div>
 
-  <!-- TAB: USERS -->
-  <div class="tab-content active" id="tab-users">
+  <!-- TAB: GAMEPLAY & CHURN -->
+  <div class="tab-content active" id="tab-gameplay">
+    <!-- STATS -->
+    <div class="stats-grid">
+      <div class="stat-card amber">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-label">Ort. Fail Hamlesi</div>
+        <div class="stat-value" id="gAvgFailMoves">—</div>
+        <div class="stat-sub">Pes etmeden önceki hamle</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-icon">🚪</div>
+        <div class="stat-label">En Kritik Churn Katmanı</div>
+        <div class="stat-value" id="gTopChurnLayer">—</div>
+        <div class="stat-sub" id="gTopChurnSub">En yüksek kayıp yaşanan katman</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-icon">⚡</div>
+        <div class="stat-label">Toplam Booster Kullanımı</div>
+        <div class="stat-value" id="gTotalBoosters">—</div>
+        <div class="stat-sub">Tüm güçlendirmeler</div>
+      </div>
+      <div class="stat-card cyan">
+        <div class="stat-icon">🔨</div>
+        <div class="stat-label">En Çok Kullanılan Booster</div>
+        <div class="stat-value" id="gTopBooster">—</div>
+        <div class="stat-sub" id="gTopBoosterSub">Popüler yardım aracı</div>
+      </div>
+    </div>
 
-  <!-- STATS -->
-  <div class="stats-grid">
-    <div class="stat-card blue">
-      <div class="stat-icon">👥</div>
-      <div class="stat-label">Toplam Kullanıcı</div>
-      <div class="stat-value" id="sTotal">—</div>
-      <div class="stat-sub">Tüm zamanlar</div>
-    </div>
-    <div class="stat-card green">
-      <div class="stat-icon">🟢</div>
-      <div class="stat-label">Aktif (7 gün)</div>
-      <div class="stat-value" id="sActive">—</div>
-      <div class="stat-sub">Son 7 günde oynadı</div>
-    </div>
-    <div class="stat-card red">
-      <div class="stat-icon">🚪</div>
-      <div class="stat-label">Muhtemel Sildi</div>
-      <div class="stat-value" id="sChurned">—</div>
-      <div class="stat-sub">7+ gündür görülmedi</div>
-    </div>
-    <div class="stat-card amber">
-      <div class="stat-icon">🏆</div>
-      <div class="stat-label">Ort. En Yüksek Level</div>
-      <div class="stat-value" id="sAvgLvl">—</div>
-      <div class="stat-sub">Kullanıcı başına</div>
-    </div>
-  </div>
-
-  <!-- TOOLBAR -->
-  <div class="toolbar">
-    <div class="search-wrap">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input type="text" class="search-box" id="searchBox" placeholder="Kullanıcı ID ara..." oninput="applyFilters()">
-    </div>
-    <button class="btn active" id="fAll"     onclick="setFilter('all',     this)">Tümü</button>
-    <button class="btn"        id="fActive"  onclick="setFilter('active',  this)">🟢 Aktif</button>
-    <button class="btn"        id="fRisk"    onclick="setFilter('risk',    this)">🟡 Risk (3-7g)</button>
-    <button class="btn"        id="fChurned" onclick="setFilter('churned', this)">🔴 Muhtemel Sildi</button>
-    <button class="btn export" onclick="exportCSV()">⬇ CSV İndir</button>
-  </div>
-
-  <!-- TABLE -->
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th onclick="sortBy('device_id')">Kullanıcı</th>
-          <th onclick="sortBy('farthest_level')">En Yüksek Level</th>
-          <th onclick="sortBy('total_play_minutes')">Süre</th>
-          <th onclick="sortBy('total_sessions')">Oturum</th>
-          <th onclick="sortBy('total_fails')">Fail</th>
-          <th onclick="sortBy('total_resets')">Reset</th>
-          <th onclick="sortBy('total_retries')">Retry</th>
-          <th onclick="sortBy('last_seen_ts')">Son Görülme</th>
-          <th onclick="sortBy('first_open_ts')">Kurulum</th>
-          <th>Durum</th>
-        </tr>
-      </thead>
-      <tbody id="tbody">
-        <tr><td colspan="10">
-          <div class="loading">
-            <div class="spinner"></div>
-            <div>Veriler yükleniyor...</div>
+    <!-- 2 COLUMN GRID: CHURN BY LAYER & BOOSTER BREAKDOWN -->
+    <div class="two-col-grid">
+      <!-- CHURN BY LAYER -->
+      <div class="section-card">
+        <div class="section-head">
+          <div>
+            <div class="section-title">🧱 Katman Bazlı Churn Point (Pes Etme / Kayıp) Dağılımı</div>
+            <div class="section-sub">Oyuncular seviyeleri en çok hangi katmanda kaybediyor veya terk ediyor?</div>
           </div>
-        </td></tr>
-      </tbody>
-    </table>
+        </div>
+        <div class="note-box insight" id="churnLayerInsight">
+          💡 <strong>Analiz:</strong> Veriler yükleniyor...
+        </div>
+        <div id="churnLayerBody">
+          <div class="loading"><div class="spinner"></div><div>Hesaplanıyor…</div></div>
+        </div>
+      </div>
+
+      <!-- BOOSTER BREAKDOWN -->
+      <div class="section-card">
+        <div class="section-head">
+          <div>
+            <div class="section-title">⚡ Booster & Power-Up Kullanım Dağılımı</div>
+            <div class="section-sub">Oyuncular zorlandığında en çok hangi güçlendiriciyi harcıyor?</div>
+          </div>
+        </div>
+        <div id="boosterBreakdownBody">
+          <div class="loading"><div class="spinner"></div><div>Hesaplanıyor…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEVEL MATRIX TABLE (FAIL MOVES, CHURN LAYER & BOOSTERS) -->
+    <div class="section-card">
+      <div class="section-head">
+        <div>
+          <div class="section-title">📊 Seviye Bazında Zorluk, Hamle & Churn Analizi</div>
+          <div class="section-sub">Seviyelerin ortalama başarısızlık hamleleri, takılınan kritik katmanları ve booster bağımlılığı</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Seviye</th>
+              <th>Deneme</th>
+              <th>Tamamlama</th>
+              <th>Başarı Oranı</th>
+              <th>Fail / Quit</th>
+              <th>Ort. Fail Hamlesi</th>
+              <th>Kritik Churn Katmanı</th>
+              <th>Kullanılan Booster</th>
+              <th>Zorluk</th>
+            </tr>
+          </thead>
+          <tbody id="gameplayLevelTableBody">
+            <tr><td colspan="9">
+              <div class="loading"><div class="spinner"></div><div>Yükleniyor…</div></div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
+  <!-- /TAB: GAMEPLAY -->
+
+  <!-- TAB: USERS -->
+  <div class="tab-content" id="tab-users">
+    <!-- STATS -->
+    <div class="stats-grid">
+      <div class="stat-card blue">
+        <div class="stat-icon">👥</div>
+        <div class="stat-label">Toplam Kullanıcı</div>
+        <div class="stat-value" id="sTotal">—</div>
+        <div class="stat-sub">Tüm zamanlar</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon">🟢</div>
+        <div class="stat-label">Aktif (7 gün)</div>
+        <div class="stat-value" id="sActive">—</div>
+        <div class="stat-sub">Son 7 günde oynadı</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-icon">🚪</div>
+        <div class="stat-label">Muhtemel Sildi</div>
+        <div class="stat-value" id="sChurned">—</div>
+        <div class="stat-sub">7+ gündür görülmedi</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-icon">🏆</div>
+        <div class="stat-label">Ort. En Yüksek Level</div>
+        <div class="stat-value" id="sAvgLvl">—</div>
+        <div class="stat-sub">Kullanıcı başına</div>
+      </div>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" class="search-box" id="searchBox" placeholder="Kullanıcı ID ara..." oninput="applyFilters()">
+      </div>
+      <button class="btn active" id="fAll"     onclick="setFilter('all',     this)">Tümü</button>
+      <button class="btn"        id="fActive"  onclick="setFilter('active',  this)">🟢 Aktif</button>
+      <button class="btn"        id="fRisk"    onclick="setFilter('risk',    this)">🟡 Risk (3-7g)</button>
+      <button class="btn"        id="fChurned" onclick="setFilter('churned', this)">🔴 Muhtemel Sildi</button>
+      <button class="btn export" onclick="exportCSV()">⬇ CSV İndir</button>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortBy('device_id')">Kullanıcı</th>
+            <th onclick="sortBy('farthest_level')">En Yüksek Level</th>
+            <th onclick="sortBy('total_play_minutes')">Süre</th>
+            <th onclick="sortBy('total_sessions')">Oturum</th>
+            <th onclick="sortBy('total_fails')">Fail</th>
+            <th onclick="sortBy('total_resets')">Reset</th>
+            <th onclick="sortBy('total_retries')">Retry</th>
+            <th onclick="sortBy('last_seen_ts')">Son Görülme</th>
+            <th onclick="sortBy('first_open_ts')">Kurulum</th>
+            <th>Durum</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="10">
+            <div class="loading">
+              <div class="spinner"></div>
+              <div>Veriler yükleniyor...</div>
+            </div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
   <!-- /TAB: USERS -->
 
@@ -439,19 +550,20 @@
     <div class="section-card">
       <div class="section-head">
         <div>
-          <div class="section-title">KPI Benchmarkları</div>
-          <div class="section-sub">Gerçek ortalama retention, sektör eşik değerlerine karşı</div>
+          <div class="section-title">Endüstri Benchmarkları (Puzzle 3D)</div>
+          <div class="section-sub">Kohort ağırlıklı ortalama retention değerleri</div>
         </div>
       </div>
       <div id="kpiBenchmarkBody" class="kpi-grid"></div>
     </div>
+
     <div class="section-card">
       <div class="section-head">
         <div>
-          <div class="section-title">Retention Kohort Tablosu</div>
-          <div class="section-sub">Kullanıcının kuruluma göre hangi gün/hafta tekrar oynadığı — en yeni kohort üstte</div>
+          <div class="section-title">Retention Kohort Matrisi</div>
+          <div class="section-sub">Kurulum gününe göre kullanıcıların oyuna dönüş oranları</div>
         </div>
-        <div style="display:flex; gap:8px">
+        <div style="display:flex;gap:6px">
           <button class="btn active" id="retDaily"  onclick="setRetentionMode('daily', this)">Günlük</button>
           <button class="btn"        id="retWeekly" onclick="setRetentionMode('weekly', this)">Haftalık</button>
         </div>
@@ -465,35 +577,32 @@
   <div class="tab-content" id="tab-engagement">
     <div class="stats-grid" id="engStatsGrid">
       <div class="stat-card blue">
-        <div class="stat-icon">⏱</div>
         <div class="stat-label">Ort. Oturum Süresi</div>
         <div class="stat-value" id="eAvgSession">—</div>
-        <div class="stat-sub">Tüm oturumlar ortalaması</div>
+        <div class="stat-sub">Oturum başına</div>
       </div>
       <div class="stat-card green">
-        <div class="stat-icon">📅</div>
         <div class="stat-label">Toplam Oturum</div>
         <div class="stat-value" id="eTotalSessions">—</div>
-        <div class="stat-sub">Tüm kullanıcılar</div>
+        <div class="stat-sub">Kaydedilen tüm oturumlar</div>
       </div>
       <div class="stat-card amber">
-        <div class="stat-icon">🔁</div>
-        <div class="stat-label">Ort. Oturum / Kullanıcı</div>
+        <div class="stat-label">Kullanıcı Başına Oturum</div>
         <div class="stat-value" id="eSessionsPerUser">—</div>
-        <div class="stat-sub">Kullanıcı başına</div>
+        <div class="stat-sub">Ortalama</div>
       </div>
       <div class="stat-card red">
-        <div class="stat-icon">🎮</div>
         <div class="stat-label">Toplam Event</div>
         <div class="stat-value" id="eTotalEvents">—</div>
-        <div class="stat-sub">Tüm level/oturum eventleri</div>
+        <div class="stat-sub">Tüm etkileşimler</div>
       </div>
     </div>
+
     <div class="section-card">
       <div class="section-head">
         <div>
-          <div class="section-title">Günlük Oturum Sayısı</div>
-          <div class="section-sub">Son 14 gün</div>
+          <div class="section-title">Günlük Oturum Trendi (Son 14 Gün)</div>
+          <div class="section-sub">Gün bazında toplam açılan oturum sayısı</div>
         </div>
       </div>
       <div id="engTrendBody"><div class="loading"><div class="spinner"></div><div>Hesaplanıyor…</div></div></div>
@@ -518,7 +627,7 @@
   <!-- TAB: AUDIENCE -->
   <div class="tab-content" id="tab-audience">
     <div class="note-box">
-      ℹ️ Ülke verisi şu an istemci tarafında toplanmıyor, bu yüzden burada sadece cihaz modeli, işletim sistemi ve platform dağılımı gösteriliyor.
+      ℹ️ Cihaz modeli, işletim sistemi ve platform dağılımı.
     </div>
     <div class="section-card">
       <div class="section-head"><div class="section-title">Platform</div></div>
@@ -572,19 +681,21 @@ const db = firebase.firestore();
 // ── State ─────────────────────────────────────────────────────
 let allUsers       = [];
 let allSessions    = [];  // { uid, start, end, duration_seconds, device_model, os_version }
-let allLevelDocs   = [];  // { uid, attempts, completions, fails, retries, resets, quits, total_time_spent }
+let allLevelDocs   = [];  // { uid, level_index, attempts, completions, fails, retries, resets, quits, last_fail_moves, total_fail_moves, churn_layers, boosters_used, total_boosters, total_time_spent }
 let curFilter  = 'all';
 let sortKey    = 'last_seen_ts';
 let sortAsc    = false;
 let retentionMode = 'daily';
-const MAX_LVL  = 50;
+const MAX_LVL  = 55;
 
 // ── Tabs ──────────────────────────────────────────────────────
 function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  document.getElementById('tabBtn' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  const target = document.getElementById('tab-' + name);
+  if (target) target.classList.add('active');
+  const btn = document.getElementById('tabBtn' + name.charAt(0).toUpperCase() + name.slice(1));
+  if (btn) btn.classList.add('active');
 }
 
 // ── Load Data ─────────────────────────────────────────────────
@@ -614,8 +725,7 @@ async function loadData() {
 
     allUsers = await Promise.all(userPromises);
 
-    // Bütün kullanıcıların level geçmişlerini çekerek gerçek "Toplam Süre"yi hesapla
-    // + Events/Funnel sekmesi için aynı veriyi sakla
+    // Bütün kullanıcıların level geçmişlerini çek
     try {
       const allLevelsSnap = await db.collectionGroup('level_history').get();
       const userLevelTimeMap = {};
@@ -623,14 +733,33 @@ async function loadData() {
         const uid = doc.ref.parent.parent.id;
         const d = doc.data() || {};
         userLevelTimeMap[uid] = (userLevelTimeMap[uid] || 0) + (d.total_time_spent || 0);
+        
+        let parsedLvl = d.level_index !== undefined ? d.level_index : parseInt(doc.id);
+        if (isNaN(parsedLvl)) parsedLvl = 0;
+
+        const fails = d.fails || 0;
+        const lastFailMoves = d.last_fail_moves || 0;
+        const totalFailMoves = d.total_fail_moves || (lastFailMoves * fails);
+
         return {
           uid,
-          attempts:    d.attempts    || 0,
-          completions: d.completions || 0,
-          fails:       d.fails       || 0,
-          retries:     d.retries     || 0,
-          resets:      d.resets      || 0,
-          quits:       d.quits       || 0,
+          level_index:      parsedLvl,
+          attempts:         d.attempts         || 0,
+          completions:      d.completions      || 0,
+          fails:            fails,
+          retries:          d.retries          || 0,
+          resets:           d.resets           || 0,
+          quits:            d.quits            || 0,
+          last_fail_moves:  lastFailMoves,
+          total_fail_moves: totalFailMoves,
+          last_fail_layer:  d.last_fail_layer  !== undefined ? d.last_fail_layer : -1,
+          last_quit_layer:  d.last_quit_layer  !== undefined ? d.last_quit_layer : -1,
+          churn_layers:     d.churn_layers     || {},
+          boosters_used:    d.boosters_used    || {},
+          total_boosters:   d.total_boosters   || 0,
+          total_time_spent: d.total_time_spent || 0,
+          best_time:        d.best_time        || 0,
+          best_moves:       d.best_moves       || 0
         };
       });
 
@@ -644,7 +773,7 @@ async function loadData() {
       console.warn('Could not calculate real total times:', e);
     }
 
-    // Retention / Engagement / Audience sekmeleri için tüm oturumları çek
+    // Sessions çek
     try {
       const sessionsSnap = await db.collectionGroup('sessions').get();
       allSessions = sessionsSnap.docs.map(doc => {
@@ -664,7 +793,6 @@ async function loadData() {
       allSessions = [];
     }
 
-    // Eğer hiç kullanıcı gelmezse collection group dene
     if (allUsers.length === 0) {
       const groupSnap = await db.collectionGroup('meta').get();
       const seen = new Set();
@@ -685,6 +813,7 @@ async function loadData() {
 
   updateStats();
   applyFilters();
+  renderGameplay();
   renderRetention();
   renderEngagement();
   renderEvents();
@@ -695,10 +824,6 @@ async function loadData() {
 }
 
 // ── Build User Object ─────────────────────────────────────────
-// Bazı cihazların sistem saati ileride olabiliyor (yanlış ayarlı saat/saat dilimi) —
-// bu durumda last_seen/first_open "şimdi"den ileri bir zaman damgası taşıyor ve
-// ham fark negatif çıkıyor ("-2g önce" gibi anlamsız bir görüntü). Bunu ayrı bir
-// "saat hatası" durumu olarak işaretleyip negatif sayı göstermek yerine uyarı basıyoruz.
 function relDaysLabel(days) {
   if (days === null) return '—';
   if (days === 0) return 'Bugün';
@@ -722,15 +847,16 @@ function buildUser(uid, d) {
   return {
     device_id:          uid,
     short_id:           uid.slice(0, 8) + '…',
-    // farthest_level Firestore'da 0-TABANLI index olarak yazılıyor (GameManager currentLevelIndex).
-    // İnsan level numarası = index + 1 (index 0 = Level 1). Tablo/stats/CSV hepsi buradan okuduğu
-    // için burada +1 yapınca her yerde gerçek level numarası görünür ("Level 0" yok olur).
     farthest_level:     (d.farthest_level     || 0) + 1,
     total_play_minutes: +(d.total_play_minutes || 0).toFixed(1),
     total_sessions:     d.total_sessions     || 0,
     total_fails:        d.total_fails        || 0,
     total_resets:       d.total_resets       || 0,
     total_retries:      d.total_retries      || 0,
+    total_boosters_used: d.total_boosters_used || 0,
+    last_churn_layer:   d.last_churn_layer !== undefined ? d.last_churn_layer : -1,
+    last_churn_level:   d.last_churn_level !== undefined ? d.last_churn_level : -1,
+    last_fail_moves:    d.last_fail_moves    || 0,
     last_seen:          lastTs  ? fmtDate(lastTs)  : '—',
     last_seen_ts:       lastTs  ? lastTs.getTime()  : 0,
     last_seen_rel:      lastSkew  ? '⚠ Saat hatası' : relDaysLabel(lastTs ? daysSince : null),
@@ -745,106 +871,255 @@ function buildUser(uid, d) {
   };
 }
 
-// ── Stats Cards ───────────────────────────────────────────────
+// ── User Stats Cards ──────────────────────────────────────────
 function updateStats() {
   const total   = allUsers.length;
   const active  = allUsers.filter(u => u.status === 'active').length;
   const churned = allUsers.filter(u => u.status === 'churned').length;
   const avgLvl  = total
-    ? Math.round(allUsers.reduce((s,u) => s + u.farthest_level, 0) / total)
-    : 0;
+    ? (allUsers.reduce((s, u) => s + u.farthest_level, 0) / total).toFixed(1)
+    : '0';
 
-  document.getElementById('sTotal').textContent   = total;
-  document.getElementById('sActive').textContent  = active;
-  document.getElementById('sChurned').textContent = churned;
-  document.getElementById('sAvgLvl').textContent  = avgLvl;
+  document.getElementById('sTotal').textContent   = total.toLocaleString('tr-TR');
+  document.getElementById('sActive').textContent  = active.toLocaleString('tr-TR');
+  document.getElementById('sChurned').textContent = churned.toLocaleString('tr-TR');
+  document.getElementById('sAvgLvl').textContent  = 'Level ' + avgLvl;
 }
 
-// ── Filters & Sort ────────────────────────────────────────────
-function setFilter(f, btn) {
-  curFilter = f;
-  document.querySelectorAll('.toolbar .btn:not(.export):not(.refresh)').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  applyFilters();
-}
+// ─────────────────────────────────────────────────────────────
+// 🎮 GAMEPLAY & CHURN ANALYTICS (MOVES, LAYERS, BOOSTERS)
+// ─────────────────────────────────────────────────────────────
+function renderGameplay() {
+  // 1. KPI Hesaplamaları
+  let totalFails = 0;
+  let totalFailMoves = 0;
+  let totalBoosters = 0;
+  const layerChurnCounts = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+  const boosterCounts = {};
 
-function applyFilters() {
-  const q = document.getElementById('searchBox').value.toLowerCase();
-  let list = allUsers.filter(u => {
-    if (q && !u.device_id.toLowerCase().includes(q)) return false;
-    if (curFilter === 'active')  return u.status === 'active';
-    if (curFilter === 'risk')    return u.status === 'risk';
-    if (curFilter === 'churned') return u.status === 'churned';
-    return true;
+  // Level bazlı harita
+  const levelStatsMap = {};
+
+  allLevelDocs.forEach(l => {
+    totalFails += l.fails;
+    totalFailMoves += l.total_fail_moves;
+    totalBoosters += (l.total_boosters || 0);
+
+    // Churn layer aggregation
+    if (l.churn_layers && Object.keys(l.churn_layers).length > 0) {
+      for (const [k, count] of Object.entries(l.churn_layers)) {
+        const lNum = parseInt(k.replace('layer_', ''));
+        if (!isNaN(lNum)) {
+          layerChurnCounts[lNum] = (layerChurnCounts[lNum] || 0) + (count || 0);
+        }
+      }
+    } else {
+      if (l.last_fail_layer >= 0 && l.fails > 0) {
+        layerChurnCounts[l.last_fail_layer] = (layerChurnCounts[l.last_fail_layer] || 0) + l.fails;
+      }
+      if (l.last_quit_layer >= 0 && l.quits > 0) {
+        layerChurnCounts[l.last_quit_layer] = (layerChurnCounts[l.last_quit_layer] || 0) + l.quits;
+      }
+    }
+
+    // Booster aggregation
+    if (l.boosters_used) {
+      for (const [bName, bCount] of Object.entries(l.boosters_used)) {
+        boosterCounts[bName] = (boosterCounts[bName] || 0) + (bCount || 0);
+      }
+    }
+
+    // Level map
+    const lIdx = l.level_index;
+    if (!levelStatsMap[lIdx]) {
+      levelStatsMap[lIdx] = {
+        level_index: lIdx,
+        attempts: 0,
+        completions: 0,
+        fails: 0,
+        quits: 0,
+        total_fail_moves: 0,
+        boosters: 0,
+        layerChurn: {}
+      };
+    }
+    const curLvl = levelStatsMap[lIdx];
+    curLvl.attempts += l.attempts;
+    curLvl.completions += l.completions;
+    curLvl.fails += l.fails;
+    curLvl.quits += l.quits;
+    curLvl.total_fail_moves += l.total_fail_moves;
+    curLvl.boosters += (l.total_boosters || 0);
+
+    if (l.churn_layers) {
+      for (const [k, count] of Object.entries(l.churn_layers)) {
+        const lNum = parseInt(k.replace('layer_', ''));
+        if (!isNaN(lNum)) {
+          curLvl.layerChurn[lNum] = (curLvl.layerChurn[lNum] || 0) + count;
+        }
+      }
+    }
   });
 
-  list.sort((a, b) => {
-    let av = a[sortKey], bv = b[sortKey];
-    if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
-    if (av < bv) return sortAsc ? -1 : 1;
-    if (av > bv) return sortAsc ?  1 : -1;
-    return 0;
-  });
+  // KPI 1: Ort. Fail Hamlesi
+  const avgFailMoves = totalFails > 0 ? (totalFailMoves / totalFails).toFixed(1) : '—';
+  document.getElementById('gAvgFailMoves').textContent = avgFailMoves !== '—' ? `${avgFailMoves} Hamle` : '—';
 
-  renderTable(list);
-}
-
-function sortBy(key) {
-  sortAsc = sortKey === key ? !sortAsc : false;
-  sortKey = key;
-  document.querySelectorAll('th').forEach(th => th.classList.remove('asc', 'desc'));
-  const targetTh = document.querySelector(`th[onclick="sortBy('${key}')"]`);
-  if (targetTh) {
-    targetTh.classList.add(sortAsc ? 'asc' : 'desc');
+  // KPI 2: En Kritik Churn Katmanı
+  let maxChurnLayer = -1;
+  let maxChurnVal = 0;
+  let totalChurnEvents = 0;
+  for (const [lNum, count] of Object.entries(layerChurnCounts)) {
+    totalChurnEvents += count;
+    if (count > maxChurnVal) {
+      maxChurnVal = count;
+      maxChurnLayer = parseInt(lNum);
+    }
   }
-  applyFilters();
-}
+  const churnPct = totalChurnEvents > 0 ? ((maxChurnVal / totalChurnEvents) * 100).toFixed(0) : 0;
+  document.getElementById('gTopChurnLayer').textContent = maxChurnLayer >= 0 ? `Katman ${maxChurnLayer + 1}` : '—';
+  document.getElementById('gTopChurnSub').textContent = maxChurnLayer >= 0 ? `Tüm kayıpların %${churnPct}'i bu katmanda` : 'Kayıp verisi yok';
 
-// ── Table Render ──────────────────────────────────────────────
-function renderTable(users) {
-  const tbody = document.getElementById('tbody');
-  if (!users.length) {
-    tbody.innerHTML = `<tr><td colspan="10">
-      <div class="empty"><div class="empty-icon">🔍</div>Kullanıcı bulunamadı</div>
-    </td></tr>`;
-    return;
+  // KPI 3: Toplam Booster
+  document.getElementById('gTotalBoosters').textContent = totalBoosters.toLocaleString('tr-TR');
+
+  // KPI 4: En Çok Kullanılan Booster
+  let topBoosterName = '—';
+  let topBoosterVal = 0;
+  for (const [bName, count] of Object.entries(boosterCounts)) {
+    if (count > topBoosterVal) {
+      topBoosterVal = count;
+      topBoosterName = bName;
+    }
+  }
+  const topBoosterPct = totalBoosters > 0 ? ((topBoosterVal / totalBoosters) * 100).toFixed(0) : 0;
+  document.getElementById('gTopBooster').textContent = topBoosterName !== '—' ? topBoosterName : '—';
+  document.getElementById('gTopBoosterSub').textContent = topBoosterName !== '—' ? `${topBoosterVal} kez (%${topBoosterPct})` : 'Kullanım yok';
+
+  // 2. Churn by Layer Bar List
+  const layerLabels = {
+    0: 'Katman 1 (Taban / Giriş)',
+    1: 'Katman 2 (Orta Katman)',
+    2: 'Katman 3 (Üst Katman)',
+    3: 'Katman 4 (Zirve)',
+    4: 'Katman 5+'
+  };
+
+  const layerData = Object.entries(layerChurnCounts)
+    .filter(([k, v]) => v > 0 || parseInt(k) < 3)
+    .map(([k, count]) => {
+      const lNum = parseInt(k);
+      return {
+        layer: lNum,
+        label: layerLabels[lNum] || `Katman ${lNum + 1}`,
+        count: count,
+        pct: totalChurnEvents > 0 ? (count / totalChurnEvents) * 100 : 0
+      };
+    })
+    .sort((a, b) => a.layer - b.layer);
+
+  if (totalChurnEvents > 0 && maxChurnLayer >= 0) {
+    document.getElementById('churnLayerInsight').innerHTML = `
+      💡 <strong>Aksiyon Önerisi:</strong> Oyuncuların <strong>%${churnPct}</strong>'lik kısmı <strong>Katman ${maxChurnLayer + 1}</strong>'de tıkanarak fail oluyor veya pes ediyor. Bu katmandaki hedef hücre blok dağılımını veya başlangıç ipuçlarını optimize edebilirsiniz.
+    `;
+  } else {
+    document.getElementById('churnLayerInsight').innerHTML = `
+      💡 <strong>Durum:</strong> Henüz yeterli katman kayıp verisi toplanmadı. Seviyeler oynandıkça grafik otomatik güncellenecektir.
+    `;
   }
 
-  tbody.innerHTML = users.map(u => `
-    <tr onclick="openPanel('${u.device_id}')">
-      <td>
-        <div class="mono">${u.short_id}</div>
-        ${u.platform ? `<span class="platform-tag">${u.platform}</span>` : ''}
-      </td>
-      <td>
-        <div class="level-bar-wrap">
-          <span style="font-weight:700; min-width:22px">${u.farthest_level}</span>
-          <div class="level-bar-track">
-            <div class="level-bar-fill" style="width:${Math.min(100,(u.farthest_level/MAX_LVL)*100)}%"></div>
-          </div>
-        </div>
-      </td>
-      <td>${fmtMin(u.total_play_minutes)}</td>
-      <td>${u.total_sessions}</td>
-      <td class="${u.total_fails > 5 ? 'num-danger' : u.total_fails > 0 ? '' : 'num-ok'}">${u.total_fails}</td>
-      <td>${u.total_resets}</td>
-      <td>${u.total_retries}</td>
-      <td>
-        <div>${u.last_seen}</div>
-        <div style="font-size:11px;color:${u.last_seen_rel.startsWith('⚠') ? 'var(--warning)' : 'var(--text-muted)'}">${u.last_seen_rel}</div>
-      </td>
-      <td>
-        <div style="font-size:12px;color:var(--text-muted)">${u.first_open}</div>
-        <div style="font-size:11px;color:${u.first_open_rel.startsWith('⚠') ? 'var(--warning)' : 'var(--text-dim)'}">${u.first_open_rel}</div>
-      </td>
-      <td>${badge(u.status)}</td>
-    </tr>
+  const maxLayerCount = Math.max(1, ...layerData.map(d => d.count));
+  const layerHtml = layerData.map(d => `
+    <div class="bar-row">
+      <div class="bar-row-label">${d.label}</div>
+      <div class="bar-row-track">
+        <div class="bar-row-fill ${d.layer === 0 ? 'orange' : d.layer === 1 ? 'purple' : 'cyan'}" style="width:${(d.count / maxLayerCount * 100).toFixed(1)}%"></div>
+      </div>
+      <div class="bar-row-val">${d.count} <span style="font-size:10px;font-weight:400;color:var(--text-dim)">(%${d.pct.toFixed(0)})</span></div>
+    </div>
   `).join('');
-}
+  document.getElementById('churnLayerBody').innerHTML = layerHtml || '<div class="empty">Veri yok</div>';
 
-function badge(s) {
-  const map = { active:'🟢 Aktif', risk:'🟡 Risk', churned:'🔴 Sildi?' };
-  return `<span class="badge ${s}">${map[s]||s}</span>`;
+  // 3. Booster Breakdown
+  const boosterDisplay = [
+    { key: 'Hammer',  label: '🔨 Hammer (Çekiç)' },
+    { key: 'Undo',    label: '↩️ Undo (Geri Al)' },
+    { key: 'Shuffle', label: '🔀 Shuffle (Karıştır)' },
+    { key: 'Magnet',  label: '🧲 Magnet (Mıknatıs)' },
+    { key: 'Hint',    label: '💡 Hint (İpucu)' },
+    { key: 'Bomb',    label: '💣 Bomb (Bomba)' }
+  ];
+  const allBoosterData = boosterDisplay.map(bd => ({
+    label: bd.label,
+    count: boosterCounts[bd.key] || boosterCounts[bd.key.toLowerCase()] || 0
+  })).sort((a, b) => b.count - a.count);
+
+  const maxBoosterCount = Math.max(1, ...allBoosterData.map(d => d.count));
+  const boosterHtml = allBoosterData.map(d => `
+    <div class="bar-row">
+      <div class="bar-row-label">${d.label}</div>
+      <div class="bar-row-track">
+        <div class="bar-row-fill purple" style="width:${(d.count / maxBoosterCount * 100).toFixed(1)}%"></div>
+      </div>
+      <div class="bar-row-val">${d.count}</div>
+    </div>
+  `).join('');
+  document.getElementById('boosterBreakdownBody').innerHTML = boosterHtml || '<div class="empty">Veri yok</div>';
+
+  // 4. Seviye Bazında Zorluk & Churn Tablosu
+  const sortedLevelKeys = Object.keys(levelStatsMap).map(Number).sort((a, b) => a - b);
+  const rows = [];
+
+  for (let i = 0; i < Math.max(sortedLevelKeys.length, 30); i++) {
+    const lIdx = sortedLevelKeys[i] !== undefined ? sortedLevelKeys[i] : i;
+    const lData = levelStatsMap[lIdx] || { attempts: 0, completions: 0, fails: 0, quits: 0, total_fail_moves: 0, boosters: 0, layerChurn: {} };
+    const levelNum = lIdx + 1;
+
+    const att = lData.attempts;
+    const comp = lData.completions;
+    const fail = lData.fails;
+    const quit = lData.quits;
+    const totalLost = fail + quit;
+    const winRate = att > 0 ? ((comp / att) * 100).toFixed(0) : '—';
+    const lvlAvgMoves = fail > 0 ? (lData.total_fail_moves / fail).toFixed(1) : '—';
+
+    // Dominant Churn Layer for this level
+    let topLvlLayer = -1;
+    let maxLvlLayerCount = 0;
+    for (const [k, count] of Object.entries(lData.layerChurn)) {
+      if (count > maxLvlLayerCount) {
+        maxLvlLayerCount = count;
+        topLvlLayer = parseInt(k);
+      }
+    }
+    const churnBadge = topLvlLayer >= 0 ? `<span class="badge layer">Katman ${topLvlLayer + 1}</span>` : '<span style="color:var(--text-dim)">—</span>';
+
+    // Difficulty Tag
+    let diffBadge = '<span class="badge easy">🟢 Kolay</span>';
+    if (winRate !== '—') {
+      const wr = parseFloat(winRate);
+      if (wr < 40 || fail > 5) diffBadge = '<span class="badge hard">🔴 Kritik Zor</span>';
+      else if (wr < 70 || fail > 2) diffBadge = '<span class="badge med">🟡 Dengeli</span>';
+    }
+
+    const boosterBadge = lData.boosters > 0 ? `<span class="badge booster">⚡ ${lData.boosters}</span>` : '<span style="color:var(--text-dim)">0</span>';
+
+    rows.push(`
+      <tr>
+        <td style="font-weight:700">Level ${levelNum}</td>
+        <td>${att}</td>
+        <td class="${comp > 0 ? 'c-done' : ''}">${comp}</td>
+        <td style="font-weight:600">${winRate !== '—' ? '%' + winRate : '—'}</td>
+        <td class="${fail > 2 ? 'c-fail' : ''}">${fail} ${quit > 0 ? `<span style="font-size:10px;color:var(--warning)">(+${quit} quit)</span>` : ''}</td>
+        <td style="font-weight:600">${lvlAvgMoves !== '—' ? lvlAvgMoves + ' hamle' : '—'}</td>
+        <td>${churnBadge}</td>
+        <td>${boosterBadge}</td>
+        <td>${diffBadge}</td>
+      </tr>
+    `);
+  }
+
+  document.getElementById('gameplayLevelTableBody').innerHTML = rows.join('');
 }
 
 // ── Detail Panel ──────────────────────────────────────────────
@@ -894,6 +1169,14 @@ function renderPanel(user, levels) {
         <div class="pitem-value ${user.total_fails > 5 ? 'v-danger' : user.total_fails > 0 ? 'v-warning' : 'v-success'}">${user.total_fails}</div>
       </div>
       <div class="pitem">
+        <div class="pitem-label">Booster Kullanımı</div>
+        <div class="pitem-value v-purple">${user.total_boosters_used || 0}</div>
+      </div>
+      <div class="pitem">
+        <div class="pitem-label">Son Churn Katmanı</div>
+        <div class="pitem-value v-sm">${user.last_churn_layer >= 0 ? 'Katman ' + (user.last_churn_layer + 1) : '—'}</div>
+      </div>
+      <div class="pitem">
         <div class="pitem-label">Oturum Sayısı</div>
         <div class="pitem-value">${user.total_sessions}</div>
       </div>
@@ -904,6 +1187,10 @@ function renderPanel(user, levels) {
       <div class="pitem">
         <div class="pitem-label">Son Görülme</div>
         <div class="pitem-value v-sm">${user.last_seen}</div>
+      </div>
+      <div class="pitem">
+        <div class="pitem-label">Durum</div>
+        <div class="pitem-value v-sm"><span class="badge ${user.status}">${user.status.toUpperCase()}</span></div>
       </div>
     </div>`;
 
@@ -919,16 +1206,21 @@ function renderPanel(user, levels) {
       const outcome = done  ? '<span class="outcome-done">✅ Geçti</span>'
                     : quit  ? '<span class="outcome-quit">🚪 Çıktı</span>'
                     :         '<span class="outcome-try">⏳ Deniyor</span>';
+
+      const failMoves = l.last_fail_moves ? `${l.last_fail_moves} hamle` : '—';
+      const churnLayer = l.last_fail_layer >= 0 ? `Katman ${l.last_fail_layer + 1}` : (l.last_quit_layer >= 0 ? `Katman ${l.last_quit_layer + 1}` : '—');
+      const boosters = l.total_boosters > 0 ? `⚡ ${l.total_boosters}` : '—';
+
       return `
         <tr>
           <td style="font-weight:700">Level ${li}</td>
           <td>${l.attempts  || 0}</td>
           <td class="${done ? 'c-done' : ''}">${l.completions || 0}</td>
           <td class="${(l.fails||0)>2 ? 'c-fail' : ''}">${l.fails || 0}</td>
-          <td class="${(l.quits||0)>0 ? 'c-quit' : ''}">${l.quits || 0}</td>
-          <td>${l.resets    || 0}</td>
+          <td>${failMoves}</td>
+          <td>${churnLayer !== '—' ? `<span class="badge layer">${churnLayer}</span>` : '—'}</td>
+          <td>${boosters}</td>
           <td>${l.best_time ? fmtSec(l.best_time) : '—'}</td>
-          <td>${fmtSec(l.total_time_spent)}</td>
           <td>${outcome}</td>
         </tr>`;
     }).join('');
@@ -938,8 +1230,8 @@ function renderPanel(user, levels) {
         <table class="lvl-table">
           <thead><tr>
             <th>Level</th><th>Deneme</th><th>Tamamlama</th>
-            <th>Fail</th><th>Quit</th><th>Reset</th>
-            <th>En İyi Süre</th><th>Toplam Süre</th><th>Sonuç</th>
+            <th>Fail</th><th>Fail Hamlesi</th><th>Kayıp Katmanı</th><th>Booster</th>
+            <th>En İyi Süre</th><th>Sonuç</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -961,23 +1253,83 @@ function closePanel() {
   document.getElementById('panel').classList.remove('open');
 }
 
+// ── Filter & Search Table ─────────────────────────────────────
+function setFilter(filter, btn) {
+  curFilter = filter;
+  document.querySelectorAll('.toolbar .btn').forEach(b => {
+    if (!b.classList.contains('export')) b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const query = (document.getElementById('searchBox')?.value || '').toLowerCase();
+  let list = allUsers.filter(u => {
+    if (curFilter !== 'all' && u.status !== curFilter) return false;
+    if (query && !u.device_id.toLowerCase().includes(query)) return false;
+    return true;
+  });
+
+  list.sort((a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? (va - vb) : (vb - va);
+  });
+
+  renderUsersTable(list);
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = false; }
+  applyFilters();
+}
+
+function renderUsersTable(list) {
+  if (!list.length) {
+    document.getElementById('tbody').innerHTML = `
+      <tr><td colspan="10">
+        <div class="empty"><div class="empty-icon">👥</div>Kullanıcı bulunamadı</div>
+      </td></tr>`;
+    return;
+  }
+
+  const rows = list.map(u => `
+    <tr onclick="openPanel('${u.device_id}')">
+      <td><span class="mono">${u.short_id}</span></td>
+      <td><strong>Level ${u.farthest_level}</strong></td>
+      <td>${fmtMin(u.total_play_minutes)}</td>
+      <td>${u.total_sessions}</td>
+      <td class="${u.total_fails > 5 ? 'c-fail' : ''}">${u.total_fails}</td>
+      <td>${u.total_resets}</td>
+      <td>${u.total_retries}</td>
+      <td>${u.last_seen_rel} <span style="font-size:10px;color:var(--text-dim)">(${u.last_seen})</span></td>
+      <td>${u.first_open}</td>
+      <td><span class="badge ${u.status}">${u.status.toUpperCase()}</span></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('tbody').innerHTML = rows;
+}
+
 // ── CSV Export ────────────────────────────────────────────────
 function exportCSV() {
   const headers = ['UserID','Farthest Level','Play Minutes','Sessions',
-                   'Fails','Resets','Retries','Last Seen','Install Date',
-                   'Status','Days Since Last Seen','Platform','App Version'];
+                   'Fails','Resets','Retries','Boosters Used','Last Churn Layer',
+                   'Last Seen','Install Date','Status','Platform','App Version'];
   const rows = allUsers.map(u => [
     u.device_id, u.farthest_level, u.total_play_minutes, u.total_sessions,
-    u.total_fails, u.total_resets, u.total_retries,
-    u.last_seen, u.first_open, u.status, u.daysSince,
-    u.platform, u.app_version
+    u.total_fails, u.total_resets, u.total_retries, u.total_boosters_used || 0,
+    u.last_churn_layer >= 0 ? 'Katman ' + (u.last_churn_layer + 1) : '—',
+    u.last_seen, u.first_open, u.status, u.platform, u.app_version
   ]);
   const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = `animalblast3d_users_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `animalblast3d_analytics_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
 
@@ -1060,7 +1412,6 @@ function setRetentionMode(mode, btn) {
   renderRetention();
 }
 
-// Kohortlar arası ağırlıklı ortalama retention (sadece o gün için yeterli süre geçmiş kohortlar dahil)
 function computeAvgRetention(dailyData, offset) {
   let totalUsers = 0, totalActive = 0;
   dailyData.cohorts.forEach(c => {
@@ -1102,35 +1453,41 @@ function renderKpiBenchmarks() {
 function renderRetention() {
   renderKpiBenchmarks();
   const data = computeRetention(retentionMode);
-  const el = document.getElementById('retentionBody');
   if (!data.cohorts.length) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">📈</div>Retention hesaplamak için yeterli veri yok</div>`;
+    document.getElementById('retentionBody').innerHTML =
+      '<div class="empty"><div class="empty-icon">📊</div>Retention verisi henüz oluşmadı</div>';
     return;
   }
-  const offLabel = o => retentionMode === 'daily' ? `D${o}` : `W${o}`;
-  const headerCells = data.offsets.map(o => `<th>${offLabel(o)}</th>`).join('');
+
+  const thCols = data.offsets.map(o =>
+    `<th>${data.mode === 'daily' ? (o === 0 ? 'D0' : 'D' + o) : (o === 0 ? 'W0' : 'W' + o)}</th>`
+  ).join('');
+
   const rows = data.cohorts.map(c => {
-    const cohortDate = new Date(c.cohortDayIndex * 86400000);
-    const label = retentionMode === 'daily'
-      ? cohortDate.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })
-      : 'Hafta ' + cohortDate.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
-    const ageInUnits = retentionMode === 'daily'
-      ? (data.today - c.cohortDayIndex)
-      : Math.floor((data.today - c.cohortDayIndex) / 7);
+    const d = new Date(c.cohortDayIndex * 86400000);
+    const label = data.mode === 'daily'
+      ? d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })
+      : `${d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })} hft`;
+    const ageInUnits = data.today - c.cohortDayIndex;
+
     const cells = data.offsets.map(o => {
-      if (ageInUnits < o) return `<td><span class="cohort-empty">—</span></td>`;
-      const pct = c.size ? Math.round((c.active[o] / c.size) * 100) : 0;
-      const alpha = Math.min(0.85, 0.08 + (pct / 100) * 0.7);
-      const color = pct >= 40 ? '16,185,129' : pct >= 15 ? '245,158,11' : '239,68,68';
-      return `<td><span class="cohort-cell" style="background:rgba(${color},${alpha})">${pct}%</span></td>`;
+      if (o > ageInUnits) return '<td><span class="cohort-empty">—</span></td>';
+      const act = c.active[o] || 0;
+      const pct = c.size ? Math.round((act / c.size) * 100) : 0;
+      const alpha = Math.min(1, Math.max(0.12, pct / 60));
+      return `<td><span class="cohort-cell" style="background:rgba(99,102,241,${alpha.toFixed(2)})">%${pct}</span></td>`;
     }).join('');
-    return `<tr><td>${label} <span class="cohort-size">(${c.size} kullanıcı)</span></td>${cells}</tr>`;
+
+    return `<tr>
+      <td>${label} <span class="cohort-size">(${c.size} k.)</span></td>
+      ${cells}
+    </tr>`;
   }).join('');
 
-  el.innerHTML = `
+  document.getElementById('retentionBody').innerHTML = `
     <div class="cohort-wrap">
       <table class="cohort-table">
-        <thead><tr><th>Kohort</th>${headerCells}</tr></thead>
+        <thead><tr><th>Kohort</th>${thCols}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -1179,12 +1536,12 @@ function renderEngagement() {
     `<div style="display:flex;gap:6px;align-items:flex-end">${bars}</div>`;
 }
 
-// ── Events / Funnel ──────────────────────────────────────────
+// ── Events ────────────────────────────────────────────────────
 function renderEvents() {
   const totals = {
     level_start: 0, level_complete: 0, level_fail: 0,
     level_retry: 0, level_reset: 0, level_quit: 0,
-    session_start: 0, session_end: 0
+    booster_used: 0, session_start: 0, session_end: 0
   };
   allLevelDocs.forEach(l => {
     totals.level_start    += l.attempts;
@@ -1193,6 +1550,7 @@ function renderEvents() {
     totals.level_retry    += l.retries;
     totals.level_reset    += l.resets;
     totals.level_quit     += l.quits;
+    totals.booster_used   += (l.total_boosters || 0);
   });
   totals.session_start = allSessions.length;
   totals.session_end   = allSessions.filter(s => s.end).length;
