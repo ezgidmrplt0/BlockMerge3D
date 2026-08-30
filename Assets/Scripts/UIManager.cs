@@ -152,18 +152,23 @@ public class UIManager : MonoBehaviour
         }
 
         string msg;
-        if (linesCount >= 3) msg = "TRIPLE BLAST! 💥";
-        else if (linesCount == 2) msg = "DOUBLE BLAST! ⚡";
-        else if (comboCount > 1) msg = $"COMBO x{comboCount}! 🔥";
-        else msg = "GREAT! ✨";
+        if (linesCount >= 3) msg = "TRIPLE BLAST!";
+        else if (linesCount == 2) msg = "DOUBLE BLAST!";
+        else if (comboCount > 1) msg = $"COMBO x{comboCount}!";
+        else
+        {
+            string[] praises = new string[] { "NICE!", "GREAT!", "GOOD!", "AMAZING!", "EXCELLENT!", "SUPER!" };
+            msg = praises[Random.Range(0, praises.Length)];
+        }
 
         GameObject popGO = new GameObject("ComboPopup", typeof(RectTransform), typeof(CanvasGroup));
         activeComboPopup = popGO;
         popGO.transform.SetParent(canvas.transform, false);
 
         var rt = popGO.GetComponent<RectTransform>();
-        rt.anchoredPosition = new Vector2(0, 100);
-        rt.sizeDelta = new Vector2(500, 100);
+        rt.anchoredPosition = new Vector2(0f, 180f);
+        rt.sizeDelta = new Vector2(1000f, 150f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
 
         var cg = popGO.GetComponent<CanvasGroup>();
 
@@ -175,25 +180,49 @@ public class UIManager : MonoBehaviour
         textRT.sizeDelta = Vector2.zero;
 
         var tmp = textGO.GetComponent<TextMeshProUGUI>();
-        tmp.text = msg;
-        tmp.fontSize = 42;
-        tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color = linesCount >= 2 || comboCount >= 2 ? new Color(1f, 0.85f, 0.2f) : Color.white;
-        tmp.enableVertexGradient = true;
-        tmp.colorGradient = new VertexGradient(
-            new Color(1f, 0.95f, 0.4f),
-            new Color(1f, 0.95f, 0.4f),
-            new Color(1f, 0.4f, 0.1f),
-            new Color(1f, 0.4f, 0.1f)
-        );
+        tmp.enableWordWrapping = false;
 
+        // Oyunun ana fontunu kullan (PlayFloatingPraise stili)
+        TMP_FontAsset defaultGameFont = null;
+        if (scoreText != null) defaultGameFont = scoreText.font;
+        else if (timerText != null) defaultGameFont = timerText.font;
+        else if (winFinalScoreText != null) defaultGameFont = winFinalScoreText.font;
+        else if (loseFinalScoreText != null) defaultGameFont = loseFinalScoreText.font;
+
+        if (defaultGameFont != null) tmp.font = defaultGameFont;
+        else if (TMPro.TMP_Settings.defaultFontAsset != null) tmp.font = TMPro.TMP_Settings.defaultFontAsset;
+
+        tmp.text = msg;
+        tmp.fontSize = 58f;
+        tmp.fontStyle = FontStyles.Bold | FontStyles.Italic;
+        tmp.alignment = TextAlignmentOptions.Center;
+
+        // Canlı ve parlak renk paleti
+        if (linesCount >= 3)
+            tmp.color = new Color(1f, 0.2f, 0.6f);    // Canlı Magenta / Pembe
+        else if (linesCount == 2 || comboCount >= 2)
+            tmp.color = new Color(1f, 0.85f, 0.1f);   // Altın Sarısı
+        else
+            tmp.color = new Color(0.12f, 0.8f, 1f);   // Turkuaz / Mavi
+
+        // TMPro Outline (Siyah kontur)
+        tmp.outlineColor = new Color32(20, 20, 20, 255);
+        tmp.outlineWidth = 0.25f;
+
+        // Animasyon sekansı (PlayFloatingPraise ile aynı ekrana fırlama & süzülme)
         popGO.transform.localScale = Vector3.zero;
         Sequence seq = DOTween.Sequence();
-        seq.Append(popGO.transform.DOScale(1.2f, 0.2f).SetEase(Ease.OutBack));
-        seq.Append(popGO.transform.DOScale(1f, 0.1f));
-        seq.Join(rt.DOAnchorPosY(160, 0.75f).SetEase(Ease.OutQuad));
-        seq.Insert(0.55f, cg.DOFade(0f, 0.25f));
+        seq.SetUpdate(true);
+
+        seq.Append(popGO.transform.DOScale(1.3f, 0.20f).SetEase(Ease.OutQuad));
+        seq.Append(popGO.transform.DOScale(1.0f, 0.15f).SetEase(Ease.OutQuad));
+        seq.Join(rt.DOAnchorPosY(220f, 0.35f).SetEase(Ease.OutQuad));
+
+        seq.AppendInterval(0.35f);
+        seq.Append(rt.DOAnchorPosY(280f, 0.45f).SetEase(Ease.OutCubic));
+        seq.Join(cg.DOFade(0f, 0.45f).SetEase(Ease.InQuad));
+        seq.Join(popGO.transform.DOScale(0.7f, 0.45f).SetEase(Ease.InQuad));
+
         seq.OnComplete(() =>
         {
             if (popGO != null) Destroy(popGO);

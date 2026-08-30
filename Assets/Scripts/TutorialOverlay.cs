@@ -165,11 +165,9 @@ public class TutorialOverlay : MonoBehaviour
             // Level 3: 3D Döndürme & Katman Tamamlama Öğreticisi
             // 1. H parçayı yerleştir
             // 2. Tahtayı döndür (SWIPE TO ROTATE)
-            // 3. 1'li parçayı yerleştir
-            // 4. Kalan 1'li parçayı yerleştir (Katmanı tamamla)
+            // 3. 1'li parçayı yerleştir (Katman patlar ve seviye biter)
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.SwipeToRotate);
-            steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else
@@ -183,18 +181,33 @@ public class TutorialOverlay : MonoBehaviour
         Invoke(nameof(AdvanceStep), startDelay);
     }
 
+    public void StopTutorial()
+    {
+        running = false;
+        stepIndex = -1;
+        CancelInvoke();
+        StopAllCoroutines();
+        KillLoop();
+        HideIcon();
+        HideStepText();
+        HideSpotlight();
+        HighlightTutorialTargetCells(false);
+    }
+
     private void AdvanceStep()
     {
         if (!running) return;
 
+        if (GameManager.Instance != null && GameManager.Instance.IsLevelOver)
+        {
+            StopTutorial();
+            return;
+        }
+
         stepIndex++;
         if (stepIndex >= steps.Count)
         {
-            running = false;
-            HighlightTutorialTargetCells(false);
-            HideIcon();
-            HideStepText();
-            HideSpotlight();
+            StopTutorial();
             return;
         }
 
