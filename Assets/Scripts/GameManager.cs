@@ -354,6 +354,12 @@ public class GameManager : MonoBehaviour
         UIManager.Instance?.AnimateScore(Score);
     }
 
+    public void DeductScore(int points)
+    {
+        Score = Mathf.Max(0, Score - points);
+        UIManager.Instance?.AnimateScore(Score);
+    }
+
     public void OnLinesCleared(int cellsCleared, int bonusLines)
     {
         int gained = cellsCleared * pointsPerCell;

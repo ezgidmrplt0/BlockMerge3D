@@ -39,6 +39,7 @@ public class LevelManager : MonoBehaviour
     public GameObject ActiveMainPiece => activeMainPiece;
     private List<GameObject> activePieces = new List<GameObject>();
     private List<GameObject> placedPieces = new List<GameObject>();
+    private List<int> placedPieceScores = new List<int>();
     private bool isJokerUsedThisLevel = false;
     public bool CanUseJoker => !isJokerUsedThisLevel && placedPieces != null && placedPieces.Count > 0;
     private GridManager gridManager;
@@ -139,7 +140,8 @@ public class LevelManager : MonoBehaviour
             : new List<Vector3Int>();
 
         List<LayerSolutionSolver.SolutionItem> solutionItems = LayerSolutionSolver.SolveLayer(
-            activeLayer, layerCells, allPiecePrefabs, gridManager);
+            activeLayer, layerCells, allPiecePrefabs, gridManager,
+            currentLevel != null ? currentLevel.precomputedSolution : null);
 
         foreach (var item in solutionItems)
         {
@@ -170,7 +172,11 @@ public class LevelManager : MonoBehaviour
             });
         }
 
-        currentLayerSolutionStream = currentLayerSolutionStream.OrderBy(_ => Random.value).ToList();
+        bool isTutorial = levelNum <= 5 || (currentLevel != null && currentLevel.tutorialSteps != null && currentLevel.tutorialSteps.Count > 0);
+        if (!isTutorial)
+        {
+            currentLayerSolutionStream = currentLayerSolutionStream.OrderBy(_ => Random.value).ToList();
+        }
     }
 
     private void Start()
@@ -413,13 +419,10 @@ public class LevelManager : MonoBehaviour
         var h = shapePrefabOrGO.GetComponent<CubeShapeDataHolder>();
         if (h == null || h.occupiedCells == null || h.occupiedCells.Count == 0) return Quaternion.identity;
 
-        // İlk 5 seviye için: Level 4 3'lü Domuz parçasına (Piece_3) tam sığması için 90° rotasyon ver
-        if (currentLevel != null && (currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("LEVEL 4")) || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 4))
+        // İlk 5 seviye için: Level 4 parçalarına (Buz Öğreticisi - 3'lü düz parçalar) yatay spawn rotasyonu ver
+        if ((currentLevel != null && (currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("LEVEL 4"))) || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 4))
         {
-            if (shapePrefabOrGO.name.Contains("Piece_3") || shapePrefabOrGO.name.Contains("Piece 3") || shapePrefabOrGO.name.Contains("3"))
-            {
-                return Quaternion.Euler(0, 90, 0);
-            }
+            return Quaternion.identity;
         }
 
         Quaternion[] rots = {
@@ -995,6 +998,7 @@ public class LevelManager : MonoBehaviour
                 int matchScore = (blastResult.clearedLines * 120 + blastResult.clearedCells * 15) * comboStreak;
                 GameManager.Instance?.AddScore(matchScore);
                 pointsAccumulatedInFloor += matchScore;
+                placedPieceScores.Add(matchScore);
 
                 AudioManager.Instance?.PlayLineClearSound(comboStreak);
                 UIManager.Instance?.ShowComboPopup(comboStreak, blastResult.clearedLines);
@@ -1005,6 +1009,7 @@ public class LevelManager : MonoBehaviour
                 int placementScore = 20 * Mathf.Max(1, newlyPlacedCells.Count);
                 GameManager.Instance?.AddScore(placementScore);
                 pointsAccumulatedInFloor += placementScore;
+                placedPieceScores.Add(placementScore);
 
                 AudioManager.Instance?.PlayCrackSound(1);
             }
@@ -1230,6 +1235,21 @@ public class LevelManager : MonoBehaviour
         GameObject lastPieceObj = placedPieces[placedPieces.Count - 1];
         placedPieces.RemoveAt(placedPieces.Count - 1);
 
+        int lastScore = 0;
+        if (placedPieceScores.Count > 0)
+        {
+            lastScore = placedPieceScores[placedPieceScores.Count - 1];
+            placedPieceScores.RemoveAt(placedPieceScores.Count - 1);
+        }
+
+        if (lastScore > 0)
+        {
+            GameManager.Instance?.DeductScore(lastScore);
+            pointsAccumulatedInFloor = Mathf.Max(0, pointsAccumulatedInFloor - lastScore);
+            float floorProgress = Mathf.Clamp01((float)pointsAccumulatedInFloor / Mathf.Max(1, targetPointsPerFloor));
+            UIManager.Instance?.UpdateLayerDamageBar(currentFloor, totalFloors, floorProgress, pointsAccumulatedInFloor, targetPointsPerFloor);
+        }
+
         DraggablePiece piece = lastPieceObj.GetComponent<DraggablePiece>();
         if (piece != null)
         {
@@ -1279,6 +1299,7 @@ public class LevelManager : MonoBehaviour
         activePieceDataIndices.Clear();
         foreach (var p in placedPieces) if (p != null) Destroy(p);
         placedPieces.Clear();
+        placedPieceScores.Clear();
         if (ghostTargetMat != null) { Destroy(ghostTargetMat); ghostTargetMat = null; }
         allPiecePrefabs.Clear();
         allPieceWidths.Clear();
