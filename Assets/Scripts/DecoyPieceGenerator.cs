@@ -16,14 +16,14 @@ public static class DecoyPieceGenerator
 
     /// <summary>
     /// Seviye numarasına göre kaç adet alakasız (decoy) parça üretileceğini belirler.
-    /// Level 1-5: 0 (Saf Çözüm - Öğretici seviyeleri)
-    /// Level 6-7: 1 Alakasız Parça
-    /// Level 8+: 2 Alakasız Parça
+    /// Level 1-3: 0 (Saf Çözüm - Öğretici seviyeleri)
+    /// Level 4-6: 1 Alakasız Parça
+    /// Level 7+: 2 Alakasız Parça
     /// </summary>
     public static int GetDecoyCountForLevel(int levelNumber)
     {
-        if (levelNumber <= 5) return 0;
-        if (levelNumber <= 7) return 1;
+        if (levelNumber <= 3) return 0;
+        if (levelNumber <= 6) return 1;
         return 2;
     }
 

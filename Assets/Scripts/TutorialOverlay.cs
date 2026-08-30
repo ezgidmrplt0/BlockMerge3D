@@ -94,20 +94,12 @@ public class TutorialOverlay : MonoBehaviour
         (currentLevel != null && (currentLevel.levelName == "LEVEL 3" || currentLevel.levelName.StartsWith("LEVEL 3") || currentLevel.levelName == "Tutorial_3_Layers"))
         || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 3);
 
-    private bool IsLevel4 =>
-        (currentLevel != null && (currentLevel.levelName == "LEVEL 4 BUZ" || currentLevel.levelName.Contains("BUZ") || currentLevel.levelName.Contains("Buz") || currentLevel.levelName == "Tutorial_4_Obstacle"))
-        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 4);
-
-    private bool IsLevel5 =>
-        (currentLevel != null && (currentLevel.levelName == "LEVEL 5 JOKER" || currentLevel.levelName.Contains("JOKER") || currentLevel.levelName.Contains("Joker") || currentLevel.levelName == "Tutorial_5_Combo"))
-        || (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 5);
-
     /// <summary>Sürükleme sırasında geçerli tüm konumların parlaması KAPATILIP yalnızca
     /// öğreticinin gösterdiği hedefin (DragHighlightCells) parlaması gereken an.</summary>
     public bool RestrictDragHighlights =>
         running && stepIndex >= 0 && stepIndex < steps.Count
         && steps[stepIndex] == TutorialStepType.DragPieceToBoard
-        && (IsLevel3 || IsLevel4 || IsLevel5);
+        && (IsLevel1 || IsLevel2 || IsLevel3);
 
     public IReadOnlyCollection<Vector3Int> DragHighlightCells => dragHighlightCells;
 
@@ -147,54 +139,47 @@ public class TutorialOverlay : MonoBehaviour
 
         if (level == null) return;
 
-        // Öğretici SADECE ilk 5 seviyede çalışır — Level 6 ve sonrası (Level 10 dahil) için öğretici tamamen kapalıdır.
+        // Öğretici SADECE ilk 3 seviyede çalışır — Level 4 ve sonrası için serbest oyun başlar.
         int currentLevelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 0;
-        if (currentLevelNum > 5) return;
+        if (currentLevelNum > 3) return;
 
-        if (IsLevel5)
+        if (IsLevel1)
         {
-            // Level 5 (Joker Öğreticisi): Yanlış yerleştir -> Jokerle geri al -> Doğru yerleştir -> Tüm parçaları koydur
-            steps.Add(TutorialStepType.DragPieceToBoard); // Yanlış yerleştirme
-            steps.Add(TutorialStepType.UseJoker);          // Kırmızı Joker butonuna bas
-            steps.Add(TutorialStepType.DragPieceToBoard); // Jokerden sonraki doğru yerleştirme
-            steps.Add(TutorialStepType.DragPieceToBoard); // Kalan parçayı yerleştirme
-        }
-        else if (IsLevel4)
-        {
-            // Level 4 (Buz Öğreticisi):
-            // 1. 3'lü C parçasını koy -> Buzu erit
-            // 2. 2. parçayı koy -> Öğretici biter, gerisini oyuncu halleder
-            steps.Add(TutorialStepType.DragPieceToBoard); // 1. Buzu erit
-            steps.Add(TutorialStepType.DragPieceToBoard); // 2. 2. parçayı koy
-        }
-        else if (IsLevel3)
-        {
-            // Level 3: 1. H parçayı koy -> 2. Tahtayı döndür (SWIPE TO ROTATE) -> 3. Tekli parçayı koy
-            steps.Add(TutorialStepType.DragPieceToBoard); // 1. H parçayı koy
-            steps.Add(TutorialStepType.SwipeToRotate);    // 2. Tahtayı döndür
-            steps.Add(TutorialStepType.DragPieceToBoard); // 3. Tekli parçayı koy
+            // Level 1: Çizgi Tamamlama & Puan Kazanma Öğreticisi
+            steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else if (IsLevel2)
         {
-            // Level 2 (2 Parça Öğreticisi): 1. Parçayı koy -> 2. Parçayı koy
+            // Level 2: Undo Jokeri & Kombo Öğreticisi
+            // 1. Parçayı yerleştir
+            // 2. Kırmızı Joker butonuna bas (Undo)
+            // 3. 3'lü parçayı yerleştir (Kombo hazırlığı)
+            // 4. 1'li parçayı yerleştir (Kombo patlaması & zemin yıkımı)
+            steps.Add(TutorialStepType.DragPieceToBoard);
+            steps.Add(TutorialStepType.UseJoker);
             steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
         }
-        else if (IsLevel1)
+        else if (IsLevel3)
         {
-            // Level 1 (Temel Öğretici): Parçayı yerleştir
+            // Level 3: 3D Döndürme & Katman Tamamlama Öğreticisi
+            // 1. H parçayı yerleştir
+            // 2. Tahtayı döndür (SWIPE TO ROTATE)
+            // 3. 1'li parçayı yerleştir
+            // 4. Kalan 1'li parçayı yerleştir (Katmanı tamamla)
+            steps.Add(TutorialStepType.DragPieceToBoard);
+            steps.Add(TutorialStepType.SwipeToRotate);
+            steps.Add(TutorialStepType.DragPieceToBoard);
             steps.Add(TutorialStepType.DragPieceToBoard);
         }
         else
         {
-            // İlk 5 seviye dışındaki seviyelerde öğretici çalıştırılmaz
+            // İlk 3 seviye dışındaki seviyelerde öğretici çalıştırılmaz
             return;
         }
 
         running = true;
         HighlightTutorialTargetCells(false); // Reset highlights
-        // Katman butonları BuildLayerButtons içinde gecikmeli üretiliyor; ayrıca
-        // seviye açılış animasyonunun üstüne binmesin diye kısa bir bekleme.
         Invoke(nameof(AdvanceStep), startDelay);
     }
 
@@ -289,9 +274,39 @@ public class TutorialOverlay : MonoBehaviour
         {
             var cards = LevelManager.Instance.pieceCards;
 
+            // Level 2 Özel Mantık:
+            // 1. Adım (dragStepCount == 0, Joker öncesi): 1'li parçayı hedefle
+            // 3. Adım (dragStepCount == 1, Joker sonrası): 3'lü parçayı hedefle (kombo hazırlığı)
+            // 4. Adım (dragStepCount >= 2, final): 1'li parçayı hedefle (kombo patlaması)
+            if (IsLevel2)
+            {
+                if (dragStepCount == 1) // Joker sonrası 3'lü parça
+                {
+                    for (int i = 0; i < cards.Count; i++)
+                    {
+                        var c = cards[i];
+                        if (c != null && c.HasPiece && c.Draggable != null && c.Draggable.CurrentCells.Count > 1)
+                        {
+                            return i;
+                        }
+                    }
+                }
+                else // 1'li parça
+                {
+                    for (int i = 0; i < cards.Count; i++)
+                    {
+                        var c = cards[i];
+                        if (c != null && c.HasPiece && c.Draggable != null && c.Draggable.CurrentCells.Count == 1)
+                        {
+                            return i;
+                        }
+                    }
+                }
+            }
+
             // Level 3 Özel Mantık:
             // 1. Adımda (dragStepCount == 0): KESİNLİKLE H parçasını (hücre sayısı > 1 olan büyük parça) hedefle!
-            // Sonraki adımlarda: Boşluklara sırayla oturacak tekli (1x1) parçaları hedefle.
+            // Sonraki adımlarda: 1x1 tekli parçaları hedefle.
             if (IsLevel3)
             {
                 if (dragStepCount == 0)
@@ -301,8 +316,7 @@ public class TutorialOverlay : MonoBehaviour
                         var c = cards[i];
                         if (c != null && c.HasPiece && c.Draggable != null && c.Draggable.CurrentCells.Count > 1)
                         {
-                            var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(c.Draggable.CurrentCells, GridManager.Instance.ActiveLayerY);
-                            if (offsets != null && offsets.Count > 0) return i;
+                            return i;
                         }
                     }
                 }
@@ -313,27 +327,7 @@ public class TutorialOverlay : MonoBehaviour
                         var c = cards[i];
                         if (c != null && c.HasPiece && c.Draggable != null && c.Draggable.CurrentCells.Count == 1)
                         {
-                            var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(c.Draggable.CurrentCells, GridManager.Instance.ActiveLayerY);
-                            if (offsets != null && offsets.Count > 0) return i;
-                        }
-                    }
-                }
-            }
-
-            // Level 4 Özel Mantık:
-            // Buz varsa buzu eriten parçayı hedefle!
-            if (IsLevel4 && GridManager.Instance.frozenCells != null && GridManager.Instance.frozenCells.Count > 0)
-            {
-                for (int i = 0; i < cards.Count; i++)
-                {
-                    var c = cards[i];
-                    if (c != null && c.HasPiece && c.Draggable != null)
-                    {
-                        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(c.Draggable.CurrentCells, GridManager.Instance.ActiveLayerY);
-                        if (offsets != null && offsets.Count > 0)
-                        {
-                            var iceOffset = GetIceMeltingOffset(c.Draggable.CurrentCells, offsets);
-                            if (iceOffset != Vector3Int.zero) return i;
+                            return i;
                         }
                     }
                 }
@@ -377,14 +371,14 @@ public class TutorialOverlay : MonoBehaviour
 
         if (active && steps != null && stepIndex >= 0 && stepIndex < steps.Count)
         {
-            // Joker basma veya Hold adımında sarı parlamayı TAMAMEN KAPA, normal grid renginde kalsın!
+            // Joker adımında sarı parlamayı TAMAMEN KAPA, normal grid renginde kalsın
             if (steps[stepIndex] == TutorialStepType.UseJoker || steps[stepIndex] == TutorialStepType.DragPieceToHold)
             {
                 GridManager.Instance.RefreshLayerVisibility();
                 return;
             }
 
-            bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 5;
+            bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 3;
             if (!isTutorialLevel)
             {
                 GridManager.Instance.RefreshLayerVisibility();
@@ -398,66 +392,96 @@ public class TutorialOverlay : MonoBehaviour
                 card = LevelManager.Instance.pieceCards[targetSlot];
             }
 
-            if (card != null && card.Draggable != null)
+            int layerY = GridManager.Instance.ActiveLayerY;
+
+            if (IsLevel1)
             {
-                var draggable = card.Draggable;
-                var cells = draggable.CurrentCells;
-
-                if (IsLevel3 || IsLevel4 || IsLevel5)
+                // Level 1: 1x2 sütun tamamlama
+                Vector3Int c1 = new Vector3Int(0, layerY, 0);
+                Vector3Int c2 = new Vector3Int(0, layerY, 1);
+                GridManager.Instance.highlightedCells.Add(c1);
+                GridManager.Instance.highlightedCells.Add(c2);
+                dragHighlightCells.Add(c1);
+                dragHighlightCells.Add(c2);
+            }
+            else if (IsLevel2)
+            {
+                if (dragStepCount == 0)
                 {
-                    var res = RunSolver();
-                    Vector3Int targetOffset = Vector3Int.zero;
-                    bool hasOffset = false;
-
-                    if (res.success && res.cardOffsets.TryGetValue(targetSlot, out Vector3Int correctOffset))
-                    {
-                        targetOffset = correctOffset;
-                        hasOffset = true;
-                        if (IsLevel5 && dragStepCount == 0) // Level 5 first drag is wrong move to trigger Joker
-                        {
-                            targetOffset = FindWrongOffset(targetSlot, cells, correctOffset);
-                        }
-                    }
-                    else
-                    {
-                        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
-                        if (offsets != null && offsets.Count > 0)
-                        {
-                            targetOffset = IsLevel4 ? GetIceMeltingOffset(cells, offsets) : offsets[0];
-                            hasOffset = true;
-                        }
-                    }
-
-                    if (hasOffset)
-                    {
-                        // Level 4'te buz hâlâ donmuşsa, parçanın KESİNLİKLE buza değen offset'e yerleşmesini sağla!
-                        if (IsLevel4 && GridManager.Instance.frozenCells != null && GridManager.Instance.frozenCells.Count > 0)
-                        {
-                            var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
-                            if (offsets != null && offsets.Count > 0)
-                            {
-                                var iceOff = GetIceMeltingOffset(cells, offsets);
-                                targetOffset = (iceOff != Vector3Int.zero) ? iceOff : offsets[0];
-                            }
-                        }
-
-                        foreach (var c in cells)
-                        {
-                            var target = c + targetOffset;
-                            GridManager.Instance.highlightedCells.Add(target);
-                            dragHighlightCells.Add(target); // sürükleme sırasında da sadece burası parlasın
-                        }
-                    }
+                    // 1. Adım (Undo öncesi): 1'li parçayı (0,0) konumuna koy
+                    Vector3Int c1 = new Vector3Int(0, layerY, 0);
+                    GridManager.Instance.highlightedCells.Add(c1);
+                    dragHighlightCells.Add(c1);
+                }
+                else if (dragStepCount == 1)
+                {
+                    // 3. Adım (Undo sonrası): 3'lü L parça için hedef hücreler
+                    Vector3Int c1 = new Vector3Int(0, layerY, 0);
+                    Vector3Int c2 = new Vector3Int(0, layerY, 1);
+                    Vector3Int c3 = new Vector3Int(1, layerY, 0);
+                    GridManager.Instance.highlightedCells.Add(c1);
+                    GridManager.Instance.highlightedCells.Add(c2);
+                    GridManager.Instance.highlightedCells.Add(c3);
+                    dragHighlightCells.Add(c1);
+                    dragHighlightCells.Add(c2);
+                    dragHighlightCells.Add(c3);
                 }
                 else
                 {
-                    var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
-                    foreach (var off in offsets)
+                    // 4. Adım: Kalan son boşluk (1x1) için hedef hücre (Kombo patlaması)
+                    Vector3Int c4 = new Vector3Int(1, layerY, 1);
+                    GridManager.Instance.highlightedCells.Add(c4);
+                    dragHighlightCells.Add(c4);
+                }
+            }
+            else if (IsLevel3)
+            {
+                if (dragStepCount == 0)
+                {
+                    // H parçası hücreleri (7 hücre)
+                    Vector3Int[] hCells = {
+                        new Vector3Int(0, layerY, 0),
+                        new Vector3Int(0, layerY, 1),
+                        new Vector3Int(0, layerY, 2),
+                        new Vector3Int(1, layerY, 1),
+                        new Vector3Int(2, layerY, 0),
+                        new Vector3Int(2, layerY, 1),
+                        new Vector3Int(2, layerY, 2)
+                    };
+                    foreach (var c in hCells)
                     {
-                        foreach (var c in cells)
-                        {
-                            GridManager.Instance.highlightedCells.Add(c + off);
-                        }
+                        GridManager.Instance.highlightedCells.Add(c);
+                        dragHighlightCells.Add(c);
+                    }
+                }
+                else if (dragStepCount == 1)
+                {
+                    // Döndürme sonrası 1. tekli parça
+                    Vector3Int c1 = new Vector3Int(1, layerY, 0);
+                    GridManager.Instance.highlightedCells.Add(c1);
+                    dragHighlightCells.Add(c1);
+                }
+                else
+                {
+                    // 2. tekli parça
+                    Vector3Int c2 = new Vector3Int(1, layerY, 2);
+                    GridManager.Instance.highlightedCells.Add(c2);
+                    dragHighlightCells.Add(c2);
+                }
+            }
+            else if (card != null && card.Draggable != null)
+            {
+                var draggable = card.Draggable;
+                var cells = draggable.CurrentCells;
+                var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, layerY);
+                if (offsets != null && offsets.Count > 0)
+                {
+                    Vector3Int off = offsets[0];
+                    foreach (var c in cells)
+                    {
+                        var target = c + off;
+                        GridManager.Instance.highlightedCells.Add(target);
+                        dragHighlightCells.Add(target);
                     }
                 }
             }
@@ -687,20 +711,29 @@ public class TutorialOverlay : MonoBehaviour
 
     private string TextFor(TutorialStepType type)
     {
+        if (IsLevel1)
+        {
+            return "COMPLETE THE LINE TO SCORE!";
+        }
+        if (IsLevel2)
+        {
+            if (type == TutorialStepType.UseJoker) return "TAP TO UNDO";
+            if (dragStepCount == 0) return "PLACE A PIECE";
+            if (dragStepCount == 1) return "PLACE TO SET UP A COMBO";
+            return "COMPLETE FOR A COMBO BLAST!";
+        }
+        if (IsLevel3)
+        {
+            if (type == TutorialStepType.SwipeToRotate) return "SWIPE TO ROTATE";
+            if (dragStepCount == 0) return "PLACE TO BUILD THE SHAPE";
+            if (dragStepCount == 1) return "COMPLETE FOR A COMBO BLAST!";
+            return "FINISH THE FLOOR!";
+        }
+
         switch (type)
         {
-            // Tebrik yazılarıyla (NICE! / GREAT!) aynı dil ve aynı ton: kısa,
-            // büyük harf, emir kipi.
             case TutorialStepType.SwipeToRotate:    return "SWIPE TO ROTATE";
-            case TutorialStepType.DragPieceToBoard:
-                // Level 4 buz öğreticisi: yalnızca tahtada HÂLÂ donmuş hücre varken
-                // "MELT THE ICE" de. Buz eridikten sonraki parçalarda (2. ve 3. sürükleme)
-                // metin normale döner — eskiden buz gitmesine rağmen "MELT THE ICE" kalıyordu.
-                if (IsLevel4 && GridManager.Instance != null
-                    && GridManager.Instance.frozenCells != null
-                    && GridManager.Instance.frozenCells.Count > 0)
-                    return "MELT THE ICE";
-                return "DRAG A PIECE";
+            case TutorialStepType.DragPieceToBoard: return "DRAG A PIECE";
             case TutorialStepType.UseJoker:         return "TAP TO UNDO";
             case TutorialStepType.DragPieceToHold:  return "DRAG TO HOLD";
             default:                                return "";
@@ -1135,152 +1168,5 @@ public class TutorialOverlay : MonoBehaviour
         RectTransformUtility.ScreenPointToLocalPointInRectangle(
             canvasRect, screenPoint, uiCam, out Vector2 local);
         return local;
-    }
-    public struct SolverResult
-    {
-        public bool success;
-        public Dictionary<int, Vector3Int> cardOffsets;
-    }
-
-    private List<Vector3Int> RotateCells(List<Vector3Int> cells, int angleY)
-    {
-        var q = Quaternion.Euler(0f, angleY, 0f);
-        var result = new List<Vector3Int>(cells.Count);
-        foreach (var c in cells)
-        {
-            Vector3 v = q * new Vector3(c.x, c.y, c.z);
-            result.Add(new Vector3Int(
-                Mathf.RoundToInt(v.x),
-                Mathf.RoundToInt(v.y),
-                Mathf.RoundToInt(v.z)));
-        }
-        return result;
-    }
-
-    private SolverResult RunSolver()
-    {
-        SolverResult res = new SolverResult();
-        res.success = false;
-        res.cardOffsets = new Dictionary<int, Vector3Int>();
-
-        if (GridManager.Instance == null || LevelManager.Instance == null) return res;
-
-        var targetCells = new HashSet<Vector3Int>(GridManager.Instance.targetCells);
-        var occupiedCells = new HashSet<Vector3Int>(GridManager.Instance.occupiedCells);
-        int layerY = GridManager.Instance.ActiveLayerY;
-
-        targetCells.RemoveWhere(c => c.y != layerY);
-        var layerOccupied = new HashSet<Vector3Int>();
-        foreach (var c in occupiedCells)
-        {
-            if (c.y == layerY) layerOccupied.Add(c);
-        }
-
-        var cards = LevelManager.Instance.pieceCards;
-        var solverPieces = new List<(int slotIndex, List<Vector3Int> cells)>();
-        for (int i = 0; i < cards.Count; i++)
-        {
-            if (cards[i] != null && cards[i].HasPiece && cards[i].Draggable != null)
-            {
-                solverPieces.Add((i, new List<Vector3Int>(cards[i].Draggable.CurrentCells)));
-            }
-        }
-
-        bool Solve(int idx)
-        {
-            if (idx >= solverPieces.Count) return true;
-
-            var item = solverPieces[idx];
-            var baseCells = item.cells;
-            int[] rots = { 0, 90, 180, 270 };
-
-            foreach (int r in rots)
-            {
-                var cells = r == 0 ? baseCells : RotateCells(baseCells, r);
-                var seen = new HashSet<Vector3Int>();
-
-                foreach (var t in targetCells)
-                {
-                    if (layerOccupied.Contains(t)) continue;
-                    foreach (var c in cells)
-                    {
-                        var off = t - c;
-                        if (!seen.Add(off)) continue;
-
-                        bool canPlace = true;
-                        foreach (var pc in cells)
-                        {
-                            var g = pc + off;
-                            if (!targetCells.Contains(g) || layerOccupied.Contains(g))
-                            {
-                                canPlace = false;
-                                break;
-                            }
-                        }
-
-                        if (canPlace)
-                        {
-                            foreach (var pc in cells) layerOccupied.Add(pc + off);
-                            res.cardOffsets[item.slotIndex] = off;
-
-                            if (Solve(idx + 1)) return true;
-
-                            res.cardOffsets.Remove(item.slotIndex);
-                            foreach (var pc in cells) layerOccupied.Remove(pc + off);
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        if (Solve(0))
-        {
-            res.success = true;
-        }
-
-        return res;
-    }
-
-    private Vector3Int FindWrongOffset(int slotIndex, List<Vector3Int> cells, Vector3Int correctOffset)
-    {
-        if (GridManager.Instance == null) return correctOffset;
-        var offsets = GridManager.Instance.GetPossibleOffsetsOnLayer(cells, GridManager.Instance.ActiveLayerY);
-        foreach (var off in offsets)
-        {
-            if (off != correctOffset)
-            {
-                return off;
-            }
-        }
-        return correctOffset;
-    }
-
-    private Vector3Int GetIceMeltingOffset(List<Vector3Int> cells, List<Vector3Int> offsets)
-    {
-        if (offsets == null || offsets.Count == 0) return Vector3Int.zero;
-        if (GridManager.Instance == null || GridManager.Instance.frozenCells == null || GridManager.Instance.frozenCells.Count == 0)
-            return offsets[0];
-
-        var frozen = GridManager.Instance.frozenCells;
-
-        foreach (var off in offsets)
-        {
-            foreach (var c in cells)
-            {
-                Vector3Int pos = c + off;
-                foreach (var f in frozen)
-                {
-                    int dist = Mathf.Abs(pos.x - f.x) + Mathf.Abs(pos.y - f.y) + Mathf.Abs(pos.z - f.z);
-                    if (dist <= 1)
-                    {
-                        return off; // Bu offset buza değiyor veya buzu doğrudan kaplıyor!
-                    }
-                }
-            }
-        }
-
-        return Vector3Int.zero;
     }
 }

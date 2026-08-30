@@ -172,7 +172,7 @@ public class LevelManager : MonoBehaviour
             });
         }
 
-        bool isTutorial = levelNum <= 5 || (currentLevel != null && currentLevel.tutorialSteps != null && currentLevel.tutorialSteps.Count > 0);
+        bool isTutorial = levelNum <= 3 || (currentLevel != null && currentLevel.tutorialSteps != null && currentLevel.tutorialSteps.Count > 0);
         if (!isTutorial)
         {
             currentLayerSolutionStream = currentLayerSolutionStream.OrderBy(_ => Random.value).ToList();
@@ -410,7 +410,7 @@ public class LevelManager : MonoBehaviour
 
     public bool IsEarlyTutorialLevel()
     {
-        return GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 5;
+        return GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber <= 3;
     }
 
     private Quaternion GetFittingRotationForPiece(GameObject shapePrefabOrGO)

@@ -150,8 +150,8 @@ public class GridManager : MonoBehaviour
 
     private void Update()
     {
-        // Grid hücre parlatma (sarı yerleştirme vurgusu) sadece ilk 5 tutorial seviyesinde aktiftir
-        bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 5;
+        // Grid hücre parlatma (sarı yerleştirme vurgusu) sadece ilk 3 tutorial seviyesinde aktiftir
+        bool isTutorialLevel = GameManager.Instance == null || GameManager.Instance.CurrentLevelNumber <= 3;
 
         // 1. Dinamik parlatma güncellemesi (sürüklenen parça varsa)
         if (DraggablePiece.activeDrag != null && isTutorialLevel)
@@ -161,9 +161,6 @@ public class GridManager : MonoBehaviour
             if (drag.IsBeingDragged && !drag.IsPlaced)
             {
                 var tut = TutorialOverlay.Instance;
-                bool isLevel3 = (GameManager.Instance != null && GameManager.Instance.CurrentLevelNumber == 3)
-                    || (LevelManager.Instance != null && LevelManager.Instance.currentLevel != null && 
-                       (LevelManager.Instance.currentLevel.levelName.StartsWith("Tutorial_3") || LevelManager.Instance.currentLevel.levelName == "LEVEL 3"));
 
                 if (tut != null && tut.IsRunning && tut.CurrentStep == TutorialStepType.DragPieceToHold)
                 {
@@ -174,21 +171,6 @@ public class GridManager : MonoBehaviour
                     foreach (var c in tut.DragHighlightCells)
                     {
                         highlightedCells.Add(c);
-                    }
-                }
-                else if (isLevel3)
-                {
-                    // SADECE LEVEL 3: 3'lü tüm geçerli konumları parlatma!
-                    // Yalnızca tek bir doğru konuma (2 hücreye) yerleşecek yer sarı parlasın.
-                    var cells = drag.CurrentCells;
-                    var offsets = GetPossibleOffsetsOnLayer(cells, ActiveLayerY);
-                    if (offsets != null && offsets.Count > 0)
-                    {
-                        Vector3Int targetOff = offsets[0];
-                        foreach (var c in cells)
-                        {
-                            highlightedCells.Add(c + targetOff);
-                        }
                     }
                 }
                 else
