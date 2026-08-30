@@ -411,6 +411,8 @@ public class UIManager : MonoBehaviour
         {
             ControlButton.Instance.gameObject.SetActive(false);
         }
+
+        TowerMiniPreview.Instance?.SetVisible(false);
     }
 
     /// <summary>
@@ -428,6 +430,8 @@ public class UIManager : MonoBehaviour
         {
             ControlButton.Instance.gameObject.SetActive(true);
         }
+
+        TowerMiniPreview.Instance?.SetVisible(true);
 
         LayerPanelController.Instance?.SetBottomPanelVisible(true);
     }

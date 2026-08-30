@@ -299,6 +299,7 @@ public class GridManager : MonoBehaviour
         ActiveLayerY = Mathf.Clamp(y, gridMinY, gridMaxY);
         lineClearEnabled = false;
         RefreshLayerVisibility();
+        TowerMiniPreview.Instance?.SetActiveFloor(ActiveLayerY);
     }
 
     public int GridMinY => gridMinY;
@@ -913,6 +914,7 @@ public class GridManager : MonoBehaviour
     public void ExplodeLayer(int layerY, System.Action onLayerComplete, System.Action onLevelComplete)
     {
         IsExplodingLayer = true;
+        TowerMiniPreview.Instance?.OnFloorDemolished(layerY);
 
         // Katman patlarken geniş 3D açıya uzaklaş
         CameraOrbit.Instance?.ReturnTo3D();
@@ -1165,6 +1167,8 @@ public class GridManager : MonoBehaviour
 
         if (gridMaxY > gridMinY) gridMaxY--;
 
+        TowerMiniPreview.Instance?.OnLayersShifted(clearedY);
+
         // --- GÖRSEL ÇÖKME (ELASTIC CASCADE & SQUASH-STRETCH LANDING) ---
         float collapseBaseDelay = layerSlideDelay + 0.32f;
 
@@ -1379,6 +1383,8 @@ public class GridManager : MonoBehaviour
         {
             StartCoroutine(BumpAnimation(cube.transform));
         }
+
+        TowerMiniPreview.Instance?.OnCellPlaced(cell, color);
     }
 
     public void RemoveCellAnimated(Vector3Int cell, float delay)
@@ -1386,6 +1392,7 @@ public class GridManager : MonoBehaviour
         occupiedCells.Remove(cell);
         cellColors.Remove(cell);
         cellMatIndex.Remove(cell);
+        TowerMiniPreview.Instance?.OnCellRemoved(cell);
 
         if (cellObjects.TryGetValue(cell, out var go))
         {
@@ -1578,6 +1585,8 @@ public class GridManager : MonoBehaviour
             cellRemainingHits.Remove(cell);
 
             GameObject targetGo = null;
+            bool wasPrefilled = false;
+            Renderer prefilledRend = null;
             if (cellObjects.TryGetValue(cell, out var go) && go != null)
             {
                 cellObjects.Remove(cell);
@@ -1586,20 +1595,27 @@ public class GridManager : MonoBehaviour
             else if (prefilledRenderers.TryGetValue(cell, out var pr) && pr != null)
             {
                 prefilledRenderers.Remove(cell);
-                targetGo = pr.gameObject;
+                wasPrefilled = true;
+                prefilledRend = pr;
+                var clone = Instantiate(pr.gameObject, pr.transform.position, pr.transform.rotation, pr.transform.parent);
+                targetGo = clone;
             }
+
+            TowerMiniPreview.Instance?.OnCellRemoved(cell);
 
             if (targetGo != null)
             {
-                // 3D Taş/Küp parçalanma ve patlayarak yok olma efekti
                 IceBreakEffect.Play(targetGo, blastColor, () =>
                 {
                     Destroy(targetGo);
                     onOneDone();
                 }, hideTarget: true);
 
-                // Hedef ghost hücresini açık kılavuz olarak geri aç
-                if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                if (wasPrefilled && prefilledRend != null)
+                {
+                    RestoreAsGhostTarget(cell, prefilledRend);
+                }
+                else if (targetRenderers.TryGetValue(cell, out var r) && r != null)
                 {
                     r.enabled = true;
                     r.transform.DOPunchScale(Vector3.one * 0.15f, 0.2f, 5, 0.5f);
@@ -1785,6 +1801,8 @@ public class GridManager : MonoBehaviour
             }
         }
 
+        TowerMiniPreview.Instance?.OnFloorDemolished(clearedY);
+
         // 2. Yıkılan blokların aşağı dökülme ve takla atma animasyonu (Fiziksel enkaz hissi)
         for (int i = 0; i < rubbleObjects.Count; i++)
         {
@@ -1827,6 +1845,7 @@ public class GridManager : MonoBehaviour
 
         // 3. Bir sonraki katmana geç
         ActiveLayerY++;
+        TowerMiniPreview.Instance?.SetActiveFloor(ActiveLayerY);
 
         // Kalan şekil için sınırları güncelle
         if (allShapeCells.Count > 0)
@@ -2792,6 +2811,7 @@ public class GridManager : MonoBehaviour
         {
             frozenCells.Remove(cell);
             iceRemainingHits.Remove(cell);
+            TowerMiniPreview.Instance?.OnCellRemoved(cell);
         }
 
         foreach (var cell in cellsToDestroy)
@@ -2799,6 +2819,7 @@ public class GridManager : MonoBehaviour
             occupiedCells.Remove(cell);
             cellColors.Remove(cell);
             cellMatIndex.Remove(cell);
+            TowerMiniPreview.Instance?.OnCellRemoved(cell);
         }
 
         int pendingEffects = cellsToThaw.Count + cellsToChip.Count + cellsToDestroy.Count;

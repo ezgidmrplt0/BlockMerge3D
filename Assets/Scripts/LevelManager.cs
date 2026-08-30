@@ -99,6 +99,10 @@ public class LevelManager : MonoBehaviour
         // Temizlik: Önizleme kartı ve sahnesi varsa temizle
         var oldCard = GameObject.Find("TowerMiniPreviewCard");
         if (oldCard != null) Destroy(oldCard);
+        var oldDim = GameObject.Find("TowerPreviewDim");
+        if (oldDim != null) Destroy(oldDim);
+        var oldExpanded = GameObject.Find("TowerExpandedPreview");
+        if (oldExpanded != null) Destroy(oldExpanded);
         var oldStage = GameObject.Find("[TowerMiniPreview_Stage]");
         if (oldStage != null) Destroy(oldStage);
         var oldManager = GameObject.Find("[TowerMiniPreview_Manager]");
@@ -334,6 +338,10 @@ public class LevelManager : MonoBehaviour
                 lpc.OpenPanel(GridManager.Instance.ActiveLayerY, instant: true);
             }
         }
+
+        // Mini kule önizlemesi
+        int activeLayer = gridManager != null ? gridManager.ActiveLayerY : 0;
+        TowerMiniPreview.Instance?.Initialize(level.mainShapePrefab, activeLayer);
 
         // Öğretici adımları (varsa) burada başlar — kartlar spawn edilip panel
         // sıfırlandıktan SONRA, çünkü gösterge kart/buton konumlarını okuyor.
