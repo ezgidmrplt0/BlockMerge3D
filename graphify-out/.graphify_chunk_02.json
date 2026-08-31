@@ -1,0 +1,208 @@
+{
+  "nodes": [
+    {
+      "id": "assets_2d_casual_ui_sprite_gui",
+      "label": "2D Casual UI Sprite Atlas",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/2D Casual UI/Sprite/GUI.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assets_fonts_song_of_valentine_sans_song_of_valentine",
+      "label": "Song of Valentine Font Preview",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Fonts/song-of-valentine-sans/Song of Valentine.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "Khurasan",
+      "contributor": null
+    },
+    {
+      "id": "assets_fonts_thesead_thesead",
+      "label": "Thesead Font Preview",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Fonts/thesead/Thesead.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assets_images_rock_albedo",
+      "label": "Rock Albedo Texture",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Images/Rock_Albedo.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assets_images_rock_normal",
+      "label": "Rock Normal Map Texture",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Images/Rock_Normal.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assets_prefabs_arkaplan",
+      "label": "Game Background Frame",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Prefabs/ARKAPLAN.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assets_scripts_pdf_duzenliayar",
+      "label": "Settings Paw Icon",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Scripts/PDF/duzenliayar.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assets_logo",
+      "label": "Game Logo - Block Puzzle",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/logo.jpeg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "roi",
+      "label": "Grid Coordinate Diagram",
+      "file_type": "image",
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/roi.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "assets_images_rock_albedo",
+      "target": "assets_images_rock_normal",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Images/Rock_Albedo.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assets_images_rock_normal",
+      "target": "assets_images_rock_albedo",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Images/Rock_Normal.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assets_2d_casual_ui_sprite_gui",
+      "target": "assets_prefabs_arkaplan",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/2D Casual UI/Sprite/GUI.png",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "assets_prefabs_arkaplan",
+      "target": "assets_logo",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Prefabs/ARKAPLAN.png",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "assets_scripts_pdf_duzenliayar",
+      "target": "assets_2d_casual_ui_sprite_gui",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Scripts/PDF/duzenliayar.png",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "assets_fonts_song_of_valentine_sans_song_of_valentine",
+      "target": "assets_fonts_thesead_thesead",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Fonts/song-of-valentine-sans/Song of Valentine.jpg",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "assets_logo",
+      "target": "roi",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/logo.jpeg",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "roi",
+      "target": "assets_logo",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/roi.png",
+      "source_location": null,
+      "weight": 0.6
+    },
+    {
+      "source": "assets_scripts_pdf_duzenliayar",
+      "target": "assets_prefabs_arkaplan",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.6,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Scripts/PDF/duzenliayar.png",
+      "source_location": null,
+      "weight": 0.6
+    },
+    {
+      "source": "assets_fonts_thesead_thesead",
+      "target": "assets_logo",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "/home/emre/Belgeler/GitHub/BlockMerge3D/Assets/Fonts/thesead/Thesead.jpg",
+      "source_location": null,
+      "weight": 0.7
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
