@@ -283,11 +283,11 @@ public class UIManager : MonoBehaviour
         {
             if (targetPoints > 0)
             {
-                layerDamageBarText.text = $"HASAR: {currentPoints} / {targetPoints}  (%{Mathf.RoundToInt(floorProgress * 100)})";
+                layerDamageBarText.text = $"DAMAGE: {currentPoints} / {targetPoints}  ({Mathf.RoundToInt(floorProgress * 100)}%)";
             }
             else
             {
-                layerDamageBarText.text = $"HASAR: %{Mathf.RoundToInt(floorProgress * 100)}";
+                layerDamageBarText.text = $"DAMAGE: {Mathf.RoundToInt(floorProgress * 100)}%";
             }
         }
 
@@ -360,7 +360,7 @@ public class UIManager : MonoBehaviour
         layerDamageBarText.fontStyle = FontStyles.Bold;
         layerDamageBarText.alignment = TextAlignmentOptions.Center;
         layerDamageBarText.color = Color.white;
-        layerDamageBarText.text = "HASAR: %0";
+        layerDamageBarText.text = "DAMAGE: 0%";
     }
 
     // ─── Timer ────────────────────────────────────────────────────────────────
@@ -1318,6 +1318,7 @@ public class UIManager : MonoBehaviour
         if (GameManager.Instance != null) GameManager.Instance.IsSettingsOpen = settingsOpen;
         if (settingsOpen) UpdateSettingsUI();
         SetActionButtonsVisible(settingsOpen);
+        TowerMiniPreview.Instance?.SetVisible(!settingsOpen);
     }
 
     // Çark HARİÇ 3 butonu (titreşim/ses/retry) göster/gizle — pop animasyonuyla.
@@ -1348,6 +1349,7 @@ public class UIManager : MonoBehaviour
         settingsOpen = false;
         if (GameManager.Instance != null) GameManager.Instance.IsSettingsOpen = false;
         SetActionButtonsVisible(false);
+        TowerMiniPreview.Instance?.SetVisible(true);
     }
 
     public void UpdateSettingsUI()

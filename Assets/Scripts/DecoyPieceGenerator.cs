@@ -72,14 +72,7 @@ public static class DecoyPieceGenerator
             }
         }
 
-        // Eğer hiç alakasız sığan parça yoksa çözüm haricindeki genel parçalardan rastgele seç
-        if (candidateIndices.Count == 0)
-        {
-            for (int i = 0; i < allPiecePrefabs.Count; i++)
-            {
-                if (!solutionPrefabIndices.Contains(i)) candidateIndices.Add(i);
-            }
-        }
+        // Sadece tahtaya gerçekten sığabilen decoy parçalarını kullan (sığmayan parçaları asla ekleme)
 
         // Karıştır ve istenen sayı kadar ekle
         candidateIndices = candidateIndices.OrderBy(_ => Random.value).ToList();

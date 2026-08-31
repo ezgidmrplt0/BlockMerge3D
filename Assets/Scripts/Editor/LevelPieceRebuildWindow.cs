@@ -156,6 +156,7 @@ public class LevelPieceRebuildWindow : EditorWindow
 
             var cellsToFill = new HashSet<Vector3Int>(mainHolder.occupiedCells);
             cellsToFill.ExceptWith(mainHolder.prefilledCells ?? new List<Vector3Int>());
+            cellsToFill.ExceptWith(mainHolder.frozenCells ?? new List<Vector3Int>());
 
             if (cellsToFill.Count == 0)
             {

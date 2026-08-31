@@ -1699,12 +1699,10 @@ public class AILevelDesignerWindow : EditorWindow
 
         activeLayer = genCurrentLayerY;
 
-        // Parça üretimi (SolutionFirstBuilder) katmanlarda buz yokmuşçasına (ice-free) çalışır.
-        // Katmandaki tüm dolu hücreler (prefilled hariç, buzlar dahil) tam katman geometrisini
-        // döşemek üzere parça döşeme hefinde tutulur. Böylece kütüphaneden kaliteli 3D parçalar üretilir,
-        // açık hücrelerdeki parçalarla buz eridikten sonra oyuncu kalan parçaları tam oturtabilir.
+        // Buzlar sabit kalıcı engeldir (doldurulamaz). Parçalar sadece açık hedef hücrelerine döşenir.
         var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
         layerCells.ExceptWith(prefilledCells);
+        layerCells.ExceptWith(frozenCells);
 
         if (layerCells.Count == 0)
         {
@@ -1793,6 +1791,7 @@ public class AILevelDesignerWindow : EditorWindow
         var library = LoadPieceLibrary();
         var layerCells = new HashSet<Vector3Int>(occupiedCells.Where(c => c.y == genCurrentLayerY));
         layerCells.ExceptWith(prefilledCells);
+        layerCells.ExceptWith(frozenCells);
 
         if (layerCells.Count > 0)
         {
@@ -2347,11 +2346,10 @@ public class AILevelDesignerWindow : EditorWindow
             return new List<List<Vector3Int>>();
         }
 
-        // Doldurulması gereken hücreler: katmanlarda buz yokmuşçasına (ice-free) tüm şekil hücreleri (prefilled hariç).
-        // SolutionFirstBuilder tüm 3D geometrik şekle parça döşer. Oyuncu buza komşu açık hücrelere
-        // parçaları yerleştirip buzu eritir, buz eridikten sonra kalan parçaları freed hücrelere koyar.
+        // Doldurulması gereken hücreler: buzlar sabit kalıcı engeldir (doldurulamaz).
         var cellsToFill = new HashSet<Vector3Int>(occupiedCells);
         cellsToFill.ExceptWith(prefilledCells);
+        cellsToFill.ExceptWith(frozenCells);
 
         // Yeniden-pişirmede (bakePiecesCanonical) TÜM kütüphaneyi kullan → maksimum çeşitlilik.
         // SampleEligiblePool sadece ~7 parçalık alt küme veriyor; "hep aynı parça"nın asıl sebebi
@@ -2867,6 +2865,8 @@ public class AILevelDesignerWindow : EditorWindow
     // en sonda GERİ YÜKLER (kullanıcının açık penceredeki işi bozulmasın).
     internal void RebakeLevelsPreservingShape(LevelData[] levels, GameObject pieceCubePrefab = null, bool canonicalize = true)
     {
+        if (prefilledMaterials == null || prefilledMaterials.Length == 0)
+            LoadPrefilledMaterialsPalette();
         // ── Snapshot ──
         var sGrid = gridSize; var sCell = cellSize; var sSpacing = spacing;
         var sOcc = occupiedCells; var sPre = prefilledCells; var sPmi = prefilledMatIdx;
@@ -2888,8 +2888,11 @@ public class AILevelDesignerWindow : EditorWindow
         {
             for (int i = 0; i < levels.Length; i++)
             {
-                EditorUtility.DisplayProgressBar("Yeniden Pişiriliyor",
-                    levels[i] != null ? levels[i].levelName : "?", (i + 1f) / levels.Length);
+                if (!Application.isBatchMode)
+                {
+                    EditorUtility.DisplayProgressBar("Yeniden Pişiriliyor",
+                        levels[i] != null ? levels[i].levelName : "?", (i + 1f) / levels.Length);
+                }
                 string line = RebakeLevelPreservingShape(levels[i]);
                 sb.AppendLine(line);
                 if (line.StartsWith("✓")) ok++; else skip++;
@@ -2897,7 +2900,10 @@ public class AILevelDesignerWindow : EditorWindow
         }
         finally
         {
-            EditorUtility.ClearProgressBar();
+            if (!Application.isBatchMode)
+            {
+                EditorUtility.ClearProgressBar();
+            }
             // ── Restore ──
             gridSize = sGrid; cellSize = sCell; spacing = sSpacing;
             occupiedCells = sOcc; prefilledCells = sPre; prefilledMatIdx = sPmi;
@@ -2911,8 +2917,11 @@ public class AILevelDesignerWindow : EditorWindow
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
         Debug.Log($"🔁 Yeniden pişirme bitti — {ok} güncellendi, {skip} atlandı:\n{sb}");
-        EditorUtility.DisplayDialog("Yeniden Pişirme Bitti",
-            $"{ok} seviye güncellendi, {skip} atlandı (döşenemedi/geçersiz).\n\n{sb}", "Tamam");
+        if (!Application.isBatchMode)
+        {
+            EditorUtility.DisplayDialog("Yeniden Pişirme Bitti",
+                $"{ok} seviye güncellendi, {skip} atlandı (döşenemedi/geçersiz).\n\n{sb}", "Tamam");
+        }
     }
 
     // Tek bir leveli yeniden pişirir. Döner: '✓ ...' başarı, '✗ ...' / '· ...' atlandı.

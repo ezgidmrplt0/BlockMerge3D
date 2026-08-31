@@ -149,4 +149,35 @@ public class LevelRebakeWindow : EditorWindow
         ai.RebakeLevelsPreservingShape(levels, pieceObjectPrefab, canonicalizePieces);
         Focus();
     }
+
+    [MenuItem("BlockMerge3D/⚡ TÜM Levelleri Yeniden Pişir (Hızlı Otomatik)", false, 31)]
+    public static void BatchRebakeAllLevels()
+    {
+        var allLevels = AssetDatabase.FindAssets("t:LevelData", new[] { LEVELS_PATH })
+            .Select(g => AssetDatabase.LoadAssetAtPath<LevelData>(AssetDatabase.GUIDToAssetPath(g)))
+            .Where(l => l != null).ToArray();
+
+        var ai = Resources.FindObjectsOfTypeAll<AILevelDesignerWindow>().FirstOrDefault();
+        if (ai == null) ai = CreateInstance<AILevelDesignerWindow>();
+
+        ai.RebakeLevelsPreservingShape(allLevels, null, true);
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log($"⚡ [BATCH_REBAKE] {allLevels.Length} seviye yeni kalıcı buz sistemine göre yeniden pişirildi.");
+    }
+
+    [InitializeOnLoadMethod]
+    private static void AutoRebakeOnLoad()
+    {
+        string flagPath = "Temp/AutoRebakeNeeded.flag";
+        if (System.IO.File.Exists(flagPath))
+        {
+            try { System.IO.File.Delete(flagPath); } catch { }
+            EditorApplication.delayCall += () =>
+            {
+                Debug.Log("⚡ [AUTO_REBAKE] Tüm seviyeler yeni sabit buz kurallarına göre yeniden pişiriliyor...");
+                BatchRebakeAllLevels();
+            };
+        }
+    }
 }

@@ -91,32 +91,16 @@ public class LevelSolver
 
         // ── 2. Hızlı Ön Kontroller ────────────────────────────────
         
-        // Toplam hücre sayısı kontrolü
+        // Toplam hücre sayısı kontrolü (Buzlar sabit engeldir, doldurulamaz)
         int totalPieceCells = pieces.Sum(p => p.cells.Count);
-        int emptyTargetCells = targetCells.Count(c => !prefilledCells.Contains(c));
+        int emptyTargetCells = targetCells.Count(c => !prefilledCells.Contains(c) && !frozenCells.Contains(c));
 
-        if (totalPieceCells < emptyTargetCells)
+        if (totalPieceCells != emptyTargetCells)
         {
             return new SolverResult
             {
                 isSolvable = false,
-                failureReason = $"Yetersiz hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells}"
-            };
-        }
-
-        // [2026-07-14, eski mantığa dönüş] Buza değen hücreden başlayan BAĞLANTILI aynı renk
-        // grubu (≥2 üyeli) artık TAMAMEN buzla birlikte yok oluyor (bkz. ResolveFrozenCellsInSolver)
-        // — grup büyüklüğü keyfi olabileceği için "buz başına en fazla N hücre" gibi sabit bir üst
-        // sınır artık YOK. Buz içeren seviyelerde parça hacmi hedeften ne kadar fazla olursa olsun
-        // erken reddedilmiyor, arama (zaman/durum limitleriyle sınırlı) karar versin. Buzsuz
-        // seviyelerde hiçbir hücre kaybolmadığı için hacim hâlâ TAM eşit olmalı — bu kesin bir
-        // kural, gevşetilmiyor.
-        if (frozenCells.Count == 0 && totalPieceCells > emptyTargetCells)
-        {
-            return new SolverResult
-            {
-                isSolvable = false,
-                failureReason = $"Fazla hücre: parçalar={totalPieceCells}, hedef boşluk={emptyTargetCells}"
+                failureReason = $"Hücre uyuşmazlığı: parçalar={totalPieceCells}, doldurulacak boşluk={emptyTargetCells}"
             };
         }
 
@@ -207,8 +191,8 @@ public class LevelSolver
             return false;
         }
 
-        // Tüm hedef hücreler dolu mu?
-        if (targetCells.All(c => currentOccupied.Contains(c)))
+        // Tüm hedef (ve dondurulmamış) hücreler dolu mu?
+        if (targetCells.All(c => currentOccupied.Contains(c) || frozenCells.Contains(c)))
         {
             if (AllLayersValid())
                 return true;
@@ -319,8 +303,8 @@ public class LevelSolver
                 worldCell.z < 0 || worldCell.z >= gridSize.z)
                 return false;
 
-            // Zaten dolu
-            if (currentOccupied.Contains(worldCell))
+            // Zaten dolu veya dondurulmuş (sabit engel)
+            if (currentOccupied.Contains(worldCell) || frozenCells.Contains(worldCell))
                 return false;
 
             // Hedef hücre değil
@@ -399,54 +383,10 @@ public class LevelSolver
         }
     }
 
-    // GridManager.CheckAndResolveFrozenCells (gerçek oyun) ile birebir eşleşmesi gereken kural:
-    // en az 2 obje koyulduğunda 1 erime yapılır. 2'nin katlarında (2, 4, 6...) yerleştirilen obje / 2
-    // oranında daha fazla erime yapılır.
     private void ResolveFrozenCellsInSolver(PlacementStep step)
     {
-        if (frozenCells.Count == 0 || step == null || step.cells == null) return;
-
-        var horizontalNeighbors = new Vector3Int[]
-        {
-            Vector3Int.right,
-            Vector3Int.left,
-            new Vector3Int(0, 0, 1),
-            new Vector3Int(0, 0, -1)
-        };
-
-        var qualifiedFrozen = new HashSet<Vector3Int>(); // bu adımda en az bir kez nitelikli temas eden buzlar
-        var cellsToDestroy = new HashSet<Vector3Int>();
-
-        foreach (var frozenCell in frozenCells)
-        {
-            foreach (var offset in horizontalNeighbors)
-            {
-                Vector3Int touchCell = frozenCell + offset;
-                if (!currentOccupied.Contains(touchCell)) continue;
-
-                var group = FloodFillOccupiedInSolver(touchCell, horizontalNeighbors);
-                int hitsToApply = group.Count / 2;
-                if (hitsToApply <= 0) continue;
-
-                int remaining = frozenRemainingHits.TryGetValue(frozenCell, out int r) ? r : 1;
-                remaining = Mathf.Max(0, remaining - hitsToApply);
-                frozenRemainingHits[frozenCell] = remaining;
-
-                if (remaining <= 0)
-                {
-                    step.thawedCells.Add(frozenCell);
-                }
-                else
-                {
-                    step.chippedCells.Add(frozenCell);
-                }
-            }
-        }
-
-        foreach (var cell in step.thawedCells)
-        {
-            frozenCells.Remove(cell);
-        }
+        // Erime mekaniği kaldırıldı: Buzlar sabit kalıcı engeldir, erimez.
+        return;
     }
 
     private HashSet<Vector3Int> FloodFillOccupiedInSolver(Vector3Int start, Vector3Int[] horizontalNeighbors)
@@ -522,7 +462,7 @@ public class LevelSolver
 
         foreach (var cell in cellsInLayer)
         {
-            if (!currentOccupied.Contains(cell))
+            if (!currentOccupied.Contains(cell) && !frozenCells.Contains(cell) && !prefilledCells.Contains(cell))
                 return false;
         }
 

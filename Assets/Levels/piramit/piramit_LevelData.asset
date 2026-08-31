@@ -15,17 +15,17 @@ MonoBehaviour:
   levelName: piramit
   mainShapePrefab: {fileID: 7279885055552583962, guid: b88e0a3dccba23848a32253b89552d43, type: 3}
   complementaryPieces:
-  - {fileID: 5376863329738237689, guid: 6930d426340815b42abb273561f8d511, type: 3}
-  - {fileID: 8863880151214942134, guid: d0897e94818e1ad4384647bf01ebb34a, type: 3}
-  - {fileID: 8323007018293748935, guid: 717fbd84faef68f47a64e722dabe9209, type: 3}
-  - {fileID: 3262321536935367313, guid: 7c5527664d1f80c49853677d8fa206a9, type: 3}
-  - {fileID: 2142541904973818945, guid: 02c75d06583f7d946be52fb696776a22, type: 3}
-  - {fileID: 2142541904973818945, guid: 02c75d06583f7d946be52fb696776a22, type: 3}
-  - {fileID: 2142541904973818945, guid: 02c75d06583f7d946be52fb696776a22, type: 3}
-  - {fileID: 7760524302806699766, guid: d187371e7ceb01645be2e87c4bcef583, type: 3}
-  - {fileID: 2609836631503185812, guid: 40df725a5cddcd743ba5d1d4f7d3d528, type: 3}
-  - {fileID: 4542096325054828317, guid: a1ac39fef7dfbb0429bb181487f651e6, type: 3}
-  - {fileID: 4771131149685219708, guid: 8d48aa21a12d59b40b3e7961737a861f, type: 3}
+  - {fileID: 7068283384691140769, guid: 6930d426340815b42abb273561f8d511, type: 3}
+  - {fileID: 2474565586480036801, guid: d0897e94818e1ad4384647bf01ebb34a, type: 3}
+  - {fileID: 7306818960457667381, guid: 717fbd84faef68f47a64e722dabe9209, type: 3}
+  - {fileID: 8827787597601498343, guid: 7c5527664d1f80c49853677d8fa206a9, type: 3}
+  - {fileID: 5744311329171174144, guid: 02c75d06583f7d946be52fb696776a22, type: 3}
+  - {fileID: 5744311329171174144, guid: 02c75d06583f7d946be52fb696776a22, type: 3}
+  - {fileID: 5744311329171174144, guid: 02c75d06583f7d946be52fb696776a22, type: 3}
+  - {fileID: 3174918725256411872, guid: d187371e7ceb01645be2e87c4bcef583, type: 3}
+  - {fileID: 2062451070780572884, guid: 40df725a5cddcd743ba5d1d4f7d3d528, type: 3}
+  - {fileID: 9032726642144256277, guid: a1ac39fef7dfbb0429bb181487f651e6, type: 3}
+  - {fileID: 5601699738997732501, guid: 8d48aa21a12d59b40b3e7961737a861f, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
@@ -39,6 +39,7 @@ MonoBehaviour:
     - {x: 2, y: 0, z: 0}
     - {x: 2, y: 0, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 0, z: 0}
     - {x: 3, y: 0, z: 1}
@@ -48,6 +49,7 @@ MonoBehaviour:
     - {x: 4, y: 0, z: 1}
     - {x: 4, y: 0, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 0, z: 3}
     - {x: 0, y: 0, z: 4}
@@ -55,20 +57,25 @@ MonoBehaviour:
     - {x: 2, y: 0, z: 3}
     - {x: 2, y: 0, z: 4}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 0, z: 4}
     - {x: 4, y: 0, z: 4}
     - {x: 4, y: 0, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 0, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 1, z: 2}
     - {x: 1, y: 1, z: 3}
@@ -77,15 +84,22 @@ MonoBehaviour:
     - {x: 2, y: 1, z: 3}
     - {x: 3, y: 1, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 1, z: 3}
     - {x: 3, y: 1, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 1, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 2, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   timeLimit: 60
   targetScore: 0
+  linesPerLayer: 3
+  pointsPerLayer: 400
+  crackStages: 2

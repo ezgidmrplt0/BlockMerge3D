@@ -86,18 +86,21 @@ public class GridState
     public bool IsLayerComplete(int layerY)
     {
         int cellsInLayer = 0;
-        int occupiedInLayer = 0;
+        int filledInLayer = 0;
 
         foreach (var c in AllShapeCells)
         {
             if (c.y == layerY)
             {
                 cellsInLayer++;
-                if (OccupiedCells.Contains(c)) occupiedInLayer++;
+                if (OccupiedCells.Contains(c) || FrozenCells.Contains(c) || PrefilledCells.Contains(c))
+                {
+                    filledInLayer++;
+                }
             }
         }
 
-        return cellsInLayer > 0 && occupiedInLayer >= cellsInLayer;
+        return cellsInLayer > 0 && filledInLayer >= cellsInLayer;
     }
 
     /// <summary>
@@ -115,7 +118,7 @@ public class GridState
                 if (cell.y != y) continue;
 
                 hasCells = true;
-                if (!OccupiedCells.Contains(cell))
+                if (!OccupiedCells.Contains(cell) && !FrozenCells.Contains(cell) && !PrefilledCells.Contains(cell))
                 {
                     layerFull = false;
                     break;

@@ -534,7 +534,7 @@ public class TutorialOverlay : MonoBehaviour
             case TutorialStepType.SwipeToRotate:
                 // Döndürülen şey tahtanın kendisi: sahne kararır, tahta parlak kalır.
                 ShowSpotlight(Vector2.zero, 0f, BoardObject());
-                ShowStepText(TextFor(type), new Vector2(0f, H * 0.30f), 0);
+                ShowStepText(TextFor(type), new Vector2(0f, 60f), 0);
                 break;
 
             case TutorialStepType.DragPieceToBoard:
@@ -544,10 +544,7 @@ public class TutorialOverlay : MonoBehaviour
                 // yanıp sönüyor; karartma üzerinde çok daha belirgin duruyorlar.
                 var cardsPanel = canvasRect.Find("BottomPiecePanel");
                 ShowSpotlight(Vector2.zero, 0f, BoardObject(), cardsPanel);
-                // Kartların hemen ÜSTÜNDE: hem kaynağa hem tahtaya yakın.
-                float cardsY = cardsPanel != null
-                    ? (cardsPanel as RectTransform).anchoredPosition.y : -H * 0.28f;
-                ShowStepText(TextFor(type), new Vector2(0f, cardsY + 200f), 0);
+                ShowStepText(TextFor(type), new Vector2(0f, 60f), 0);
                 break;
             }
             case TutorialStepType.UseJoker:
@@ -565,9 +562,7 @@ public class TutorialOverlay : MonoBehaviour
                 var cardsPanel = canvasRect.Find("BottomPiecePanel");
                 var holdPanel = LevelManager.Instance != null ? LevelManager.Instance.HoldSlotPanel : null;
                 ShowSpotlight(Vector2.zero, 0f, cardsPanel, holdPanel != null ? holdPanel.transform : null);
-                float cardsY = cardsPanel != null
-                    ? (cardsPanel as RectTransform).anchoredPosition.y : -H * 0.28f;
-                ShowStepText(TextFor(type), new Vector2(0f, cardsY + 200f), 0);
+                ShowStepText(TextFor(type), new Vector2(0f, 60f), 0);
                 break;
             }
         }
@@ -815,20 +810,21 @@ public class TutorialOverlay : MonoBehaviour
 
         // Metin hedefe DEĞMESİN: sabit bir boşluk (clearance) bırakılır. 60 → 90:
         // yazı butonların "çok dibinde" duruyordu.
-        const float gap = 90f;
+        const float gap = 20f;
         Vector2 pos = anchoredPos;
         if (side < 0)      pos.x -= halfW + gap;
         else if (side > 0) pos.x += halfW + gap;
-        else               pos.y += halfH + gap;
+        else               pos.y += gap;
 
         // İKİ EKSENDE de ekran içinde, kenardan güvenli marj bırakarak tut. Önceden
         // yalnızca yatay taşma kontrol ediliyordu; dikeyde yazı üstten/alttan taşıp
         // butonun/katman kutusunun içine girebiliyordu.
         const float margin = 28f;
         float limX = W * 0.5f - halfW - margin;
-        float limY = H * 0.5f - halfH - margin;
+        float maxY = H * 0.5f - halfH - 130f; // Üst bar ve Hasar Barının (Damage Bar) altına indir
+        float minY = -H * 0.5f + halfH + margin;
         pos.x = Mathf.Clamp(pos.x, -limX, limX);
-        pos.y = Mathf.Clamp(pos.y, -limY, limY);
+        pos.y = Mathf.Clamp(pos.y, minY, maxY);
 
         var rt = stepText.rectTransform;
         rt.anchoredPosition = pos;

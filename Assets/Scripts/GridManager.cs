@@ -1467,7 +1467,7 @@ public class GridManager : MonoBehaviour
                 if (targetCells.Contains(cell))
                 {
                     targetCellsInLine++;
-                    if (!occupiedCells.Contains(cell))
+                    if (!occupiedCells.Contains(cell) && !frozenCells.Contains(cell))
                     {
                         isFull = false;
                         break;
@@ -1501,7 +1501,7 @@ public class GridManager : MonoBehaviour
                 if (targetCells.Contains(cell))
                 {
                     targetCellsInLine++;
-                    if (!occupiedCells.Contains(cell))
+                    if (!occupiedCells.Contains(cell) && !frozenCells.Contains(cell))
                     {
                         isFull = false;
                         break;
@@ -1520,30 +1520,7 @@ public class GridManager : MonoBehaviour
             }
         }
 
-        // 3. 2x2 Dolu Kare Alanlar
-        for (int x = gridMinX; x < gridMaxX; x++)
-        {
-            for (int z = gridMinZ; z < gridMaxZ; z++)
-            {
-                Vector3Int p1 = new Vector3Int(x, targetY, z);
-                Vector3Int p2 = new Vector3Int(x + 1, targetY, z);
-                Vector3Int p3 = new Vector3Int(x, targetY, z + 1);
-                Vector3Int p4 = new Vector3Int(x + 1, targetY, z + 1);
 
-                if (targetCells.Contains(p1) && targetCells.Contains(p2) &&
-                    targetCells.Contains(p3) && targetCells.Contains(p4) &&
-                    occupiedCells.Contains(p1) && occupiedCells.Contains(p2) &&
-                    occupiedCells.Contains(p3) && occupiedCells.Contains(p4))
-                {
-                    var square = new List<Vector3Int> { p1, p2, p3, p4 };
-                    bool isPurelyNewPiece = newSet != null && square.All(c => newSet.Contains(c));
-                    if (!isPurelyNewPiece || isLayer100PercentFull)
-                    {
-                        linesToBlast.Add(square);
-                    }
-                }
-            }
-        }
 
         if (linesToBlast.Count == 0)
         {
@@ -1556,7 +1533,23 @@ public class GridManager : MonoBehaviour
         {
             foreach (var cell in line)
             {
-                toClear.Add(cell);
+                // BUZU PATLATMA! (Buz tahtada kalsın). Sadece oyuncunun yerleştirdiği objeler patlasın!
+                if (!frozenCells.Contains(cell))
+                {
+                    toClear.Add(cell);
+                }
+            }
+        }
+
+        // Kullanıcı İsteği: Yerleştirilen objenin her parçası patlayacak (bir tanesi bile geride kalmayacak)
+        if (newlyPlacedCells != null)
+        {
+            foreach (var cell in newlyPlacedCells)
+            {
+                if (!frozenCells.Contains(cell))
+                {
+                    toClear.Add(cell);
+                }
             }
         }
 
@@ -1574,6 +1567,13 @@ public class GridManager : MonoBehaviour
         sorted.Sort((a, b) => (a.x + a.z).CompareTo(b.x + b.z));
 
         int pendingCount = sorted.Count;
+        if (pendingCount <= 0)
+        {
+            RefreshLayerVisibility();
+            onComplete?.Invoke(linesCount, clearedCellsCount);
+            return (linesCount, clearedCellsCount);
+        }
+
         System.Action onOneDone = () =>
         {
             pendingCount--;
@@ -1837,6 +1837,7 @@ public class GridManager : MonoBehaviour
             cellMatIndex.Remove(cell);
             cellColors.Remove(cell);
             cellRemainingHits.Remove(cell);
+            ForceRemoveIceVisual(cell);
 
             if (cellObjects.TryGetValue(cell, out var go) && go != null)
             {
@@ -1899,10 +1900,8 @@ public class GridManager : MonoBehaviour
             });
         }
 
-        // 1. Katmanın tamamen temizlenip yıkılması (~1.0s)
-        // 2. Yıkım bittikten sonra 0.5s nefes alma / bekleme molası (~0.5s)
-        // Toplam bekleme = 1.50s (Bu süre boyunca ActiveLayerY değiştirilmez, böylece ara RefreshLayerVisibility çağrıları 2. animasyonu tetiklemez)
-        float totalPauseBeforeNextLayer = 1.50f;
+        // Katman yıkım animasyonu sonrası bekleme süresi: Win panelinin 0.5s (yarım salise) daha erken gelmesi için 1.00s'ye düşürüldü.
+        float totalPauseBeforeNextLayer = 1.00f;
         DOVirtual.DelayedCall(totalPauseBeforeNextLayer, () =>
         {
             // 3. Bir sonraki katmana geçişi tam bu anda yap
@@ -2633,75 +2632,12 @@ public class GridManager : MonoBehaviour
 
     // ─── FROZEN CELLS RESOLUTION ────────────────────────────────────────────────
 
-    // Sürüklenen parçanın bağlı grubu ≥2 ise (tek 1'lik küp tek başına eritemez; 1+1 ≥2 olunca
-    // eritir) ve parça buza DOĞRUDAN değiyorsa buz erir/kırılır. Yok olan yalnızca O AN SÜRÜKLENEN
-    // parçanın TAMAMI (ör. L ise L'nin hepsi) — prefilled ve önceden yerleştirilmiş parçalar
-    // (buza bağlı olsalar bile) KALIR; aksi halde katman boşalıp "hazır küp" mekaniği bozuluyordu.
+    // Erime mekaniği kaldırıldı: Buz hücreleri kırılmaz/erimez, taş gibi sabit durur.
+    // Yalnızca katman tamamlanıp yıkıldığında (CollapseActiveLayerAndDropTower) katmanla birlikte temizlenir.
     public bool CheckAndResolveFrozenCells(List<Vector3Int> newlyPlacedCells, System.Action<bool> onComplete)
     {
-        if (newlyPlacedCells == null || newlyPlacedCells.Count == 0 || frozenCells.Count == 0)
-        {
-            onComplete?.Invoke(false);
-            return false;
-        }
-
-        Vector3Int[] horizontalNeighbors = {
-            Vector3Int.left, Vector3Int.right,
-            new Vector3Int(0, 0, 1), new Vector3Int(0, 0, -1)
-        };
-
-        HashSet<Vector3Int> cellsToThaw = new HashSet<Vector3Int>();   // kalan vuruş 0'a indi -> tam erime
-        HashSet<Vector3Int> cellsToChip = new HashSet<Vector3Int>();   // hâlâ donuk, sadece sayaç azaldı
-        HashSet<Vector3Int> cellsToDestroy = new HashSet<Vector3Int>(); // buzu kıran yerleştirilmiş bloklar
-        HashSet<Vector3Int> hitFrozenThisCall = new HashSet<Vector3Int>(); // aynı hamlede bir buz yalnızca bir kez vurulsun
-
-        // Min-2: buzu eritmek için buza değen küp YALNIZ olmamalı — sürüklenen parçanın bağlı
-        // grubu (kendisi + yatay bağlı diğer dolular) en az 2 küp olmalı. Tek başına 1'lik küp
-        // eritemez; 1+1 yan yana olunca (grup ≥2) eritir.
-        var draggedGroup = GetConnectedOccupiedGroup(newlyPlacedCells[0], horizontalNeighbors);
-
-        if (draggedGroup.Count >= 2)
-        {
-            // Yalnızca O AN SÜRÜKLENEN parçanın (newlyPlacedCells) buza DOĞRUDAN değen hücreleri
-            // buzu vurur ("buza değen parça" = sürüklenen parça).
-            foreach (var cell in newlyPlacedCells)
-            {
-                foreach (var offset in horizontalNeighbors)
-                {
-                    Vector3Int neighbor = cell + offset;
-                    if (!frozenCells.Contains(neighbor)) continue;
-                    if (!hitFrozenThisCall.Add(neighbor)) continue;
-
-                    int currentHits = iceRemainingHits.TryGetValue(neighbor, out int h) ? h : 1;
-                    currentHits--;
-                    iceRemainingHits[neighbor] = currentHits;
-
-                    if (currentHits <= 0)
-                    {
-                        cellsToThaw.Add(neighbor);
-                    }
-                    else
-                    {
-                        cellsToChip.Add(neighbor);
-                    }
-                }
-            }
-        }
-
-        if (cellsToThaw.Count == 0 && cellsToChip.Count == 0)
-        {
-            onComplete?.Invoke(false);
-            return false;
-        }
-
-        // Yok olan: SADECE bu hamlede SÜRÜKLENEN parçanın TAMAMI (ör. L ise L'nin hepsi patlar).
-        // Prefilled ve daha önce yerleştirilen parçalar newlyPlacedCells'te OLMADIĞI için asla
-        // yok olmaz — buzu eriten/kıran yalnızca şu an sürüklenen parça gider.
-        foreach (var c in newlyPlacedCells)
-            if (occupiedCells.Contains(c)) cellsToDestroy.Add(c);
-
-        StartCoroutine(AnimateThawAndDestroy(cellsToThaw, cellsToChip, cellsToDestroy, () => onComplete?.Invoke(true)));
-        return true;
+        onComplete?.Invoke(false);
+        return false;
     }
 
     private HashSet<Vector3Int> GetConnectedOccupiedGroup(Vector3Int start, Vector3Int[] horizontalNeighbors)
@@ -3212,15 +3148,6 @@ public class GridManager : MonoBehaviour
     public void SetHintGridHighlights(List<Vector3Int> targetCells)
     {
         highlightedCells.Clear();
-
-        if (targetCells != null && targetCells.Count > 0)
-        {
-            foreach (var cell in targetCells)
-            {
-                highlightedCells.Add(cell);
-            }
-        }
-
         RefreshLayerVisibility();
     }
 
@@ -3240,7 +3167,7 @@ public class GridManager : MonoBehaviour
 
         foreach (var cell in targetCells)
         {
-            if (cell.y == layerY && !occupiedCells.Contains(cell) && !IsCellPrefilled(cell))
+            if (cell.y == layerY && !occupiedCells.Contains(cell) && !IsCellPrefilled(cell) && !frozenCells.Contains(cell))
             {
                 result.Add(cell);
             }

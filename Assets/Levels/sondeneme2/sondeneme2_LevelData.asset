@@ -15,18 +15,14 @@ MonoBehaviour:
   levelName: sondeneme2
   mainShapePrefab: {fileID: 622666830194166754, guid: 506667e2f6964b148b63d7703877a02e, type: 3}
   complementaryPieces:
-  - {fileID: 221260198322354752, guid: 7064ebad80dcbd64ca45e0252f80d797, type: 3}
-  - {fileID: 3056288735625038840, guid: 96d476b26b7ba34418f0230e3bd80b1f, type: 3}
-  - {fileID: 3056288735625038840, guid: 96d476b26b7ba34418f0230e3bd80b1f, type: 3}
-  - {fileID: 5044497704512188587, guid: b77a14b6390c8af4f9964a422c2fb243, type: 3}
-  - {fileID: 2859418511811171560, guid: fe99dba751f0e7d4ebdc237570354560, type: 3}
-  - {fileID: 4254621036589401379, guid: cea182254fd1964498c5033c598730a7, type: 3}
-  - {fileID: 2859418511811171560, guid: fe99dba751f0e7d4ebdc237570354560, type: 3}
-  - {fileID: 2859418511811171560, guid: fe99dba751f0e7d4ebdc237570354560, type: 3}
-  - {fileID: 2859418511811171560, guid: fe99dba751f0e7d4ebdc237570354560, type: 3}
-  - {fileID: 5959530404112962820, guid: 0f833b10a40ef144db51b99c414f218b, type: 3}
-  - {fileID: 1549850911984335654, guid: 9e40a0071f6efbb42ad5d21bee83fe75, type: 3}
-  - {fileID: 6958953063824714454, guid: 3a8a954306efe684589e292a5984a573, type: 3}
+  - {fileID: 3193411844959187322, guid: 7064ebad80dcbd64ca45e0252f80d797, type: 3}
+  - {fileID: 1521854496649207606, guid: 96d476b26b7ba34418f0230e3bd80b1f, type: 3}
+  - {fileID: 1521854496649207606, guid: 96d476b26b7ba34418f0230e3bd80b1f, type: 3}
+  - {fileID: 5400747686910710947, guid: b77a14b6390c8af4f9964a422c2fb243, type: 3}
+  - {fileID: 7261855134748818900, guid: fe99dba751f0e7d4ebdc237570354560, type: 3}
+  - {fileID: 844239867997555979, guid: cea182254fd1964498c5033c598730a7, type: 3}
+  - {fileID: 5836608058759268307, guid: 0f833b10a40ef144db51b99c414f218b, type: 3}
+  - {fileID: 709112805099388602, guid: 9e40a0071f6efbb42ad5d21bee83fe75, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
@@ -40,12 +36,15 @@ MonoBehaviour:
     - {x: 2, y: 0, z: 0}
     - {x: 2, y: 0, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 1, z: 1}
     - {x: 0, y: 1, z: 2}
@@ -54,25 +53,31 @@ MonoBehaviour:
     - {x: 1, y: 1, z: 2}
     - {x: 2, y: 1, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 1, z: 2}
     - {x: 2, y: 1, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 1, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 1, z: 0}
     - {x: 1, y: 1, z: 1}
     isSacrifice: 1
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 1, z: 0}
     - {x: 1, y: 1, z: 1}
     isSacrifice: 1
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 1, z: 0}
     - {x: 1, y: 1, z: 1}
     isSacrifice: 1
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 2, z: 0}
     - {x: 0, y: 2, z: 1}
@@ -80,13 +85,19 @@ MonoBehaviour:
     - {x: 2, y: 2, z: 0}
     - {x: 2, y: 2, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 2, z: 2}
     - {x: 1, y: 2, z: 2}
     - {x: 2, y: 2, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 2, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   timeLimit: 90
   targetScore: 0
+  linesPerLayer: 3
+  pointsPerLayer: 400
+  crackStages: 2

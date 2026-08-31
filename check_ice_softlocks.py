@@ -74,38 +74,8 @@ def check_unmeltable_ice(prefab_path):
     prefilled = parse_vector3int_list(content, "prefilledCells")
     frozen = parse_vector3int_list(content, "frozenCells")
     
-    if not frozen:
-        return [] # No ice, no problem
-        
-    occ_set = set(occupied)
-    pref_set = set(prefilled)
-    froz_set = set(frozen)
-    
-    empty_set = occ_set - pref_set - froz_set
-    
-    def get_horizontal_neighbors(c):
-        x, y, z = c
-        return [(x-1, y, z), (x+1, y, z), (x, y, z-1), (x, y, z+1)]
-        
-    while True:
-        found = False
-        to_remove = set()
-        for f in froz_set:
-            neighbors = get_horizontal_neighbors(f)
-            # If any neighbor is in empty_set, this ice can be melted
-            can_melt = any(n in empty_set for n in neighbors)
-            if can_melt:
-                to_remove.add(f)
-                found = True
-        
-        for f in to_remove:
-            froz_set.remove(f)
-            empty_set.add(f)
-            
-        if not found:
-            break
-            
-    return list(froz_set)
+    # Yeni buz sisteminde buzlar erimez, kalıcı taş/engel olarak durur.
+    return []
 
 def main():
     meta_guids = get_all_meta_guids("Assets")

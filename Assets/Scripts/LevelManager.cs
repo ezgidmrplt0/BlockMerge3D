@@ -545,15 +545,14 @@ public class LevelManager : MonoBehaviour
     {
         int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
         failedOrRetriedLevels.Add(levelNum);
-        remainingHintMoves = 1; // Retry / Fail sonrası 1 hamlelik başlangıç yardımı ver
+        remainingHintMoves = 0; // İpucu sistemi devre dışı
         lastPlayerActionTime = Time.time;
         UpdateHintHighlights();
     }
 
     public bool IsHintActiveForCurrentLevel()
     {
-        int levelNum = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber : 1;
-        return failedOrRetriedLevels.Contains(levelNum);
+        return false; // İpucu sistemi tamamen devre dışı
     }
 
     public void OnPlayerInteracted()
@@ -563,54 +562,20 @@ public class LevelManager : MonoBehaviour
 
     private void Update()
     {
-        // Retried/Failed yapılmış seviyede oyuncu 6 saniye boyunca hamle yapmadan takılırsa 1 hamlelik destek ver
-        if (IsHintActiveForCurrentLevel() && remainingHintMoves <= 0)
-        {
-            if (Time.time - lastPlayerActionTime >= IDLE_HINT_DELAY)
-            {
-                remainingHintMoves = 1;
-                lastPlayerActionTime = Time.time;
-                UpdateHintHighlights();
-            }
-        }
+        // İpucu (Hint) sistemi devre dışı bırakıldı
     }
 
     public void UpdateHintHighlights()
     {
-        if (pieceCards == null || pieceCards.Count == 0) return;
-
-        bool isHintActive = IsHintActiveForCurrentLevel() && remainingHintMoves > 0;
-
-        if (!isHintActive)
+        if (pieceCards != null)
         {
             foreach (var card in pieceCards)
             {
                 card?.SetHintHighlight(false);
             }
-            if (holdCard != null) holdCard.SetHintHighlight(false);
-            gridManager?.ClearHintGridHighlights();
-            return;
         }
-
-        PieceCardUI bestCard = GetBestPlaceableCard(out List<Vector3Int> bestTargetCells);
-
-        foreach (var card in pieceCards)
-        {
-            if (card == null) continue;
-            bool shouldHighlight = (card == bestCard && card.HasPiece);
-            card.SetHintHighlight(shouldHighlight);
-        }
-
-        if (holdCard != null)
-        {
-            bool shouldHighlightHold = (holdCard == bestCard && holdCard.HasPiece);
-            holdCard.SetHintHighlight(shouldHighlightHold);
-        }
-
-        if (gridManager != null)
-        {
-            gridManager.SetHintGridHighlights(bestTargetCells);
-        }
+        if (holdCard != null) holdCard.SetHintHighlight(false);
+        gridManager?.ClearHintGridHighlights();
     }
 
     private PieceCardUI GetBestPlaceableCard(out List<Vector3Int> bestTargetCells)
@@ -2224,7 +2189,18 @@ public class LevelManager : MonoBehaviour
         }
         else
         {
-            nextPieceIndex = Random.Range(0, allPiecePrefabs.Count);
+            var placeableIndices = Enumerable.Range(0, allPiecePrefabs.Count)
+                .Where(i => allPiecePrefabs[i] != null && IsShapePlaceable(allPiecePrefabs[i]))
+                .ToList();
+
+            if (placeableIndices.Count > 0)
+            {
+                nextPieceIndex = placeableIndices[Random.Range(0, placeableIndices.Count)];
+            }
+            else
+            {
+                nextPieceIndex = Random.Range(0, allPiecePrefabs.Count);
+            }
             nextPieceSpeciesIndex = PickPieceSpeciesIndex(nextPieceIndex);
         }
 

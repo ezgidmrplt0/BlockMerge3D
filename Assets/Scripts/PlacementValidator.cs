@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 /// <summary>
@@ -7,8 +8,11 @@ using UnityEngine;
 /// </summary>
 public static class PlacementValidator
 {
+
+
     /// <summary>
     /// Parçanın belirtilen ofset ile o anki aktif katmana yerleştirilip yerleştirilemeyeceğini kontrol eder.
+    /// Buzlu hücreler kesin engellerdir (hiçbir parça doğrudan buz üzerine yerleştirilemez).
     /// </summary>
     public static bool CanPlace(
         IReadOnlyCollection<Vector3Int> cells,

@@ -583,44 +583,15 @@ public class PieceCardUI : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     public void SetHintHighlight(bool enable)
     {
-        if (!enable || !HasPiece)
+        if (isHintHighlighted || (hintOutline != null && hintOutline.activeSelf))
         {
-            if (isHintHighlighted || (hintOutline != null && hintOutline.activeSelf))
-            {
-                isHintHighlighted = false;
-                hintTweenSequence?.Kill();
-                hintTweenSequence = null;
-
-                if (hintOutline != null)
-                {
-                    hintOutline.SetActive(false);
-                }
-            }
-            return;
-        }
-
-        if (isHintHighlighted && hintOutline != null && hintOutline.activeSelf) return;
-        isHintHighlighted = true;
-
-        EnsureHintOutlineCreated();
-
-        if (hintOutline != null)
-        {
-            hintOutline.SetActive(true);
-            hintOutline.transform.SetAsLastSibling();
-
+            isHintHighlighted = false;
             hintTweenSequence?.Kill();
+            hintTweenSequence = null;
 
-            var hintImg = hintOutline.GetComponent<Image>();
-            if (hintImg != null)
+            if (hintOutline != null)
             {
-                Color goldColor = new Color(1.0f, 0.88f, 0.0f, 1.0f); // Saf Parlak Canlı Altın Sarısı
-                hintImg.color = goldColor;
-
-                // Kartın boyutunu HİÇ değiştirmeden çerçevenin parlaklığını nefes aldırma animasyonu ile yükselt
-                hintTweenSequence = DOTween.Sequence();
-                hintTweenSequence.Append(hintImg.DOFade(0.40f, 0.5f).SetEase(Ease.InOutSine))
-                                 .SetLoops(-1, LoopType.Yoyo);
+                hintOutline.SetActive(false);
             }
         }
     }

@@ -15,8 +15,8 @@ MonoBehaviour:
   levelName: LEVEL 6
   mainShapePrefab: {fileID: 8108201717621744948, guid: 0f430a5844f325e4a943e341ff7c2b62, type: 3}
   complementaryPieces:
-  - {fileID: 7961321760190702294, guid: a2ec7853da5526f47bd886cc6faae246, type: 3}
-  - {fileID: 8613902701818268829, guid: 15f3f33188debfa4193c38b7d0b04779, type: 3}
+  - {fileID: 7300570566902695814, guid: a2ec7853da5526f47bd886cc6faae246, type: 3}
+  - {fileID: 8827226965315549524, guid: 15f3f33188debfa4193c38b7d0b04779, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
@@ -28,8 +28,13 @@ MonoBehaviour:
     - {x: 0, y: 0, z: 0}
     - {x: 1, y: 0, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   timeLimit: 75
   targetScore: 0
+  linesPerLayer: 3
+  pointsPerLayer: 400
+  crackStages: 2

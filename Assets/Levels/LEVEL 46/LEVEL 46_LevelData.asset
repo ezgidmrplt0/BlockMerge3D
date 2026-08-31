@@ -15,12 +15,12 @@ MonoBehaviour:
   levelName: LEVEL 46
   mainShapePrefab: {fileID: 4378195538937782567, guid: 75f11f2abbf855943bc2ad9ddc7478c9, type: 3}
   complementaryPieces:
-  - {fileID: 8104734012773317332, guid: 05f770fac0bac67499e55141dd280471, type: 3}
-  - {fileID: 6980274379332336842, guid: 2c0f556ae417205409dc49d8ea7ac9ae, type: 3}
-  - {fileID: 9134664731892707707, guid: defb17c135028b94fa36c67155db317e, type: 3}
-  - {fileID: 641159051375987871, guid: 55f0584ce9159e049a76b9c6b39a3916, type: 3}
-  - {fileID: 79067097193904698, guid: cd98519480e0589409166b88ea34542a, type: 3}
-  - {fileID: 872905180161682616, guid: 20c9f6e88cc2af442b1e6303df60e4d2, type: 3}
+  - {fileID: 791641026746791452, guid: 05f770fac0bac67499e55141dd280471, type: 3}
+  - {fileID: 3582665501744353213, guid: 2c0f556ae417205409dc49d8ea7ac9ae, type: 3}
+  - {fileID: 8442953387774224909, guid: defb17c135028b94fa36c67155db317e, type: 3}
+  - {fileID: 3609792995810433972, guid: 55f0584ce9159e049a76b9c6b39a3916, type: 3}
+  - {fileID: 7952073289734585192, guid: cd98519480e0589409166b88ea34542a, type: 3}
+  - {fileID: 1706648520660498638, guid: 20c9f6e88cc2af442b1e6303df60e4d2, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
@@ -33,10 +33,12 @@ MonoBehaviour:
     - {x: 1, y: 0, z: 2}
     - {x: 2, y: 0, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 0, z: 2}
     - {x: 2, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 1, z: 0}
     - {x: 2, y: 1, z: 1}
@@ -44,9 +46,11 @@ MonoBehaviour:
     - {x: 1, y: 1, z: 2}
     - {x: 0, y: 1, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 1, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 2, z: 0}
     - {x: 0, y: 2, z: 2}
@@ -56,8 +60,13 @@ MonoBehaviour:
     - {x: 2, y: 2, z: 0}
     - {x: 2, y: 2, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 2, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   timeLimit: 90
   targetScore: 0
+  linesPerLayer: 3
+  pointsPerLayer: 400
+  crackStages: 2

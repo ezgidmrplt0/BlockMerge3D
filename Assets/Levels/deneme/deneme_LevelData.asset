@@ -15,10 +15,10 @@ MonoBehaviour:
   levelName: deneme
   mainShapePrefab: {fileID: 809154149169516608, guid: 604595d1d733f1a42809e2de8e2d1642, type: 3}
   complementaryPieces:
-  - {fileID: 6706739945264849096, guid: 85a60f48bde00454abd77411ec42f7e3, type: 3}
-  - {fileID: 5610985194911348476, guid: 0ab87a1da0e5d9d4eb6d0b00ea4e71fe, type: 3}
-  - {fileID: 5112720529102956185, guid: 04a50c8a6997d88409518c594decbcfd, type: 3}
-  - {fileID: 2893578674742544398, guid: c9a5a0d636f0f4b49a11eac229dce591, type: 3}
+  - {fileID: 3666421841201196570, guid: 85a60f48bde00454abd77411ec42f7e3, type: 3}
+  - {fileID: 4493129053700445857, guid: 0ab87a1da0e5d9d4eb6d0b00ea4e71fe, type: 3}
+  - {fileID: 5070809459387650516, guid: 04a50c8a6997d88409518c594decbcfd, type: 3}
+  - {fileID: 5122325634523884053, guid: c9a5a0d636f0f4b49a11eac229dce591, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
@@ -28,16 +28,23 @@ MonoBehaviour:
     - {x: 0, y: 0, z: 1}
     - {x: 1, y: 0, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 1, z: 1}
     - {x: 1, y: 1, z: 0}
     - {x: 1, y: 1, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 1, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   timeLimit: 60
   targetScore: 0
+  linesPerLayer: 3
+  pointsPerLayer: 400
+  crackStages: 2

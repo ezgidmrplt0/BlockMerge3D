@@ -15,26 +15,24 @@ MonoBehaviour:
   levelName: LEVEL 45_ORTA
   mainShapePrefab: {fileID: 2469918098918344047, guid: 90993fe64445e4c43add1cb9761fbf84, type: 3}
   complementaryPieces:
-  - {fileID: 1041921623257240188, guid: 5bd0d9c1ed6c84e4390f3ee35b466cdd, type: 3}
-  - {fileID: 3036927832514327428, guid: 4e896bd00b07bee4b9fc32b50fbba361, type: 3}
-  - {fileID: 5898641930864403621, guid: cb6d80e765ea39e48ad4a5dc03236649, type: 3}
-  - {fileID: 3399283455107750652, guid: 80938f0c99cd9fa4fab14b0e3fe42d7e, type: 3}
-  - {fileID: 3399283455107750652, guid: 80938f0c99cd9fa4fab14b0e3fe42d7e, type: 3}
-  - {fileID: 7524500171787828605, guid: 508aa3ea59ff4c04daee32064a20a391, type: 3}
-  - {fileID: 2449713804862743123, guid: c006ba70a1f43994c9fb782f2422814b, type: 3}
-  - {fileID: 394117926857874399, guid: b7f86d737f31fc4489540c5e68b846c7, type: 3}
-  - {fileID: 7612263209877766530, guid: 264f8b13101c0ac4698c117483a96722, type: 3}
-  - {fileID: 6972539542500369339, guid: bd599ce38cf8c394e933591ad0c214b0, type: 3}
-  - {fileID: 6972539542500369339, guid: bd599ce38cf8c394e933591ad0c214b0, type: 3}
-  - {fileID: 7462462015085027482, guid: 5b72b904711be4542ba00f159d4b3377, type: 3}
-  - {fileID: 7875649392090903790, guid: 2f713ffa642b76049b3fa4fb0908ff3c, type: 3}
-  - {fileID: 2320789408892599818, guid: 566e5097125268e469cf490b8aede038, type: 3}
-  - {fileID: 3119764583834076676, guid: 76eab9d716a86f8409f1279c87c03eff, type: 3}
-  - {fileID: 3119764583834076676, guid: 76eab9d716a86f8409f1279c87c03eff, type: 3}
-  - {fileID: 3119764583834076676, guid: 76eab9d716a86f8409f1279c87c03eff, type: 3}
-  - {fileID: 5270622118984907689, guid: 12efd2c022090744086218324227900e, type: 3}
-  - {fileID: 6579384899158863367, guid: 6b6f740742f039e48aabf7a295ab53ef, type: 3}
-  - {fileID: 6579384899158863367, guid: 6b6f740742f039e48aabf7a295ab53ef, type: 3}
+  - {fileID: 8029453824851427534, guid: 5bd0d9c1ed6c84e4390f3ee35b466cdd, type: 3}
+  - {fileID: 6512999588434075578, guid: 4e896bd00b07bee4b9fc32b50fbba361, type: 3}
+  - {fileID: 7669621799140554568, guid: cb6d80e765ea39e48ad4a5dc03236649, type: 3}
+  - {fileID: 3952429993003656203, guid: 80938f0c99cd9fa4fab14b0e3fe42d7e, type: 3}
+  - {fileID: 7333898165338020781, guid: 508aa3ea59ff4c04daee32064a20a391, type: 3}
+  - {fileID: 5074617150563318361, guid: c006ba70a1f43994c9fb782f2422814b, type: 3}
+  - {fileID: 7977614720540008791, guid: b7f86d737f31fc4489540c5e68b846c7, type: 3}
+  - {fileID: 429128913340161398, guid: 264f8b13101c0ac4698c117483a96722, type: 3}
+  - {fileID: 429128913340161398, guid: 264f8b13101c0ac4698c117483a96722, type: 3}
+  - {fileID: 8007222907508335544, guid: bd599ce38cf8c394e933591ad0c214b0, type: 3}
+  - {fileID: 9202748192697401706, guid: 5b72b904711be4542ba00f159d4b3377, type: 3}
+  - {fileID: 1963856283633960907, guid: 2f713ffa642b76049b3fa4fb0908ff3c, type: 3}
+  - {fileID: 5987329237609694904, guid: 566e5097125268e469cf490b8aede038, type: 3}
+  - {fileID: 5640401912047559651, guid: 76eab9d716a86f8409f1279c87c03eff, type: 3}
+  - {fileID: 6253562447639650362, guid: 12efd2c022090744086218324227900e, type: 3}
+  - {fileID: 6253562447639650362, guid: 12efd2c022090744086218324227900e, type: 3}
+  - {fileID: 5011835655522238379, guid: 6b6f740742f039e48aabf7a295ab53ef, type: 3}
+  - {fileID: 5011835655522238379, guid: 6b6f740742f039e48aabf7a295ab53ef, type: 3}
   tutorialSteps: 
   randomizeSpawnRotation: 1
   forceSingleHitIce: 0
@@ -48,6 +46,7 @@ MonoBehaviour:
     - {x: 2, y: 0, z: 0}
     - {x: 2, y: 0, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 0, z: 1}
     - {x: 3, y: 0, z: 2}
@@ -55,16 +54,20 @@ MonoBehaviour:
     - {x: 2, y: 0, z: 3}
     - {x: 1, y: 0, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 0, z: 1}
     - {x: 3, y: 0, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 0, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 0, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 1, z: 0}
     - {x: 0, y: 1, z: 1}
@@ -74,6 +77,7 @@ MonoBehaviour:
     - {x: 1, y: 1, z: 1}
     - {x: 1, y: 1, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 1, z: 2}
     - {x: 3, y: 1, z: 1}
@@ -82,13 +86,16 @@ MonoBehaviour:
     - {x: 2, y: 1, z: 1}
     - {x: 1, y: 1, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 1, z: 0}
     - {x: 3, y: 1, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 1, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 2, z: 0}
     - {x: 0, y: 2, z: 1}
@@ -96,6 +103,7 @@ MonoBehaviour:
     - {x: 2, y: 2, z: 0}
     - {x: 2, y: 2, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 2, z: 2}
     - {x: 0, y: 2, z: 3}
@@ -103,45 +111,58 @@ MonoBehaviour:
     - {x: 2, y: 2, z: 2}
     - {x: 2, y: 2, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 2, z: 2}
     - {x: 3, y: 2, z: 1}
     - {x: 3, y: 2, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 1, y: 2, z: 2}
     - {x: 1, y: 2, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 3, y: 2, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 3, z: 1}
     - {x: 1, y: 3, z: 0}
     - {x: 1, y: 3, z: 1}
     - {x: 2, y: 3, z: 1}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 3, z: 2}
     - {x: 3, y: 3, z: 1}
     - {x: 3, y: 3, z: 2}
     - {x: 3, y: 3, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 3, z: 3}
     - {x: 1, y: 3, z: 2}
     - {x: 1, y: 3, z: 3}
     - {x: 2, y: 3, z: 3}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 2, y: 3, z: 0}
     - {x: 3, y: 3, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 3, z: 0}
     isSacrifice: 0
+    targetLayerIndex: -1
   - targetWorldCells:
     - {x: 0, y: 3, z: 2}
     isSacrifice: 0
+    targetLayerIndex: -1
   timeLimit: 120
   targetScore: 0
+  linesPerLayer: 3
+  pointsPerLayer: 400
+  crackStages: 2
