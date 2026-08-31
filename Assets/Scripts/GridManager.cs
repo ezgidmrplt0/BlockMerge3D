@@ -418,9 +418,45 @@ public class GridManager : MonoBehaviour
                     targetRenderers[cell] = r;
                 }
             }
+
+            // Emniyet Koruması (Phantom Cell Sanitization):
+            // Eğer CubeShapeDataHolder.occupiedCells içinde tanımlı ama sahnede / prefabda
+            // fiziksel Transform/Renderer'ı olmayan hayalet hücreler kalmışsa (ör. eski editör kalıntısı),
+            // bunların oyuncu tarafından sahte bir grid alanıymış gibi kullanılması engellenir.
+            if (loadedLogicalCellsFromHolder)
+            {
+                var phantomCells = new List<Vector3Int>();
+                foreach (var c in allShapeCells)
+                {
+                    if (!targetRenderers.ContainsKey(c) && !prefilledRenderers.ContainsKey(c))
+                    {
+                        phantomCells.Add(c);
+                    }
+                }
+                foreach (var c in phantomCells)
+                {
+                    allShapeCells.Remove(c);
+                    targetCells.Remove(c);
+                    occupiedCells.Remove(c);
+                    frozenCells.Remove(c);
+                    cellMatIndex.Remove(c);
+                    cellColors.Remove(c);
+                    cellRemainingHits.Remove(c);
+                    Debug.LogWarning($"[GridManager] Phantom cell {c} kaldırıldı — '{mainShape.name}' prefabında karşılık gelen GameObject/Renderer bulunamadı.");
+                }
+            }
         }
 
-        if (shapeHolder != null && shapeHolder.gridSize != Vector3Int.zero)
+        if (allShapeCells.Count > 0)
+        {
+            gridMinX = allShapeCells.Min(c => c.x);
+            gridMaxX = allShapeCells.Max(c => c.x);
+            gridMinY = allShapeCells.Min(c => c.y);
+            gridMaxY = allShapeCells.Max(c => c.y);
+            gridMinZ = allShapeCells.Min(c => c.z);
+            gridMaxZ = allShapeCells.Max(c => c.z);
+        }
+        else if (shapeHolder != null && shapeHolder.gridSize != Vector3Int.zero)
         {
             gridMinX = 0;
             gridMaxX = shapeHolder.gridSize.x - 1;
@@ -431,14 +467,8 @@ public class GridManager : MonoBehaviour
         }
         else
         {
-            gridMinX = gridMinY = gridMinZ = int.MaxValue;
-            gridMaxX = gridMaxY = gridMaxZ = int.MinValue;
-            foreach (var c in allShapeCells)
-            {
-                if (c.x < gridMinX) gridMinX = c.x; if (c.x > gridMaxX) gridMaxX = c.x;
-                if (c.y < gridMinY) gridMinY = c.y; if (c.y > gridMaxY) gridMaxY = c.y;
-                if (c.z < gridMinZ) gridMinZ = c.z; if (c.z > gridMaxZ) gridMaxZ = c.z;
-            }
+            gridMinX = gridMinY = gridMinZ = 0;
+            gridMaxX = gridMaxY = gridMaxZ = 0;
         }
 
         // Buz hücreleri yalnızca seviyenin kendi CubeShapeDataHolder.frozenCells listesinden
@@ -1231,12 +1261,11 @@ public class GridManager : MonoBehaviour
                 targetNextLayer = ActiveLayerY - 1;
             }
 
-            ActiveLayerY = targetNextLayer;
-
-            // Patlama ve parçalanma animasyonu tamamen bittikten sonra sıradaki katmanı pürüzsüz dalga ile ortaya çıkar
-            float explosionEndDelay = layerSlideDelay + 0.65f;
+            // Patlama ve parçalanma animasyonu tamamen bittikten sonra 0.5s bekleyip sıradaki katmanı pürüzsüz dalga ile ortaya çıkar
+            float explosionEndDelay = layerSlideDelay + 1.15f;
             DOVirtual.DelayedCall(explosionEndDelay, () =>
             {
+                ActiveLayerY = targetNextLayer;
                 AnimateLayerEntrance(ActiveLayerY, () =>
                 {
                     IsExplodingLayer = false;
@@ -1450,7 +1479,7 @@ public class GridManager : MonoBehaviour
             if (targetCellsInLine >= 2 && isFull && line.Count > 0)
             {
                 // Parçanın tek başına doldurduğu satır, katman henüz tamamlanmamışsa hemen patlamaz;
-                // oyuncunun en az 1 tamamlayıcı parça daha yerleştirmesi beklenir.
+                // oyuncunun en az 1 tamamlayıcı parça (ekleme) daha yerleştirmesi beklenir.
                 bool isPurelyNewPiece = newSet != null && line.All(c => newSet.Contains(c));
                 if (!isPurelyNewPiece || isLayer100PercentFull)
                 {
@@ -1559,7 +1588,6 @@ public class GridManager : MonoBehaviour
         {
             var cell = sorted[i];
             cellColors.TryGetValue(cell, out Color blastColor);
-            if (blastColor == default) blastColor = Color.cyan;
 
             occupiedCells.Remove(cell);
             cellColors.Remove(cell);
@@ -1587,20 +1615,66 @@ public class GridManager : MonoBehaviour
 
             if (targetGo != null)
             {
-                IceBreakEffect.Play(targetGo, blastColor, () =>
+                var targetRend = targetGo.GetComponentInChildren<Renderer>();
+                if (targetRend != null && targetRend.sharedMaterial != null)
                 {
-                    Destroy(targetGo);
-                    onOneDone();
-                }, hideTarget: true);
-
-                if (wasPrefilled && prefilledRend != null)
-                {
-                    RestoreAsGhostTarget(cell, prefilledRend);
+                    Color mc = GetMaterialColor(targetRend.sharedMaterial);
+                    if (mc != Color.white) blastColor = mc;
                 }
-                else if (targetRenderers.TryGetValue(cell, out var r) && r != null)
+                if (blastColor == default || blastColor == Color.clear) blastColor = new Color(1f, 0.75f, 0.2f);
+
+                float stagger = i * 0.032f;
+                var capturedGo = targetGo;
+                var capturedCell = cell;
+                bool capturedPrefilled = wasPrefilled;
+                var capturedPrefRend = prefilledRend;
+                Color capturedColor = blastColor;
+
+                if (stagger > 0f)
                 {
-                    r.enabled = true;
-                    r.transform.DOPunchScale(Vector3.one * 0.15f, 0.2f, 5, 0.5f);
+                    DOVirtual.DelayedCall(stagger, () =>
+                    {
+                        if (capturedGo != null)
+                        {
+                            IceBreakEffect.Play(capturedGo, capturedColor, () =>
+                            {
+                                if (capturedGo != null) Destroy(capturedGo);
+                                onOneDone();
+                            }, hideTarget: true);
+
+                            if (capturedPrefilled && capturedPrefRend != null)
+                            {
+                                RestoreAsGhostTarget(capturedCell, capturedPrefRend);
+                            }
+                            else if (targetRenderers.TryGetValue(capturedCell, out var r) && r != null)
+                            {
+                                r.enabled = true;
+                                r.transform.DOPunchScale(Vector3.one * 0.15f, 0.2f, 5, 0.5f);
+                            }
+                        }
+                        else
+                        {
+                            onOneDone();
+                        }
+                    });
+                }
+                else
+                {
+                    IceBreakEffect.Play(capturedGo, capturedColor, () =>
+                    {
+                        if (capturedGo != null) Destroy(capturedGo);
+                        onOneDone();
+                    }, hideTarget: true);
+
+                    if (capturedPrefilled && capturedPrefRend != null)
+                    {
+                        RestoreAsGhostTarget(capturedCell, capturedPrefRend);
+                    }
+                    else if (targetRenderers.TryGetValue(capturedCell, out var r) && r != null)
+                    {
+                        r.enabled = true;
+                        r.transform.DOPunchScale(Vector3.one * 0.15f, 0.2f, 5, 0.5f);
+                    }
                 }
             }
             else
@@ -1825,26 +1899,32 @@ public class GridManager : MonoBehaviour
             });
         }
 
-        // 3. Bir sonraki katmana geç
-        ActiveLayerY++;
-        TowerMiniPreview.Instance?.SetActiveFloor(ActiveLayerY);
-
-        // Kalan şekil için sınırları güncelle
-        if (allShapeCells.Count > 0)
+        // 1. Katmanın tamamen temizlenip yıkılması (~1.0s)
+        // 2. Yıkım bittikten sonra 0.5s nefes alma / bekleme molası (~0.5s)
+        // Toplam bekleme = 1.50s (Bu süre boyunca ActiveLayerY değiştirilmez, böylece ara RefreshLayerVisibility çağrıları 2. animasyonu tetiklemez)
+        float totalPauseBeforeNextLayer = 1.50f;
+        DOVirtual.DelayedCall(totalPauseBeforeNextLayer, () =>
         {
-            gridMinY = allShapeCells.Min(c => c.y);
-            gridMaxY = allShapeCells.Max(c => c.y);
-        }
+            // 3. Bir sonraki katmana geçişi tam bu anda yap
+            ActiveLayerY++;
+            TowerMiniPreview.Instance?.SetActiveFloor(ActiveLayerY);
 
-        SyncGridState();
+            // Kalan şekil için sınırları güncelle
+            if (allShapeCells.Count > 0)
+            {
+                gridMinY = allShapeCells.Min(c => c.y);
+                gridMaxY = allShapeCells.Max(c => c.y);
+            }
 
-        DOVirtual.DelayedCall(0.45f, () =>
-        {
-            IsExplodingLayer = false;
-            RefreshLayerVisibility();
-            RefreshSpeciesSparkle();
-            onComplete?.Invoke();
-        });
+            SyncGridState();
+
+            AnimateLayerEntrance(ActiveLayerY, () =>
+            {
+                IsExplodingLayer = false;
+                LayerPanelController.Instance?.RefreshButtonColors();
+                onComplete?.Invoke();
+            });
+        }).SetId(LEVEL_ANIM_ID);
     }
 
     public static bool ColorsApproxEqual(Color a, Color b)
@@ -1897,70 +1977,39 @@ public class GridManager : MonoBehaviour
     private static void AnimateAndDestroy(GameObject go, float delay, bool isBonus, System.Action onDone = null)
     {
         if (go == null) { onDone?.Invoke(); return; }
-        var t = go.transform;
-        Vector3 origin = t.position;
 
-        // --- Merge (bonus) efekti: flash → radyal patlama → merkeze çekim (implode) ---
-        if (isBonus)
+        var rend = go.GetComponentInChildren<Renderer>();
+        Color col = Color.white;
+        if (rend != null && rend.sharedMaterial != null)
         {
-            // Flash için tüm renderer'lara erişelim
-            var renderers = go.GetComponentsInChildren<Renderer>();
-            Color[] originalColors = new Color[renderers.Length];
-            for (int i = 0; i < renderers.Length; i++)
+            col = GetMaterialColor(rend.sharedMaterial);
+        }
+
+        if (delay > 0f)
+        {
+            DOVirtual.DelayedCall(delay, () =>
             {
-                var mat = renderers[i].material;
-                originalColors[i] = mat.HasProperty("_BaseColor") ? mat.GetColor("_BaseColor")
-                                  : mat.HasProperty("_Color")     ? mat.GetColor("_Color")
-                                  : Color.white;
-            }
-
-            // Rastgele radyal patlama yönü
-            Vector3 blastDir = new Vector3(
-                Random.Range(-1f, 1f),
-                Random.Range(0.2f, 1f),
-                Random.Range(-1f, 1f)).normalized;
-            float blastDist = Random.Range(0.55f, 1.0f);
-            Vector3 blastTarget = origin + blastDir * blastDist;
-
-            var seq = DOTween.Sequence().SetLink(go);
-            if (delay > 0f) seq.AppendInterval(delay);
-
-            // 1. Flash: hızlı scale-up + emit parlaması
-            seq.Append(t.DOScale(t.localScale * 1.5f, 0.07f).SetEase(Ease.OutQuad));
-            seq.Join(t.DOMove(blastTarget, 0.12f).SetEase(Ease.OutQuad));
-
-            // 2. Kısa tutunma
-            seq.AppendInterval(0.04f);
-
-            // 3. Implode: merkeze geri çekilip sıfırla
-            seq.Append(t.DOMove(origin, 0.18f).SetEase(Ease.InCubic));
-            seq.Join(t.DOScale(Vector3.zero, 0.18f).SetEase(Ease.InBack));
-
-            seq.OnComplete(() =>
-            {
-                if (go != null) Object.Destroy(go);
-                onDone?.Invoke();
+                if (go != null)
+                {
+                    IceBreakEffect.Play(go, col, () =>
+                    {
+                        if (go != null) Object.Destroy(go);
+                        onDone?.Invoke();
+                    }, hideTarget: true);
+                }
+                else
+                {
+                    onDone?.Invoke();
+                }
             });
         }
         else
         {
-            // Normal (non-bonus) yerleştirme geri alma efekti — mevcut sade animasyon
-            float drift = 0.35f;
-            Vector3 d = new Vector3(
-                Random.Range(-drift, drift),
-                Random.Range(0.1f, 0.45f),
-                Random.Range(-drift, drift));
-
-            var seq = DOTween.Sequence().SetLink(go);
-            if (delay > 0f) seq.AppendInterval(delay);
-            seq.Append(t.DOScale(t.localScale * 1.3f, 0.07f).SetEase(Ease.OutBack));
-            seq.Join(t.DOMove(t.position + d, 0.22f).SetEase(Ease.OutCubic));
-            seq.Append(t.DOScale(Vector3.zero, 0.14f).SetEase(Ease.InBack));
-            seq.OnComplete(() =>
+            IceBreakEffect.Play(go, col, () =>
             {
                 if (go != null) Object.Destroy(go);
                 onDone?.Invoke();
-            });
+            }, hideTarget: true);
         }
     }
 

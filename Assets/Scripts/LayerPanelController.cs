@@ -63,14 +63,27 @@ public class LayerPanelController : MonoBehaviour
             if (b != null) Destroy(b.gameObject);
         layerButtons.Clear();
 
-        int currentRemainingLayers = (grid.GridMaxY - grid.GridMinY + 1);
-        if (initialTotalLayers <= 0 || currentRemainingLayers > initialTotalLayers)
+        int totalButtonsToCreate = 1;
+        int completedLayersCount = 0;
+
+        if (LevelManager.Instance != null && LevelManager.Instance.TotalFloors > 0)
         {
-            initialTotalLayers = currentRemainingLayers;
+            totalButtonsToCreate = LevelManager.Instance.TotalFloors;
+            completedLayersCount = Mathf.Clamp(LevelManager.Instance.CurrentFloor - 1, 0, totalButtonsToCreate);
+            initialTotalLayers = totalButtonsToCreate;
+        }
+        else
+        {
+            int currentRemainingLayers = (grid.GridMaxY - grid.GridMinY + 1);
+            if (initialTotalLayers <= 0 || currentRemainingLayers > initialTotalLayers)
+            {
+                initialTotalLayers = currentRemainingLayers;
+            }
+
+            completedLayersCount = Mathf.Max(0, initialTotalLayers - currentRemainingLayers);
+            totalButtonsToCreate = initialTotalLayers;
         }
 
-        int completedLayersCount = Mathf.Max(0, initialTotalLayers - currentRemainingLayers);
-        int totalButtonsToCreate = initialTotalLayers;
         if (totalButtonsToCreate <= 0) return;
 
         float spacing = buttonSpacing;
@@ -80,8 +93,6 @@ public class LayerPanelController : MonoBehaviour
 
         for (int i = 0; i < totalButtonsToCreate; i++)
         {
-            int layerY = grid.GridMaxY - (i - completedLayersCount);
-            
             GameObject btnObj = new GameObject($"Btn_Layer_Idx_{i}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             btnObj.transform.SetParent(uiCanvas.transform, false);
 
@@ -119,9 +130,11 @@ public class LayerPanelController : MonoBehaviour
 
             if (i < completedLayersCount)
             {
-                // Tamamlanan katman göstergesi: Tik işareti (✓) ve yeşil renk
+                // Tamamlanan katman göstergesi: Tik işareti (✓) ve canlı yeşil renk
                 tmp.text = "✓";
                 tmp.color = Color.white;
+                tmp.fontSize = Mathf.RoundToInt(buttonFontSize * 1.2f);
+                tmp.fontStyle = FontStyle.Bold;
                 img.color = buttonCompletedColor;
             }
             else if (i == completedLayersCount)
@@ -129,13 +142,17 @@ public class LayerPanelController : MonoBehaviour
                 // Aktif katman göstergesi: Katman numarası ve ekstra parlak canlı sarı renk
                 tmp.text = (i + 1).ToString();
                 tmp.color = new Color(0.15f, 0.15f, 0.15f, 1f);
-                img.color = new Color(1.45f, 1.35f, 0.15f, 1f);
+                tmp.fontSize = buttonFontSize;
+                tmp.fontStyle = FontStyle.Bold;
+                img.color = buttonActiveColor;
             }
             else
             {
                 // Kilitli / Gelecek katman göstergesi: Karartılmış renk
                 tmp.text = (i + 1).ToString();
                 tmp.color = new Color(buttonTextColor.r, buttonTextColor.g, buttonTextColor.b, 0.5f);
+                tmp.fontSize = buttonFontSize;
+                tmp.fontStyle = FontStyle.Normal;
                 img.color = buttonLockedColor;
             }
 

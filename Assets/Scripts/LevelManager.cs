@@ -86,6 +86,8 @@ public class LevelManager : MonoBehaviour
     [Header("Tower Collapse & Cracking Progression")]
     private int currentFloor = 1;
     private int totalFloors = 1;
+    public int CurrentFloor => currentFloor;
+    public int TotalFloors => totalFloors;
     private int pointsAccumulatedInFloor = 0;
     private int targetPointsPerFloor = 400;
     private int comboStreak = 0;
@@ -992,10 +994,15 @@ public class LevelManager : MonoBehaviour
                 gridManager.RefreshSpeciesSparkle();
             });
 
+            int placementScore = 20 * Mathf.Max(1, newlyPlacedCells.Count);
+            GameManager.Instance?.AddScore(placementScore);
+            pointsAccumulatedInFloor += placementScore;
+            placedPieceScores.Add(placementScore);
+
             if (blastResult.clearedLines > 0)
             {
                 comboStreak++;
-                int matchScore = (blastResult.clearedLines * 120 + blastResult.clearedCells * 15) * comboStreak;
+                int matchScore = (blastResult.clearedLines * 120 + blastResult.clearedCells * 25) * comboStreak;
                 GameManager.Instance?.AddScore(matchScore);
                 pointsAccumulatedInFloor += matchScore;
                 placedPieceScores.Add(matchScore);
@@ -1006,11 +1013,6 @@ public class LevelManager : MonoBehaviour
             else
             {
                 comboStreak = 0;
-                int placementScore = 20 * Mathf.Max(1, newlyPlacedCells.Count);
-                GameManager.Instance?.AddScore(placementScore);
-                pointsAccumulatedInFloor += placementScore;
-                placedPieceScores.Add(placementScore);
-
                 AudioManager.Instance?.PlayCrackSound(1);
             }
 
@@ -1027,10 +1029,12 @@ public class LevelManager : MonoBehaviour
                 comboStreak = 0;
                 currentFloor++;
                 AudioManager.Instance?.PlayLineClearSound(1);
+                LayerPanelController.Instance?.RefreshButtonColors();
 
                 // Tüm katman fiziksel olarak yıkılarak çöker!
                 gridManager.CollapseActiveLayerAndDropTower(onComplete: () =>
                 {
+                    LayerPanelController.Instance?.RefreshButtonColors();
                     if (gridManager.ActiveLayerY > gridManager.GridMaxY || gridManager.allShapeCells.Count == 0 || currentFloor > totalFloors)
                     {
                         // TÜM KATMANLAR BİTTİ VE YIKILDI -> ZAFER!

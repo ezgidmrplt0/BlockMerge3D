@@ -25,9 +25,9 @@ public class IceBreakEffect : MonoBehaviour
     }
 
     [Header("Settings")]
-    public int shardsPerBreak = 6;
-    public float explosionForce = 3.5f;
-    public float effectDuration = 0.35f;
+    public int shardsPerBreak = 12;
+    public float explosionForce = 4.2f;
+    public float effectDuration = 0.45f;
 
     [Header("References (Opsiyonel, Inspector'dan eklenebilir)")]
     public GameObject shardPrefab;
@@ -61,15 +61,15 @@ public class IceBreakEffect : MonoBehaviour
             shardPrefab.transform.SetParent(transform);
             shardPrefab.SetActive(false);
             
-            // Eğer URP veya standart material vermek isterseniz:
+            // URP Lit shader ile parlak materyal oluştur
             Renderer r = shardPrefab.GetComponent<Renderer>();
             Shader shader = Shader.Find("Universal Render Pipeline/Lit");
             if (shader == null) shader = Shader.Find("Standard");
             if (shader != null) r.material = new Material(shader);
         }
 
-        // Havuzu önceden doldur (Pre-warm)
-        for (int i = 0; i < 40; i++)
+        // Havuzu önceden doldur (Pre-warm - 80 parçacık)
+        for (int i = 0; i < 80; i++)
         {
             CreateNewShard();
         }
@@ -125,6 +125,17 @@ public class IceBreakEffect : MonoBehaviour
         Vector3 center = targetBlock.transform.position;
         Renderer targetRend = targetBlock.GetComponentInChildren<Renderer>();
 
+        // Bloğun kendi rengini materyalinden çek (eğer varsayılan/beyaz geldiyse)
+        if (targetRend != null && targetRend.sharedMaterial != null)
+        {
+            Material m = targetRend.sharedMaterial;
+            if (color == default || color == Color.cyan || color == Color.white)
+            {
+                if (m.HasProperty("_BaseColor")) color = m.GetColor("_BaseColor");
+                else if (m.HasProperty("_Color")) color = m.GetColor("_Color");
+            }
+        }
+
         // Aynı obje için birden fazla çağrı gelmemesi adına DOTween'i temizle
         targetBlock.transform.DOKill();
         if (targetRend != null && targetRend.material != null) targetRend.material.DOKill();
@@ -148,7 +159,7 @@ public class IceBreakEffect : MonoBehaviour
             }
         }
 
-        // 2. Burst (Patlama)
+        // 2. Burst (Parçalanma & Partiküllere Ayrılma)
         seq.AppendCallback(() =>
         {
             if (hideTarget)
@@ -180,23 +191,26 @@ public class IceBreakEffect : MonoBehaviour
                 audioSource.PlayOneShot(breakSound);
             }
 
-            // Kamera Titreşimi (GridManager.cs içindeki CameraOrbit entegrasyonu)
+            // Kamera Titreşimi (Impact shake)
             if (CameraOrbit.Instance != null)
             {
-                CameraOrbit.Instance.Shake(0.15f, 0.1f);
+                CameraOrbit.Instance.Shake(0.18f, 0.12f);
             }
 
-            // Shard'ları (Kırıkları) fırlat
-            for (int i = 0; i < shardsPerBreak; i++)
+            // Shard'ları (3D Voxel Kırıklarını) her yöne fırlat
+            int shardCount = Mathf.Max(8, shardsPerBreak);
+            for (int i = 0; i < shardCount; i++)
             {
                 GameObject shard = GetShard();
-                shard.transform.position = center + UnityEngine.Random.insideUnitSphere * 0.2f;
+                shard.transform.position = center + UnityEngine.Random.insideUnitSphere * 0.25f;
                 
-                // Rastgele boyut
-                float s = UnityEngine.Random.Range(0.15f, 0.35f);
-                shard.transform.localScale = Vector3.one * s;
+                // Rastgele 3D kristal/küp boyutu
+                float sx = UnityEngine.Random.Range(0.12f, 0.32f);
+                float sy = UnityEngine.Random.Range(0.12f, 0.32f);
+                float sz = UnityEngine.Random.Range(0.12f, 0.32f);
+                shard.transform.localScale = new Vector3(sx, sy, sz);
 
-                // Renk ata
+                // Renk ve parlaklık ata
                 Renderer sr = shard.GetComponent<Renderer>();
                 if (sr != null && sr.material != null)
                 {
@@ -204,20 +218,24 @@ public class IceBreakEffect : MonoBehaviour
                     if (sr.material.HasProperty("_EmissionColor"))
                     {
                         sr.material.EnableKeyword("_EMISSION");
-                        sr.material.SetColor("_EmissionColor", color * 0.5f);
+                        sr.material.SetColor("_EmissionColor", color * 0.8f);
                     }
                 }
 
-                // Rastgele Yön ve DOTween Animasyonu
+                // Radyal Yön (Yukarı doğru canlı fırlama açısı ile)
                 Vector3 dir = UnityEngine.Random.insideUnitSphere.normalized;
-                dir.y = Mathf.Abs(dir.y) + 0.6f; // Yukarı doğru fırlama eğilimi
+                dir.y = Mathf.Abs(dir.y) * 1.35f + 0.35f; // Canlı yukarı fırlama
                 
-                Vector3 targetPos = shard.transform.position + dir * explosionForce * UnityEngine.Random.Range(0.7f, 1.3f);
-                Vector3 randomRot = new Vector3(UnityEngine.Random.Range(-360, 360), UnityEngine.Random.Range(-360, 360), UnityEngine.Random.Range(-360, 360));
+                Vector3 targetPos = shard.transform.position + dir * explosionForce * UnityEngine.Random.Range(0.75f, 1.45f);
+                Vector3 randomRot = new Vector3(
+                    UnityEngine.Random.Range(-360f, 360f),
+                    UnityEngine.Random.Range(-360f, 360f),
+                    UnityEngine.Random.Range(-360f, 360f)
+                );
 
-                shard.transform.DOMove(targetPos, effectDuration).SetEase(Ease.OutCubic);
+                shard.transform.DOMove(targetPos, effectDuration).SetEase(Ease.OutQuad);
                 shard.transform.DORotate(randomRot, effectDuration, RotateMode.FastBeyond360).SetEase(Ease.Linear);
-                shard.transform.DOScale(Vector3.zero, effectDuration * 0.8f).SetDelay(effectDuration * 0.2f).SetEase(Ease.InQuad).OnComplete(() =>
+                shard.transform.DOScale(Vector3.zero, effectDuration * 0.65f).SetDelay(effectDuration * 0.35f).SetEase(Ease.InQuad).OnComplete(() =>
                 {
                     ReturnShard(shard);
                 });
