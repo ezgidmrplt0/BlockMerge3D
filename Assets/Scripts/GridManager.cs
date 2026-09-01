@@ -3039,24 +3039,71 @@ public class GridManager : MonoBehaviour
         return cracks;
     }
 
+    // ─── Shatter shard pool ─────────────────────────────────────────────────
+    // CreateShatterEffect eskiden her çağrıda 8x GameObject.CreatePrimitive + 8x new Material
+    // yaratıyordu. Bir katman çökünce onlarca hücre için art arda çağrıldığından (rubbleObjects
+    // döngüsü), tek karede 100+ obje/material allocation oluşup build'de gözle görülür kasmaya
+    // yol açıyordu. IceBreakEffect.cs'deki havuzlama deseniyle aynı yaklaşım: shard'lar bir kere
+    // yaratılıp materyalleri bir kere instance'lanıyor, sonraki her patlamada sadece
+    // renk/pozisyon/tween güncelleniyor, obje/material yeniden yaratılmıyor.
+    private Queue<GameObject> shatterShardPool = new Queue<GameObject>();
+    private GameObject shatterShardPrefab;
+
+    private void EnsureShatterShardPool()
+    {
+        if (shatterShardPrefab != null) return;
+
+        Shader blockShader = null;
+        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
+            blockShader = LevelManager.Instance.ghostTargetMaterial.shader;
+        if (blockShader == null)
+            blockShader = Shader.Find("Universal Render Pipeline/Lit");
+
+        shatterShardPrefab = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        shatterShardPrefab.name = "ShatterShard_Prefab";
+        var prefabCol = shatterShardPrefab.GetComponent<Collider>();
+        if (prefabCol != null) Destroy(prefabCol);
+        shatterShardPrefab.transform.SetParent(transform);
+        shatterShardPrefab.SetActive(false);
+
+        var prefabRenderer = shatterShardPrefab.GetComponent<Renderer>();
+        if (prefabRenderer != null && blockShader != null)
+            prefabRenderer.material = new Material(blockShader);
+
+        // Bir katman çökünce onlarca shatter çağrısı aynı karede tetiklenebiliyor (her biri 8
+        // shard) — pre-warm bunun büyük kısmını karşılar, aşarsa GetShatterShard zaten fallback
+        // olarak Instantiate eder (havuz büyür, hiç kaybolmaz).
+        for (int i = 0; i < 96; i++)
+        {
+            GameObject s = Instantiate(shatterShardPrefab, transform);
+            s.SetActive(false);
+            shatterShardPool.Enqueue(s);
+        }
+    }
+
+    private GameObject GetShatterShard()
+    {
+        EnsureShatterShardPool();
+        GameObject shard = shatterShardPool.Count > 0 ? shatterShardPool.Dequeue() : Instantiate(shatterShardPrefab, transform);
+        shard.SetActive(true);
+        return shard;
+    }
+
+    private void ReturnShatterShard(GameObject shard)
+    {
+        if (shard == null) return;
+        shard.transform.DOKill();
+        shard.SetActive(false);
+        shatterShardPool.Enqueue(shard);
+    }
+
     public void CreateShatterEffect(Vector3 centerPosition, Color shardColor)
     {
         int numShards = 8;
-        Shader blockShader = null;
-        if (LevelManager.Instance != null && LevelManager.Instance.ghostTargetMaterial != null)
-        {
-            blockShader = LevelManager.Instance.ghostTargetMaterial.shader;
-        }
-        if (blockShader == null)
-        {
-            blockShader = Shader.Find("Universal Render Pipeline/Lit");
-        }
 
         for (int i = 0; i < numShards; i++)
         {
-            GameObject shard = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            var col = shard.GetComponent<Collider>();
-            if (col != null) Destroy(col);
+            GameObject shard = GetShatterShard();
 
             shard.transform.position = centerPosition + new Vector3(
                 Random.Range(-0.25f, 0.25f),
@@ -3066,16 +3113,20 @@ public class GridManager : MonoBehaviour
             shard.transform.localScale = Vector3.one * Random.Range(0.18f, 0.32f);
 
             var r = shard.GetComponent<Renderer>();
-            if (r != null && blockShader != null)
+            if (r != null && r.material != null)
             {
-                r.material = new Material(blockShader);
                 r.material.color = shardColor;
-                
+
                 // If it looks like ice (bluish-white), enable emission
                 if (shardColor.r > 0.6f && shardColor.g > 0.8f)
                 {
                     r.material.EnableKeyword("_EMISSION");
                     r.material.SetColor("_EmissionColor", new Color(0.1f, 0.4f, 0.7f) * 1.5f);
+                }
+                else if (r.material.HasProperty("_EmissionColor"))
+                {
+                    // Önceki (havuzdan gelen) shard ice ise emission açık kalmış olabilir — sıfırla.
+                    r.material.SetColor("_EmissionColor", Color.black);
                 }
             }
 
@@ -3089,8 +3140,8 @@ public class GridManager : MonoBehaviour
             shard.transform.DOMove(targetPosition, 0.55f).SetEase(Ease.OutQuad);
             shard.transform.DORotate(new Vector3(Random.Range(-270, 270), Random.Range(-270, 270), Random.Range(-270, 270)), 0.55f);
             shard.transform.DOScale(Vector3.zero, 0.55f).SetEase(Ease.InQuad).OnComplete(() => {
-                if (r != null && r.material != null) Destroy(r.material);
-                Destroy(shard);
+                shard.transform.localScale = Vector3.one * Random.Range(0.18f, 0.32f); // sonraki kullanım için sıfırla
+                ReturnShatterShard(shard);
             });
         }
     }

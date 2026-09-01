@@ -101,32 +101,49 @@ public static class LayerSolutionSolver
             .OrderByDescending(x => x.holder.occupiedCells.Count)
             .ToList();
 
+        Quaternion[] possibleRotations = new Quaternion[]
+        {
+            Quaternion.identity,
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0)
+        };
+
         foreach (var candidate in candidatePrefabs)
         {
             if (remaining.Count == 0) break;
 
-            List<Vector3Int> shapeCells = candidate.holder.occupiedCells;
+            bool placed = false;
 
-            // Katman hücreleri üzerinde bu parçanın sığabileceği ilk konumu ara
-            foreach (var cell in remaining.ToList())
+            // Parçanın sığabileceği ilk konumu ararken 4 rotasyonu da dene —
+            // aksi halde sabit duruşuyla uymayan parçalar gereksiz yere elenip
+            // geride kalan hücreler 1x1'lerle dolduruluyordu.
+            foreach (var rot in possibleRotations)
             {
-                List<Vector3Int> placedWorld = shapeCells.Select(sc => new Vector3Int(cell.x + sc.x, layerY, cell.z + sc.z)).ToList();
+                List<Vector3Int> shapeCells = GridManager.RotateCells(candidate.holder.occupiedCells, rot);
 
-                if (placedWorld.All(pw => remaining.Contains(pw)))
+                foreach (var cell in remaining.ToList())
                 {
-                    result.Add(new SolutionItem
-                    {
-                        prefab = candidate.prefab,
-                        prefabIndex = candidate.index,
-                        targetWorldCells = placedWorld
-                    });
+                    List<Vector3Int> placedWorld = shapeCells.Select(sc => new Vector3Int(cell.x + sc.x, layerY, cell.z + sc.z)).ToList();
 
-                    foreach (var pw in placedWorld)
+                    if (placedWorld.All(pw => remaining.Contains(pw)))
                     {
-                        remaining.Remove(pw);
+                        result.Add(new SolutionItem
+                        {
+                            prefab = candidate.prefab,
+                            prefabIndex = candidate.index,
+                            targetWorldCells = placedWorld
+                        });
+
+                        foreach (var pw in placedWorld)
+                        {
+                            remaining.Remove(pw);
+                        }
+                        placed = true;
+                        break;
                     }
-                    break;
                 }
+                if (placed) break;
             }
         }
 

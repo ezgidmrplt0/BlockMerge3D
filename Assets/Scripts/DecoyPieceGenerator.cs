@@ -44,6 +44,14 @@ public static class DecoyPieceGenerator
 
         HashSet<int> solutionPrefabIndices = new HashSet<int>(solutionPieces.Select(s => s.prefabIndex));
 
+        Quaternion[] possibleRotations = new Quaternion[]
+        {
+            Quaternion.identity,
+            Quaternion.Euler(0, 90, 0),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 270, 0)
+        };
+
         // Çözüm parçaları haricinde kalan ve yerleştirilebilir parçaları filtrele
         List<int> candidateIndices = new List<int>();
         foreach (int idx in availableIndices)
@@ -57,8 +65,19 @@ public static class DecoyPieceGenerator
                 var holder = allPiecePrefabs[idx].GetComponent<CubeShapeDataHolder>();
                 if (holder != null && holder.occupiedCells.Count > 0)
                 {
-                    // Sığabilirlik testi
-                    bool canPlaceSomewhere = gridManager.GetPossibleOffsets(holder.occupiedCells).Count > 0;
+                    // Sığabilirlik testi — gerçek oynanıştaki gibi 4 rotasyonu da dene,
+                    // aksi halde çok hücreli parçalar sabit duruşuyla sığmadığı için
+                    // "yerleşmiyor" sayılıp havuz tekli parçalara kayıyordu.
+                    bool canPlaceSomewhere = false;
+                    foreach (var rot in possibleRotations)
+                    {
+                        var rotatedCells = GridManager.RotateCells(holder.occupiedCells, rot);
+                        if (gridManager.GetPossibleOffsets(rotatedCells).Count > 0)
+                        {
+                            canPlaceSomewhere = true;
+                            break;
+                        }
+                    }
 
                     if (canPlaceSomewhere)
                     {

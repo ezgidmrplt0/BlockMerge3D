@@ -35,6 +35,7 @@ public class TowerMiniPreview : MonoBehaviour
     private GameObject miniTowerInstance;
     private int currentActiveFloorY = 0;
     private float autoRotateSpeed = 25f;
+    private float currentStep = 1f;
 
     private readonly Vector3 PreviewStagePos = new Vector3(300f, 300f, 300f);
 
@@ -119,21 +120,49 @@ public class TowerMiniPreview : MonoBehaviour
             previewCamera.backgroundColor = new Color(0, 0, 0, 0);
             previewCamera.orthographic = true;
             previewCamera.orthographicSize = 2.2f;
-            previewCamera.nearClipPlane = 0.1f;
-            previewCamera.farClipPlane = 30f;
+            // near/far aralığı eskiden gereksiz geniş tutulmuştu (0.1-30, kamera merkeze
+            // sadece 6 birim uzakta) — bu, 16-bit depth buffer ile birleşince mobilde
+            // z-fighting/derinlik testi hatalarına yol açıyordu. Aralığı gerçek ihtiyaca
+            // (kamera 6 birim uzakta, kule birkaç birimden büyük olmuyor) daraltmak depth
+            // hassasiyetini belirgin artırıyor.
+            previewCamera.nearClipPlane = 1f;
+            previewCamera.farClipPlane = 14f;
+
+            // Kamera eskiden "Everything" render ediyordu — sahnede PreviewStagePos'a yakın
+            // (300,300,300) her ne varsa (ör. bir önceki level'den kalan, henüz tam silinmemiş
+            // obje) buraya karışabiliyordu. Artık sadece kendi özel layer'ındaki objeleri görüyor.
+            int previewLayer = LayerMask.NameToLayer("MiniTowerPreview");
+            if (previewLayer < 0)
+            {
+                // Fallback: isimle bulunamazsa (ör. build'e layer tanımı bir şekilde
+                // yansımadıysa) TagManager.asset'te elle koyduğumuz index'i (6) doğrudan
+                // kullan. Bu olmadan cullingMask sessizce "Everything"te kalıp az önce
+                // kapattığımız sızıntıyı geri açardı.
+                previewLayer = 6;
+                Debug.LogWarning("[TowerMiniPreview] LayerMask.NameToLayer(\"MiniTowerPreview\") -1 döndü, sabit index (6) kullanılıyor.");
+            }
+            previewCamera.cullingMask = 1 << previewLayer;
+            Debug.Log($"[TowerMiniPreview] previewLayer={previewLayer}, cullingMask={previewCamera.cullingMask}");
         }
 
         if (renderTexture == null)
         {
-            renderTexture = new RenderTexture(256, 256, 16, RenderTextureFormat.ARGB32);
-            renderTexture.antiAliasing = 2;
+            // antiAliasing=1 (kapalı): bazı mobil (tile-based) GPU'larda MSAA resolve'ü
+            // hatalı çalışıp önceki karenin depth içeriği sızabiliyor.
+            // depth=24 (eskiden 16): 16-bit depth buffer'ın hassasiyeti düşük, mobil
+            // GPU'larda bu ortografik sahnede bazı küplerin depth testini yanlış geçip
+            // "kaybolması/boşluk oluşması" görüntüsüne yol açıyordu — Editor'de (masaüstü
+            // GPU, çok daha toleranslı) hiç görünmüyordu, hiyerarşi/obje verisi zaten
+            // doğrulandı, temiz.
+            renderTexture = new RenderTexture(256, 256, 24, RenderTextureFormat.ARGB32);
+            renderTexture.antiAliasing = 1;
             renderTexture.Create();
         }
 
         if (expandedRenderTexture == null)
         {
-            expandedRenderTexture = new RenderTexture(512, 512, 16, RenderTextureFormat.ARGB32);
-            expandedRenderTexture.antiAliasing = 4;
+            expandedRenderTexture = new RenderTexture(512, 512, 24, RenderTextureFormat.ARGB32);
+            expandedRenderTexture.antiAliasing = 1;
             expandedRenderTexture.Create();
         }
 
@@ -229,9 +258,51 @@ public class TowerMiniPreview : MonoBehaviour
         EnsurePreviewStage();
         EnsureUIElement();
 
+        // RenderTexture uygulama açıldığından beri TEK SEFER oluşturulup ömür boyu tekrar
+        // kullanılıyordu. Bazı mobil GPU sürücülerinde uzun süre aynı render target'a yazılan
+        // buffer'da (özellikle sık sık farklı boyutta/şekilde içerik render edilince) bozulma
+        // birikebiliyor — "eski levelden kalma parça" gibi görünen ama aslında GPU tarafı
+        // bozuk render target içeriği olabilir. Her level değişiminde tazeden yeniden
+        // oluşturmak bu ihtimali kapatıyor.
+        if (renderTexture != null)
+        {
+            previewCamera.targetTexture = null;
+            renderTexture.Release();
+            Destroy(renderTexture);
+            renderTexture = null;
+        }
+        renderTexture = new RenderTexture(256, 256, 24, RenderTextureFormat.ARGB32);
+        renderTexture.antiAliasing = 1;
+        renderTexture.Create();
+        if (previewRawImage != null) previewRawImage.texture = renderTexture;
+        if (!isExpanded) previewCamera.targetTexture = renderTexture;
+
         if (miniTowerPivot != null)
+        {
+            miniTowerPivot.SetActive(false);
             Destroy(miniTowerPivot);
+        }
+        miniTowerPivot = null;
         miniTowerInstance = null;
+
+        // Güvenlik taraması: sadece kendi tuttuğumuz `miniTowerPivot` referansına güvenmek
+        // yeterli olmadı (mobil build'de eski levelden kalma hayalet geometri hâlâ görülüyordu,
+        // her ihtimale karşı — arka plana atılıp geri dönme, üst üste Initialize çağrısı vb.).
+        // previewStageRoot'un altında "MiniTower_Pivot" adında BAŞKA ne varsa (referansı
+        // kaybedilmiş olsa bile) burada ANINDA (DestroyImmediate, kare sonuna ertelenmeden)
+        // temizleniyor — bu obje sahnede/asset içinde değil, saf runtime objesi olduğu için
+        // DestroyImmediate burada güvenli.
+        int sweepRemoved = 0;
+        for (int i = previewStageRoot.transform.childCount - 1; i >= 0; i--)
+        {
+            var child = previewStageRoot.transform.GetChild(i);
+            if (child.name == "MiniTower_Pivot")
+            {
+                DestroyImmediate(child.gameObject);
+                sweepRemoved++;
+            }
+        }
+        Debug.Log($"[TowerMiniPreview] Initialize: prefab={(mainShapePrefab != null ? mainShapePrefab.name : "null")}, sweepRemoved={sweepRemoved}, previewStageRoot.childCount(sonra)={previewStageRoot.transform.childCount}");
 
         cellRenderers.Clear();
         cellGameObjects.Clear();
@@ -249,6 +320,13 @@ public class TowerMiniPreview : MonoBehaviour
         miniTowerInstance = Instantiate(mainShapePrefab, Vector3.zero, Quaternion.identity, miniTowerPivot.transform);
         miniTowerInstance.name = "MiniTower_Model";
 
+        // Kopyalanan tüm hiyerarşiyi previewCamera'nın özel cullingMask'iyle eşleşen layer'a al —
+        // aksi halde ana oyun sahnesindeki başka hiçbir şey (yanlışlıkla) bu kamerada görünmüyor
+        // olsa da, PreviewStagePos'a yakın her ne varsa (eski/silinmemiş obje vs.) buraya karışabilirdi.
+        int previewLayer = LayerMask.NameToLayer("MiniTowerPreview");
+        if (previewLayer < 0) previewLayer = 6; // fallback: yukarıdaki EnsurePreviewStage ile aynı sabit index
+        SetLayerRecursively(miniTowerPivot.transform, previewLayer);
+
         foreach (var col in miniTowerInstance.GetComponentsInChildren<Collider>())
             Destroy(col);
 
@@ -265,7 +343,8 @@ public class TowerMiniPreview : MonoBehaviour
         }
 
         var shapeHolder = miniTowerInstance.GetComponent<CubeShapeDataHolder>();
-        float step = shapeHolder != null ? shapeHolder.Step : 1f;
+        currentStep = shapeHolder != null ? shapeHolder.Step : 1f;
+        float step = currentStep;
 
         foreach (Transform child in miniTowerInstance.transform)
         {
@@ -286,6 +365,8 @@ public class TowerMiniPreview : MonoBehaviour
                 floorCells[cell.y] = new List<Vector3Int>();
             floorCells[cell.y].Add(cell);
         }
+
+        Debug.Log($"[TowerMiniPreview] Initialize bitti: cellRenderers={cellRenderers.Count}, floorCells(katman sayısı)={floorCells.Count}, miniTowerInstance.transform.childCount={miniTowerInstance.transform.childCount}, allRenderers={allRenderers.Length}");
 
         RefreshAllCells();
     }
@@ -382,8 +463,36 @@ public class TowerMiniPreview : MonoBehaviour
             ApplyColor(r, color);
     }
 
+    // Level parçalarının materyali (Untitled1.fbx) buz erime efekti için Transparent surface
+    // type ile geliyor — bu, mobil (tile-based) GPU'larda ZWrite kapalı olduğu için küplerin
+    // arka/iç yüzeylerinin ön yüzeyleri "delip geçmesine" yol açabiliyor (Editor'deki masaüstü
+    // GPU'lar buna toleranslı, mobil değil). Mini önizlemede saydamlığa hiç ihtiyaç yok, bu
+    // yüzden sıfırdan, GERÇEKTEN opak bir materyal kullanıyoruz — var olan materyali runtime'da
+    // property property Opaque'a "dönüştürmeye" çalışmak (denendi) URP'nin GUI'de otomatik
+    // ayarladığı blend/keyword kombinasyonunu eksik bırakıp materyali bozuyordu.
+    private Material opaquePreviewMaterial;
+
+    private Material GetOpaquePreviewMaterial()
+    {
+        if (opaquePreviewMaterial != null) return opaquePreviewMaterial;
+        var shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) return null;
+        opaquePreviewMaterial = new Material(shader); // varsayılan Surface Type = Opaque
+        return opaquePreviewMaterial;
+    }
+
     private void ApplyColor(Renderer r, Color col)
     {
+        var opaqueMat = GetOpaquePreviewMaterial();
+        if (opaqueMat != null && r.sharedMaterial != opaqueMat)
+        {
+            r.sharedMaterial = opaqueMat; // paylaşılan opak materyal kopyası — gereksiz instance üretmez
+            if (r.sharedMaterial.HasProperty("_Cull"))
+                r.sharedMaterial.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Back);
+        }
+
+        col.a = 1f;
+
         var block = new MaterialPropertyBlock();
         r.GetPropertyBlock(block);
         block.SetColor("_BaseColor", col);
@@ -722,8 +831,15 @@ public class TowerMiniPreview : MonoBehaviour
                 : cell;
 
             newCellRenderers[newCell] = kvp.Value;
-            if (cellGameObjects.TryGetValue(cell, out var go))
+            if (cellGameObjects.TryGetValue(cell, out var go) && go != null)
+            {
                 newCellGameObjects[newCell] = go;
+                if (cell.y > removedLayerY)
+                {
+                    // 3D önizleme bloğunu da fiziki olarak 1 step aşağı yumuşakça kaydır
+                    go.transform.DOLocalMoveY(go.transform.localPosition.y - currentStep, 0.25f).SetEase(Ease.OutQuad);
+                }
+            }
 
             if (!newFloorCells.ContainsKey(newCell.y))
                 newFloorCells[newCell.y] = new List<Vector3Int>();
@@ -735,6 +851,13 @@ public class TowerMiniPreview : MonoBehaviour
         floorCells = newFloorCells;
 
         RefreshAllCells();
+    }
+
+    private static void SetLayerRecursively(Transform root, int layer)
+    {
+        root.gameObject.layer = layer;
+        foreach (Transform child in root)
+            SetLayerRecursively(child, layer);
     }
 
     private Sprite FindCardSprite()

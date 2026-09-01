@@ -2958,11 +2958,16 @@ public class AILevelDesignerWindow : EditorWindow
             var pieces = SplitShapeWithSolutionFirstLibrary(a);
             if (pieces == null || pieces.Count == 0) continue;
 
-            // Puan: çeşitlilik iyi (+), tek-küp dolgu kötü (−). En yüksek puanlı döşemeyi seç →
-            // hem farklı şekiller, hem "aynı tek-küp 5 kez" sorunu asgaride.
+            // Puan: çeşitlilik iyi (+), tek-küp dolgu kötü (−), H-şekli (7 hücre, iki çubuk+köprü)
+            // de kötü (−) — "H parçası çok geliyor" şikayeti buradan geliyordu: bakePiecesCanonical
+            // TÜM kütüphaneyi (H dahil) kullanıyor, min/maxPieceSize'ı kasıtlı olarak 1-10 açıyor
+            // (bkz. yukarısı). Reddetmek yerine (bu, döşenemeyen küçük katmanlarda TOPLAM başarısızlığa
+            // yol açar) sadece puanı düşürüyoruz — daha iyi bir alternatif varsa o seçilir, yoksa
+            // döşeme yine de üretilir.
             int variety = CountDistinctShapes(pieces);
             int singles = pieces.Count(p => p != null && p.Count == 1);
-            int score = variety * 8 - singles * 10; // çeşitlilik iyi, tek-küp AĞIR cezalı
+            int hShapes = pieces.Count(p => p != null && IsHShapePiece(p));
+            int score = variety * 8 - singles * 10 - hShapes * 10; // çeşitlilik iyi, tek-küp/H AĞIR cezalı
             if (score > bestScore) { bestScore = score; pieceSplitList = pieces; }
         }
         if (pieceSplitList.Count == 0)
@@ -3010,6 +3015,27 @@ public class AILevelDesignerWindow : EditorWindow
             if (canonKey == null || string.CompareOrdinal(key, canonKey) < 0) { canonKey = key; best = sorted; }
         }
         return best;
+    }
+
+    // H parçası: iki 3-hücrelik dikey çubuk + ortada köprü (TutorialOverlay.cs'deki Level 3
+    // öğretici parçasıyla aynı 7 hücrelik desen). Rebake puanlamasında cezalandırmak için kullanılır.
+    private static readonly HashSet<Vector3Int> HShapeCanonicalCells = new HashSet<Vector3Int>(new[]
+    {
+        new Vector3Int(0, 0, 0), new Vector3Int(0, 0, 1), new Vector3Int(0, 0, 2),
+        new Vector3Int(1, 0, 1),
+        new Vector3Int(2, 0, 0), new Vector3Int(2, 0, 1), new Vector3Int(2, 0, 2),
+    });
+
+    private static bool IsHShapePiece(List<Vector3Int> worldCells)
+    {
+        if (worldCells == null || worldCells.Count != HShapeCanonicalCells.Count) return false;
+        var localCells = worldCells.Select(c => new Vector3Int(c.x, 0, c.z)).ToList();
+        for (int r = 0; r < 4; r++)
+        {
+            var rotated = GridManager.RotateCells(localCells, Quaternion.Euler(0, r * 90f, 0));
+            if (new HashSet<Vector3Int>(rotated).SetEquals(HShapeCanonicalCells)) return true;
+        }
+        return false;
     }
 
     // Bir döşemedeki FARKLI şekil sayısı (dönüşten bağımsız, kanonik imzaya göre). Yeniden-pişirmede

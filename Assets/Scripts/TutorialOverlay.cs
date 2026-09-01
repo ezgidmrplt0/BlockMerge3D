@@ -178,6 +178,7 @@ public class TutorialOverlay : MonoBehaviour
 
         running = true;
         HighlightTutorialTargetCells(false); // Reset highlights
+        Debug.Log($"[TutorialOverlay] BeginForLevel: {level.levelName}, steps={steps.Count}, startDelay={startDelay}, isActiveAndEnabled={isActiveAndEnabled}");
         Invoke(nameof(AdvanceStep), startDelay);
     }
 
@@ -196,10 +197,13 @@ public class TutorialOverlay : MonoBehaviour
 
     private void AdvanceStep()
     {
+        Debug.Log($"[TutorialOverlay] AdvanceStep çağrıldı. running={running}, stepIndex={stepIndex}, steps.Count={steps.Count}, IsLevelOver={(GameManager.Instance != null ? GameManager.Instance.IsLevelOver.ToString() : "GM null")}");
+
         if (!running) return;
 
         if (GameManager.Instance != null && GameManager.Instance.IsLevelOver)
         {
+            Debug.Log("[TutorialOverlay] AdvanceStep: IsLevelOver=true, tutorial durduruluyor.");
             StopTutorial();
             return;
         }
@@ -507,14 +511,20 @@ public class TutorialOverlay : MonoBehaviour
 
     private void ShowStep(TutorialStepType type)
     {
-        if (!EnsureIcon()) return;
-
-        switch (type)
+        // İkon gösterilemese bile (EnsureIcon başarısız — ör. ilk soğuk açılışta Canvas henüz
+        // hazır değilse) metin/spotlight YİNE DE gösterilir: ikonun eksik olması metnin hiç
+        // çıkmamasından çok daha az kötü, önceki hâlde ikisi de birlikte iptal oluyordu.
+        bool iconOk = EnsureIcon();
+        Debug.Log($"[TutorialOverlay] ShowStep({type}) — EnsureIcon={iconOk}, canvas={(canvas != null ? canvas.name : "null")}, touchIcon={(touchIcon != null ? "atanmış" : "NULL")}");
+        if (iconOk)
         {
-            case TutorialStepType.SwipeToRotate:    PlaySwipe();      break;
-            case TutorialStepType.DragPieceToBoard: PlayDrag();       break;
-            case TutorialStepType.UseJoker:         PlayJoker();      break;
-            case TutorialStepType.DragPieceToHold:  PlayDragToHold();  break;
+            switch (type)
+            {
+                case TutorialStepType.SwipeToRotate:    PlaySwipe();      break;
+                case TutorialStepType.DragPieceToBoard: PlayDrag();       break;
+                case TutorialStepType.UseJoker:         PlayJoker();      break;
+                case TutorialStepType.DragPieceToHold:  PlayDragToHold();  break;
+            }
         }
 
         ApplySpotlightFor(type);
@@ -526,14 +536,22 @@ public class TutorialOverlay : MonoBehaviour
     private void ApplySpotlightFor(TutorialStepType type)
     {
         var canvasRect = canvas != null ? canvas.transform as RectTransform : null;
-        if (canvasRect == null) return;
+        if (canvasRect == null)
+        {
+            Debug.Log("[TutorialOverlay] ApplySpotlightFor: canvasRect NULL, metin gösterilemiyor — burada tıkanıyor.");
+            return;
+        }
         float W = canvasRect.rect.width, H = canvasRect.rect.height;
 
         switch (type)
         {
             case TutorialStepType.SwipeToRotate:
                 // Döndürülen şey tahtanın kendisi: sahne kararır, tahta parlak kalır.
-                ShowSpotlight(Vector2.zero, 0f, BoardObject());
+                // ShowSpotlight (Ensure3DDim üzerinden) build'in ilk anlarında Shader.Find
+                // geçici null dönebildiği için exception atabiliyordu (bkz. Ensure3DDim) —
+                // bu, metnin (ShowStepText) hiç çalışmamasına yol açan asıl bugdu. Spotlight
+                // başarısız olsa bile metin HER ZAMAN gösterilsin diye try/catch ile izole edildi.
+                TrySafe(() => ShowSpotlight(Vector2.zero, 0f, BoardObject()));
                 ShowStepText(TextFor(type), new Vector2(0f, 60f), 0);
                 break;
 
@@ -543,7 +561,7 @@ public class TutorialOverlay : MonoBehaviour
                 // (3D, karartmanın üstüne alınır). Hücreler ayrıca sarı vurguyla
                 // yanıp sönüyor; karartma üzerinde çok daha belirgin duruyorlar.
                 var cardsPanel = canvasRect.Find("BottomPiecePanel");
-                ShowSpotlight(Vector2.zero, 0f, BoardObject(), cardsPanel);
+                TrySafe(() => ShowSpotlight(Vector2.zero, 0f, BoardObject(), cardsPanel));
                 ShowStepText(TextFor(type), new Vector2(0f, 60f), 0);
                 break;
             }
@@ -553,7 +571,7 @@ public class TutorialOverlay : MonoBehaviour
                 if (jokerBtn == null) { HideSpotlight(); return; }
                 var jokerRT = jokerBtn.transform as RectTransform;
                 if (jokerRT == null) { HideSpotlight(); return; }
-                ShowSpotlight(Vector2.zero, 0f, jokerRT);
+                TrySafe(() => ShowSpotlight(Vector2.zero, 0f, jokerRT));
                 ShowStepText(TextFor(type), WorldToCanvas(jokerRT.position), -1);
                 break;
             }
@@ -561,7 +579,7 @@ public class TutorialOverlay : MonoBehaviour
             {
                 var cardsPanel = canvasRect.Find("BottomPiecePanel");
                 var holdPanel = LevelManager.Instance != null ? LevelManager.Instance.HoldSlotPanel : null;
-                ShowSpotlight(Vector2.zero, 0f, cardsPanel, holdPanel != null ? holdPanel.transform : null);
+                TrySafe(() => ShowSpotlight(Vector2.zero, 0f, cardsPanel, holdPanel != null ? holdPanel.transform : null));
                 ShowStepText(TextFor(type), new Vector2(0f, 60f), 0);
                 break;
             }
@@ -672,18 +690,25 @@ public class TutorialOverlay : MonoBehaviour
     private bool EnsureIcon()
     {
         if (icon != null) return true;
-        if (touchIcon == null)
-        {
-            Debug.LogWarning("[TutorialOverlay] touchIcon atanmamış — öğretici gösterilemiyor.");
-            return false;
-        }
 
-        canvas = LayerPanelController.Instance != null && LayerPanelController.Instance.uiCanvas != null
-            ? LayerPanelController.Instance.uiCanvas
-            : FindObjectOfType<Canvas>();
+        // Canvas'ı touchIcon'dan BAĞIMSIZ çöz: ApplySpotlightFor (metin/spotlight) buna
+        // ihtiyaç duyuyor, ikon atanmamış olsa bile metin gösterilebilsin diye erken
+        // dönmeden önce canvas alanı doldurulur.
+        if (canvas == null)
+        {
+            canvas = LayerPanelController.Instance != null && LayerPanelController.Instance.uiCanvas != null
+                ? LayerPanelController.Instance.uiCanvas
+                : FindObjectOfType<Canvas>();
+        }
         if (canvas == null)
         {
             Debug.LogWarning("[TutorialOverlay] Sahnede Canvas bulunamadı.");
+            return false;
+        }
+
+        if (touchIcon == null)
+        {
+            Debug.LogWarning("[TutorialOverlay] touchIcon atanmamış — öğretici gösterilemiyor.");
             return false;
         }
 
@@ -790,6 +815,7 @@ public class TutorialOverlay : MonoBehaviour
     private void ShowStepText(string text, Vector2 anchoredPos, int side)
     {
         EnsureStepText();
+        Debug.Log($"[TutorialOverlay] ShowStepText: \"{text}\", stepText={(stepText != null ? "OK" : "NULL")}, font={(stepText != null && stepText.font != null ? stepText.font.name : "yok")}");
         if (stepText == null) return;
 
         var canvasRect = canvas.transform as RectTransform;
@@ -877,11 +903,34 @@ public class TutorialOverlay : MonoBehaviour
     private GameObject dim3D;
     private readonly List<(Renderer r, Material[] mats)> lifted3D = new List<(Renderer, Material[])>();
 
+    private void TrySafe(System.Action action)
+    {
+        try { action(); }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"[TutorialOverlay] Spotlight adımı başarısız oldu (metin yine de gösterilecek): {e}");
+        }
+    }
+
     private void Ensure3DDim()
     {
         if (dim3D != null) return;
         var cam = Camera.main;
         if (cam == null) return;
+
+        // Build'in ilk anlarında (ör. Level 1'in tetiklediği ilk tutorial adımı) shader
+        // veritabanı henüz tam yüklenmemiş olabiliyor ve Shader.Find geçici olarak null
+        // dönebiliyor — bu durumda new Material(null) exception atıyordu, ApplySpotlightFor'u
+        // yarıda kesip metnin de hiç gösterilmemesine yol açıyordu (Editor'de shader'lar hep
+        // hazır olduğu için hiç görülmüyordu). Burada null'a karşı erken çıkıyoruz; dim3D
+        // GameObject'i BİLEREK henüz atanmıyor, böylece bir sonraki çağrıda tekrar denenir.
+        var sh = Shader.Find("Universal Render Pipeline/Unlit");
+        if (sh == null) sh = Shader.Find("Unlit/Color");
+        if (sh == null)
+        {
+            Debug.LogWarning("[TutorialOverlay] Ensure3DDim: shader bulunamadı, karartma bu seferlik atlanıyor.");
+            return;
+        }
 
         dim3D = GameObject.CreatePrimitive(PrimitiveType.Quad);
         dim3D.name = "Tutorial3DDim";
@@ -896,8 +945,6 @@ public class TutorialOverlay : MonoBehaviour
                                    : 2f * dist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
         dim3D.transform.localScale = new Vector3(h * cam.aspect * 1.2f, h * 1.2f, 1f);
 
-        var sh = Shader.Find("Universal Render Pipeline/Unlit");
-        if (sh == null) sh = Shader.Find("Unlit/Color");
         var mat = new Material(sh);
         mat.SetColor("_BaseColor", new Color(0f, 0f, 0f, 0.72f));
         if (mat.HasProperty("_Color")) mat.SetColor("_Color", new Color(0f, 0f, 0f, 0.72f));

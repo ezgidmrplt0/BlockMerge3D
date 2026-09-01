@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using DG.Tweening;
+using System.Collections.Generic;
 
 public class UIManager : MonoBehaviour
 {
@@ -797,11 +798,43 @@ public class UIManager : MonoBehaviour
         return null;
     }
 
+    // Konfeti havuzu: eskiden her win'de 70 yeni GameObject+Image yaratılıp Destroy ediliyordu.
+    // Art arda birkaç level kazanınca (konfeti tamamen bitmeden yeni win tetiklenirse) obje/tween
+    // sayısı katlanarak büyüyordu (DOTween "Max Tweens reached" 200→1250 gibi) — CreateShatterEffect
+    // ile aynı sorunun UI tarafındaki hali. Aynı havuzlama deseni burada da uygulanıyor.
+    private Queue<GameObject> confettiPool = new Queue<GameObject>();
+
+    private GameObject GetConfettiPiece()
+    {
+        GameObject confetti;
+        if (confettiPool.Count > 0)
+        {
+            confetti = confettiPool.Dequeue();
+        }
+        else
+        {
+            confetti = new GameObject("ConfettiPiece", typeof(RectTransform), typeof(Image));
+        }
+        confetti.transform.SetParent(winOverlay.transform, false);
+        confetti.transform.SetAsLastSibling();
+        confetti.SetActive(true);
+        return confetti;
+    }
+
+    private void ReturnConfettiPiece(GameObject confetti)
+    {
+        if (confetti == null) return;
+        confetti.GetComponent<RectTransform>().DOKill();
+        confetti.GetComponent<Image>().DOKill();
+        confetti.SetActive(false);
+        confettiPool.Enqueue(confetti);
+    }
+
     private void PlayConfettiEffect()
     {
         Debug.Log("[UIManager] Konfeti efekti başlıyor!");
         if (winOverlay == null) return;
-        
+
         RectTransform rectTransform = winOverlay.GetComponent<RectTransform>();
         float width = rectTransform != null ? rectTransform.rect.width : Screen.width;
         float height = rectTransform != null ? rectTransform.rect.height : Screen.height;
@@ -823,11 +856,13 @@ public class UIManager : MonoBehaviour
 
     private void SpawnConfettiPiece(bool isLeft, float width, float height)
     {
-        GameObject confetti = new GameObject("ConfettiPiece");
-        confetti.transform.SetParent(winOverlay.transform, false);
+        GameObject confetti = GetConfettiPiece();
 
-        RectTransform rect = confetti.AddComponent<RectTransform>();
-        Image img = confetti.AddComponent<Image>();
+        RectTransform rect = confetti.GetComponent<RectTransform>();
+        Image img = confetti.GetComponent<Image>();
+        img.color = Color.white; // önceki kullanımdan kalan fade/alpha sıfırlanır (aşağıda tekrar boyanacak)
+        rect.localScale = Vector3.one;
+        rect.localRotation = Quaternion.identity;
 
         // Rastgele ince/kalın şerit boyutları
         float w = Random.Range(8f, 16f);
@@ -883,7 +918,7 @@ public class UIManager : MonoBehaviour
         ySeq.Insert(durationUp + durationDown * 0.4f, img.DOFade(0f, durationDown * 0.6f).SetEase(Ease.InQuad));
 
         ySeq.OnComplete(() => {
-            if (confetti != null) Destroy(confetti);
+            ReturnConfettiPiece(confetti);
         });
     }
 
