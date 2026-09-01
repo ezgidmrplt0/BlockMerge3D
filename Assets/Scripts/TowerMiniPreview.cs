@@ -54,7 +54,7 @@ public class TowerMiniPreview : MonoBehaviour
 
     // Ghost renk sabitleri
     private static readonly Color GhostColor = new Color(0.35f, 0.40f, 0.50f, 0.45f);
-    private static readonly Color IceColor = new Color(0.55f, 0.85f, 0.95f, 0.9f);
+    private static readonly Color IceColor = new Color(0.45f, 0.42f, 0.38f, 1f);
 
     private void Awake()
     {
@@ -81,24 +81,30 @@ public class TowerMiniPreview : MonoBehaviour
             if (ch.name.StartsWith("MiniTowerLight")) Destroy(ch.gameObject);
         }
 
-        Vector3[] lightOffsets = new Vector3[]
-        {
-            new Vector3( 3f,  2f,  3f),
-            new Vector3(-3f,  2f, -3f),
-            new Vector3( 3f, -2f, -3f),
-            new Vector3(-3f, -2f,  3f),
-        };
-        for (int li = 0; li < lightOffsets.Length; li++)
-        {
-            var lgo = new GameObject($"MiniTowerLight{li}");
-            lgo.transform.SetParent(previewStageRoot.transform);
-            lgo.transform.position = PreviewStagePos + lightOffsets[li];
-            var pl = lgo.AddComponent<Light>();
-            pl.type = LightType.Point;
-            pl.intensity = 1.8f;
-            pl.range = 12f;
-            pl.color = Color.white;
-        }
+        // Ana sahnedeki Directional Light ile birebir aynı (OyunDeneme.unity: renk, intensity, rotation)
+        var keyLightGo = new GameObject("MiniTowerLight_Key");
+        keyLightGo.transform.SetParent(previewStageRoot.transform);
+        keyLightGo.transform.position = PreviewStagePos;
+        keyLightGo.transform.rotation = new Quaternion(0.40821794f, -0.23456973f, 0.10938166f, 0.8754261f);
+        var keyLight = keyLightGo.AddComponent<Light>();
+        keyLight.type = LightType.Directional;
+        keyLight.intensity = 1f;
+        keyLight.color = new Color(1f, 0.98f, 0.95f, 1f);
+        keyLight.shadows = LightShadows.None;
+
+        // Karşı yönden yumuşak dolgu ışığı — sert gölgeli tarafın kapkaranlık kalmaması için
+        // (gerçek tahtada bu dolguyu ortamdaki diğer ışıklar/ambient sağlıyor, izole preview
+        // sahnesinde tek başına key light bunu veremiyor)
+        var fillLightGo = new GameObject("MiniTowerLight_Fill");
+        fillLightGo.transform.SetParent(previewStageRoot.transform);
+        fillLightGo.transform.position = PreviewStagePos;
+        fillLightGo.transform.rotation = Quaternion.Euler(
+            -keyLightGo.transform.eulerAngles.x, keyLightGo.transform.eulerAngles.y + 180f, 0f);
+        var fillLight = fillLightGo.AddComponent<Light>();
+        fillLight.type = LightType.Directional;
+        fillLight.intensity = 0.5f;
+        fillLight.color = new Color(0.85f, 0.9f, 1f, 1f);
+        fillLight.shadows = LightShadows.None;
 
         if (previewCamera == null)
         {

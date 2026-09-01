@@ -442,6 +442,8 @@ public class UIManager : MonoBehaviour
         }
 
         TowerMiniPreview.Instance?.SetVisible(false);
+
+        if (layerDamageBarContainer != null) layerDamageBarContainer.SetActive(false);
     }
 
     /// <summary>
@@ -461,6 +463,8 @@ public class UIManager : MonoBehaviour
         }
 
         TowerMiniPreview.Instance?.SetVisible(true);
+
+        if (layerDamageBarContainer != null) layerDamageBarContainer.SetActive(true);
 
         LayerPanelController.Instance?.SetBottomPanelVisible(true);
     }
