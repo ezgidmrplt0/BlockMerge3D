@@ -43,6 +43,7 @@ public class TowerMiniPreview : MonoBehaviour
     private Dictionary<Vector3Int, Renderer> cellRenderers = new Dictionary<Vector3Int, Renderer>();
     private Dictionary<Vector3Int, GameObject> cellGameObjects = new Dictionary<Vector3Int, GameObject>();
     private Dictionary<int, List<Vector3Int>> floorCells = new Dictionary<int, List<Vector3Int>>();
+    private HashSet<int> demolishingLayers = new HashSet<int>();
 
     // Expanded panel
     private bool isExpanded;
@@ -240,7 +241,26 @@ public class TowerMiniPreview : MonoBehaviour
     {
         if (isExpanded) CollapseImmediate();
         if (previewCardRect != null)
-            previewCardRect.gameObject.SetActive(visible);
+        {
+            previewCardRect.DOKill();
+            if (visible)
+            {
+                previewCardRect.gameObject.SetActive(true);
+                previewCardRect.localScale = Vector3.zero;
+                previewCardRect.DOScale(Vector3.one, 0.25f).SetEase(Ease.OutBack).SetUpdate(true);
+            }
+            else
+            {
+                previewCardRect.DOScale(Vector3.zero, 0.18f).SetEase(Ease.InBack).SetUpdate(true).OnComplete(() =>
+                {
+                    if (previewCardRect != null)
+                    {
+                        previewCardRect.gameObject.SetActive(false);
+                        previewCardRect.localScale = Vector3.one;
+                    }
+                });
+            }
+        }
     }
 
     private void Update()
@@ -307,6 +327,7 @@ public class TowerMiniPreview : MonoBehaviour
         cellRenderers.Clear();
         cellGameObjects.Clear();
         floorCells.Clear();
+        demolishingLayers.Clear();
         currentActiveFloorY = activeLayerY;
 
         if (isExpanded) CollapseImmediate();
@@ -382,27 +403,62 @@ public class TowerMiniPreview : MonoBehaviour
     public void OnCellPlaced(Vector3Int cell, Color color)
     {
         SetCellColor(cell, color);
+
+        if (cellGameObjects.TryGetValue(cell, out var go) && go != null)
+        {
+            DOTween.Kill(go.transform);
+            go.transform.localScale = Vector3.one * 1.35f;
+            go.transform.DOScale(Vector3.one, 0.22f).SetEase(Ease.OutBack);
+        }
+
+        if (previewCardRect != null)
+        {
+            DOTween.Kill(previewCardRect);
+            previewCardRect.localScale = Vector3.one;
+            previewCardRect.DOPunchScale(Vector3.one * 0.08f, 0.2f, 5, 0.5f);
+        }
+
         if (isExpanded) RefreshExpandedLayerGrids();
     }
 
     public void OnCellRemoved(Vector3Int cell)
     {
-        SetCellColor(cell, GhostColor);
+        var gm = GridManager.Instance;
+        bool isDemolishing = demolishingLayers.Contains(cell.y) || (gm != null && gm.IsExplodingLayer);
+
+        if (!isDemolishing)
+        {
+            SetCellColor(cell, GhostColor);
+
+            if (cellGameObjects.TryGetValue(cell, out var go) && go != null)
+            {
+                DOTween.Kill(go.transform);
+                go.transform.localScale = Vector3.one * 0.85f;
+                go.transform.DOScale(Vector3.one, 0.18f).SetEase(Ease.OutQuad);
+            }
+        }
+
         if (isExpanded) RefreshExpandedLayerGrids();
     }
 
     public void OnFloorDemolished(int demolishedFloorY)
     {
+        demolishingLayers.Add(demolishedFloorY);
+
         if (floorCells.TryGetValue(demolishedFloorY, out var cells))
         {
             foreach (var cell in cells)
             {
                 if (cellGameObjects.TryGetValue(cell, out var go) && go != null)
                 {
-                    go.transform.DOScale(Vector3.zero, 0.35f).SetEase(Ease.InBack).OnComplete(() =>
-                    {
-                        Destroy(go);
-                    });
+                    go.transform.DOScale(Vector3.zero, 0.35f)
+                        .SetEase(Ease.InBack)
+                        .SetDelay(0.25f)
+                        .OnComplete(() =>
+                        {
+                            demolishingLayers.Remove(demolishedFloorY);
+                            Destroy(go);
+                        });
                 }
                 cellRenderers.Remove(cell);
                 cellGameObjects.Remove(cell);
@@ -411,7 +467,13 @@ public class TowerMiniPreview : MonoBehaviour
         }
 
         if (previewCardRect != null)
-            previewCardRect.DOPunchScale(Vector3.one * 0.18f, 0.25f, 6, 0.5f);
+        {
+            DOVirtual.DelayedCall(0.25f, () =>
+            {
+                if (previewCardRect != null)
+                    previewCardRect.DOPunchScale(Vector3.one * 0.18f, 0.25f, 6, 0.5f);
+            });
+        }
 
         if (isExpanded) RefreshExpandedLayerGrids();
     }
@@ -836,8 +898,10 @@ public class TowerMiniPreview : MonoBehaviour
                 newCellGameObjects[newCell] = go;
                 if (cell.y > removedLayerY)
                 {
-                    // 3D önizleme bloğunu da fiziki olarak 1 step aşağı yumuşakça kaydır
-                    go.transform.DOLocalMoveY(go.transform.localPosition.y - currentStep, 0.25f).SetEase(Ease.OutQuad);
+                    // 3D önizleme bloğunu da fiziki olarak 1 step aşağı yumuşakça kaydır (tamamlanan katman göründükten sonra)
+                    go.transform.DOLocalMoveY(go.transform.localPosition.y - currentStep, 0.25f)
+                        .SetEase(Ease.OutQuad)
+                        .SetDelay(0.25f);
                 }
             }
 

@@ -1356,6 +1356,13 @@ public class UIManager : MonoBehaviour
         settingsOpen = !settingsOpen;
         if (GameManager.Instance != null) GameManager.Instance.IsSettingsOpen = settingsOpen;
         if (settingsOpen) UpdateSettingsUI();
+
+        if (gearBtn != null)
+        {
+            gearBtn.transform.DOKill();
+            gearBtn.transform.DOPunchRotation(new Vector3(0, 0, -45f), 0.25f, 6, 0.5f).SetUpdate(true);
+        }
+
         SetActionButtonsVisible(settingsOpen);
         TowerMiniPreview.Instance?.SetVisible(!settingsOpen);
     }
@@ -1367,18 +1374,20 @@ public class UIManager : MonoBehaviour
         {
             if (b == null) continue;
             var tr = b.transform;
+            tr.DOKill();
             if (visible)
             {
                 b.gameObject.SetActive(true);
-                tr.DOKill();
                 tr.localScale = Vector3.zero;
-                tr.DOScale(1f, 0.3f).SetEase(Ease.OutBack).SetUpdate(true);
+                tr.DOScale(1f, 0.25f).SetEase(Ease.OutBack).SetUpdate(true);
             }
             else
             {
-                tr.DOKill();
-                tr.localScale = Vector3.one;
-                b.gameObject.SetActive(false);
+                tr.DOScale(0f, 0.18f).SetEase(Ease.InBack).SetUpdate(true).OnComplete(() =>
+                {
+                    b.gameObject.SetActive(false);
+                    tr.localScale = Vector3.one;
+                });
             }
         }
     }
