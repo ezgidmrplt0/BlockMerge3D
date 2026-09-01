@@ -1438,6 +1438,25 @@ public class GridManager : MonoBehaviour
         return CheckAndClearActiveLayerLines(null, onComplete);
     }
 
+    private bool IsLineTouchingPiece(List<Vector3Int> line, HashSet<Vector3Int> pieceCells)
+    {
+        if (pieceCells == null || pieceCells.Count == 0) return true;
+        foreach (var lineCell in line)
+        {
+            foreach (var pCell in pieceCells)
+            {
+                if (lineCell == pCell) return true;
+                if (Mathf.Abs(lineCell.x - pCell.x) <= 1 &&
+                    Mathf.Abs(lineCell.y - pCell.y) <= 1 &&
+                    Mathf.Abs(lineCell.z - pCell.z) <= 1)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /// <summary>
     /// Aktif katmandaki dolu satırları (X ekseni) ve sütunları (Z ekseni) tespit eder,
     /// Block Blast tarzı patlatır, temizler ve yok eder.
@@ -1478,10 +1497,12 @@ public class GridManager : MonoBehaviour
 
             if (targetCellsInLine >= 2 && isFull && line.Count > 0)
             {
-                // Parçanın tek başına doldurduğu satır, katman henüz tamamlanmamışsa hemen patlamaz;
-                // oyuncunun en az 1 tamamlayıcı parça (ekleme) daha yerleştirmesi beklenir.
+                // Parçanın tek başına doldurduğu satır, katman henüz tamamlanmamışsa hemen patlamaz.
+                // Ayrıca önceden dolmuş satır/sütunların patlaması için yeni konulan parçanın o çizgiye TEMAS ETMESİ gerekir.
                 bool isPurelyNewPiece = newSet != null && line.All(c => newSet.Contains(c));
-                if (!isPurelyNewPiece || isLayer100PercentFull)
+                bool isTouchingNewPiece = newSet == null || IsLineTouchingPiece(line, newSet);
+
+                if (isLayer100PercentFull || (!isPurelyNewPiece && isTouchingNewPiece))
                 {
                     linesToBlast.Add(line);
                 }
@@ -1513,7 +1534,9 @@ public class GridManager : MonoBehaviour
             if (targetCellsInLine >= 2 && isFull && line.Count > 0)
             {
                 bool isPurelyNewPiece = newSet != null && line.All(c => newSet.Contains(c));
-                if (!isPurelyNewPiece || isLayer100PercentFull)
+                bool isTouchingNewPiece = newSet == null || IsLineTouchingPiece(line, newSet);
+
+                if (isLayer100PercentFull || (!isPurelyNewPiece && isTouchingNewPiece))
                 {
                     linesToBlast.Add(line);
                 }
