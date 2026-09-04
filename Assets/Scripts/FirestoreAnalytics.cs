@@ -8,12 +8,23 @@ using Firebase.Extensions;
 
 /// <summary>
 /// Firestore tabanlı derin kullanıcı ve oynanış analitik sistemi.
-/// Her kullanıcı için level bazlı tam geçmiş, hamle sayısı, katman bazlı churn (pes etme) noktaları ve booster kullanımını kaydeder.
+/// Her kullanıcı için level bazlı tam geçmiş, hamle sayısı, katman bazlı churn (pes etme)
+/// noktaları ve booster kullanımını kaydeder.
 ///
 /// Veri yapısı:
-///   users/{deviceId}/profile          → genel kullanıcı özeti & toplam booster/churn metrikleri
-///   users/{deviceId}/sessions/{id}    → oturum kayıtları
-///   users/{deviceId}/level_history/{levelIndex} → level bazlı detay (fail moves, churn_layers, boosters_used)
+///   users/{deviceId}                            → dashboard'un listelediği özet (root)
+///   users/{deviceId}/meta/profile               → aynı özetin detaylı kopyası
+///   users/{deviceId}/sessions/{sessionId}       → oturum kayıtları
+///   users/{deviceId}/level_history/{levelIndex} → level bazlı detay
+///
+/// Yazma modeli: her yazma <see cref="Merge"/> üzerinden SetAsync(MergeAll) ile yapılır.
+/// Böylece hedef doküman henüz oluşmamışsa bile yazma kaybolmaz — UpdateAsync bu durumda
+/// NOT_FOUND fırlatıp sessizce veri kaybettiriyordu. Her yazmanın sonucu da loglanır.
+///
+/// Okuma YAPILMAZ: "en uzak level", "en iyi süre", "ilk deneme", "kaçıncı deneme" gibi
+/// karşılaştırma gerektiren değerler PlayerPrefs'te yerel tutulur ve yalnızca değiştiğinde
+/// yazılır. Eskiden level başına 2 okuma + 2 yazma vardı; her okuma telefonda ağ
+/// gidiş-dönüşü ve Firestore kotası demekti.
 /// </summary>
 public class FirestoreAnalytics : MonoBehaviour
 {
@@ -25,6 +36,22 @@ public class FirestoreAnalytics : MonoBehaviour
     private const string COLLECTION_LEVELS   = "level_history";
     private const string DOC_PROFILE         = "profile";
 
+    // Yerel (okuma gerektirmeyen) karşılaştırma değerleri
+    private const string PREF_INSTALL_DATE = "fs_install_date";
+    private const string PREF_FARTHEST     = "fs_farthest_level";
+    private const string PREF_LEVEL_SEEN   = "fs_level_seen_";
+    private const string PREF_BEST_TIME    = "fs_best_time_";
+    private const string PREF_ATTEMPTS     = "fs_attempts_";
+
+    /// <summary>Tek bir olaya yazılabilecek en uzun süre. Time/DateTime uygulama arka
+    /// plandayken de ilerlediği için kırpılmazsa "bu levelde 3 saat geçirdi" gibi
+    /// kayıtlar oluşuyor.</summary>
+    private const double MAX_EVENT_SECONDS = 3600;
+
+    /// <summary>Bu süreden kısa arka plan kesintisi YENİ oturum sayılmaz — bildirim
+    /// çubuğunu açıp kapatmak oturum sayısını şişirmesin.</summary>
+    private const double NEW_SESSION_AFTER_SECONDS = 30;
+
     // ── Özel Durum ────────────────────────────────────────────────
     private FirebaseFirestore db;
     private bool isReady = false;
@@ -34,13 +61,26 @@ public class FirestoreAnalytics : MonoBehaviour
     private DateTime sessionStartTime;
     private int levelsPlayedThisSession = 0;
 
-    // Aktif level & hamle takibi
+    // Aktif level & sayaç takibi
     private int currentLevelIndex = -1;
     private DateTime levelStartTime;
     private bool levelActive = false;
 
+    // Arka plan takibi
+    private DateTime pausedAt;
+    private bool levelActiveBeforePause = false;
+
     /// <summary>Aktif level denemesinde yapılan geçerli parça yerleştirme hamle sayısı.</summary>
     public int CurrentLevelMoves { get; private set; } = 0;
+
+    /// <summary>Aktif denemede tahtanın kaç kez döndürüldüğü.</summary>
+    public int CurrentLevelRotations { get; private set; } = 0;
+
+    /// <summary>Aktif denemede patlatılan satır/sütun sayısı.</summary>
+    public int CurrentLevelMatches { get; private set; } = 0;
+
+    /// <summary>Aktif levelin bu cihazdaki kaçıncı denemesi (1'den başlar).</summary>
+    public int CurrentAttemptNumber { get; private set; } = 1;
 
     // ─────────────────────────────────────────────────────────────
     // BAŞLANGIÇ
@@ -54,13 +94,13 @@ public class FirestoreAnalytics : MonoBehaviour
     }
 
     /// <summary>
-    /// FirebaseManager başarıyla init ettikten sonra bu metodu çağır.
+    /// FirebaseManager başarıyla init ettikten sonra bu metodu çağırır.
     /// </summary>
     public void Initialize()
     {
         db = FirebaseFirestore.DefaultInstance;
         userId = SystemInfo.deviceUniqueIdentifier;
-        sessionId = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_") + UnityEngine.Random.Range(1000, 9999);
+        sessionId = NewSessionId();
         sessionStartTime = DateTime.UtcNow;
         isReady = true;
 
@@ -70,12 +110,89 @@ public class FirestoreAnalytics : MonoBehaviour
         Debug.Log("[Firestore] Başlatıldı. UserID: " + userId + " | Session: " + sessionId);
     }
 
-    /// <summary>
-    /// Oyuncu tahtaya her parça yerleştirdiğinde hamle sayacını artırır.
-    /// </summary>
-    public void IncrementMoveCount()
+    private static string NewSessionId() =>
+        DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_") + UnityEngine.Random.Range(1000, 9999);
+
+    // ─────────────────────────────────────────────────────────────
+    // OYUNDAN GELEN SAYAÇLAR
+    // SDK hazır olmasa da çalışırlar — yerel durum init'ten bağımsızdır.
+    // ─────────────────────────────────────────────────────────────
+
+    /// <summary>Oyuncu tahtaya her parça yerleştirdiğinde çağrılır.</summary>
+    public void IncrementMoveCount() => CurrentLevelMoves++;
+
+    /// <summary>Tahta her döndürüldüğünde (swipe veya A/D) çağrılır.</summary>
+    public void IncrementRotationCount() => CurrentLevelRotations++;
+
+    /// <summary>Satır/sütun patladığında, patlayan çizgi sayısı kadar çağrılır.</summary>
+    public void IncrementMatchCount(int count = 1)
     {
-        CurrentLevelMoves++;
+        if (count > 0) CurrentLevelMatches += count;
+    }
+
+    private void ResetAttemptCounters()
+    {
+        CurrentLevelMoves     = 0;
+        CurrentLevelRotations = 0;
+        CurrentLevelMatches   = 0;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // YAZMA YARDIMCILARI
+    // ─────────────────────────────────────────────────────────────
+
+    private DocumentReference RootRef =>
+        db.Collection(COLLECTION_USERS).Document(userId);
+
+    private DocumentReference ProfileRef =>
+        RootRef.Collection("meta").Document(DOC_PROFILE);
+
+    private DocumentReference GetLevelRef(int levelIndex) =>
+        RootRef.Collection(COLLECTION_LEVELS).Document(levelIndex.ToString());
+
+    /// <summary>
+    /// Doküman yoksa oluşturur, varsa alanları birleştirir. Hata olursa konsola yazar —
+    /// eskiden task sonucu atıldığı için başarısız yazmalar hiçbir yerde görünmüyordu.
+    /// </summary>
+    private void Merge(DocumentReference doc, Dictionary<string, object> data, string tag)
+    {
+        if (!isReady || db == null) return;
+
+        doc.SetAsync(data, SetOptions.MergeAll).ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted)
+            {
+                Debug.LogWarning("[Firestore] '" + tag + "' yazılamadı: " +
+                                 task.Exception?.GetBaseException().Message);
+            }
+        });
+    }
+
+    /// <summary>Aynı özeti hem root dokümana (dashboard listesi) hem meta/profile'a yazar.</summary>
+    private void MergeProfileAndRoot(Dictionary<string, object> updates, string tag)
+    {
+        if (!isReady || db == null) return;
+
+        var now = Timestamp.FromDateTime(DateTime.UtcNow);
+        string todayStr = DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+        var profileData = new Dictionary<string, object>(updates);
+        profileData["last_seen"] = now;
+        profileData["last_active_date"] = todayStr;
+        Merge(ProfileRef, profileData, tag + " → profile");
+
+        var rootData = new Dictionary<string, object>(updates);
+        rootData["device_id"] = userId;
+        rootData["last_seen"] = now;
+        rootData["last_active_date"] = todayStr;
+        Merge(RootRef, rootData, tag + " → root");
+    }
+
+    /// <summary>Anormal süreleri kırpar (arka planda geçen zaman, saat değişimi vb.).</summary>
+    private static long SaneSeconds(double seconds)
+    {
+        if (double.IsNaN(seconds) || seconds <= 0) return 0;
+        return (long)Math.Min(seconds, MAX_EVENT_SECONDS);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -86,79 +203,36 @@ public class FirestoreAnalytics : MonoBehaviour
     {
         if (!isReady) return;
 
-        DocumentReference profileRef = db
-            .Collection(COLLECTION_USERS).Document(userId)
-            .Collection("meta").Document(DOC_PROFILE);
+        string todayStr = DateTime.UtcNow.ToString("yyyy-MM-dd");
 
-        profileRef.GetSnapshotAsync().ContinueWithOnMainThread(task =>
+        // Kurulum tarihi yerel tutulur — Firestore okuması gerekmez.
+        string installDate = PlayerPrefs.GetString(PREF_INSTALL_DATE, "");
+        bool isNewUser = string.IsNullOrEmpty(installDate);
+        if (isNewUser)
         {
-            if (!task.IsCompleted || task.IsFaulted) return;
+            installDate = todayStr;
+            PlayerPrefs.SetString(PREF_INSTALL_DATE, installDate);
+            PlayerPrefs.Save();
+        }
 
-            DocumentSnapshot snap = task.Result;
-            var now = Timestamp.FromDateTime(DateTime.UtcNow);
+        int retentionDay = 0;
+        if (DateTime.TryParse(installDate, out DateTime insDate))
+            retentionDay = Mathf.Max(0, (DateTime.UtcNow.Date - insDate.Date).Days);
 
-            if (!snap.Exists)
-            {
-                // İlk kez açılış — profil oluştur
-                var data = new Dictionary<string, object>
-                {
-                    { "first_open",           now },
-                    { "install_date",         DateTime.UtcNow.ToString("yyyy-MM-dd") },
-                    { "platform",             Application.platform.ToString() },
-                    { "app_version",          Application.version },
-                    { "total_play_minutes",   0 },
-                    { "total_sessions",       0 },
-                    { "farthest_level",       0 },
-                    { "total_fails",          0 },
-                    { "total_resets",         0 },
-                    { "total_retries",        0 },
-                    { "total_boosters_used",  0 },
-                    { "last_seen",            now }
-                };
-                profileRef.SetAsync(data);
+        var summary = new Dictionary<string, object>
+        {
+            { "install_date",   installDate },
+            { "retention_day",  retentionDay },
+            { "platform",       Application.platform.ToString() },
+            { "app_version",    Application.version },
+            { "device_model",   SystemInfo.deviceModel },
+            { "farthest_level", PlayerPrefs.GetInt(PREF_FARTHEST, 0) }
+        };
 
-                // Dashboard için root document oluştur (users koleksiyonu listelenebilir olsun)
-                WriteRootDoc(new Dictionary<string, object>
-                {
-                    { "device_id",            userId },
-                    { "first_open",           now },
-                    { "platform",             Application.platform.ToString() },
-                    { "app_version",          Application.version },
-                    { "farthest_level",       0 },
-                    { "total_sessions",       0 },
-                    { "total_fails",          0 },
-                    { "total_resets",         0 },
-                    { "total_retries",        0 },
-                    { "total_boosters_used",  0 },
-                    { "total_play_minutes",   0.0 },
-                    { "last_seen",            now }
-                });
-            }
-            else
-            {
-                // Geri dönen kullanıcı — son görülme zamanını güncelle
-                profileRef.UpdateAsync("last_seen", now);
-                UpdateRootDoc(new Dictionary<string, object> { { "last_seen", now } });
-            }
-        });
-    }
+        if (isNewUser)
+            summary["first_open"] = Timestamp.FromDateTime(DateTime.UtcNow);
 
-    /// <summary>
-    /// Dashboard'un users koleksiyonunu listeleyebilmesi için root document'i oluşturur.
-    /// </summary>
-    private void WriteRootDoc(Dictionary<string, object> data)
-    {
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .SetAsync(data, SetOptions.MergeAll);
-    }
-
-    /// <summary>
-    /// Root document'daki özet istatistikleri günceller.
-    /// </summary>
-    private void UpdateRootDoc(Dictionary<string, object> updates)
-    {
-        updates["last_seen"] = Timestamp.FromDateTime(DateTime.UtcNow);
-        db.Collection(COLLECTION_USERS).Document(userId).UpdateAsync(updates);
+        MergeProfileAndRoot(summary, "profile");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -169,24 +243,19 @@ public class FirestoreAnalytics : MonoBehaviour
     {
         if (!isReady) return;
 
-        var data = new Dictionary<string, object>
+        Merge(RootRef.Collection(COLLECTION_SESSIONS).Document(sessionId), new Dictionary<string, object>
         {
-            { "start_time",         Timestamp.FromDateTime(sessionStartTime) },
-            { "end_time",           FieldValue.ServerTimestamp },
-            { "duration_seconds",   0 },
-            { "levels_played",      0 },
-            { "device_model",       SystemInfo.deviceModel },
-            { "os_version",         SystemInfo.operatingSystem }
-        };
+            { "start_time",       Timestamp.FromDateTime(sessionStartTime) },
+            { "duration_seconds", 0 },
+            { "levels_played",    0 },
+            { "device_model",     SystemInfo.deviceModel },
+            { "os_version",       SystemInfo.operatingSystem }
+        }, "session_start");
 
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection(COLLECTION_SESSIONS).Document(sessionId)
-          .SetAsync(data);
-
-        // Profilde toplam oturum sayısını artır
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync("total_sessions", FieldValue.Increment(1));
+        MergeProfileAndRoot(new Dictionary<string, object>
+        {
+            { "total_sessions", FieldValue.Increment(1) }
+        }, "session_count");
     }
 
     private void EndSession(bool fromPause = false)
@@ -200,285 +269,261 @@ public class FirestoreAnalytics : MonoBehaviour
             LogLevelQuit(currentLevelIndex, timeOnLevel);
         }
 
-        double durationSeconds = (DateTime.UtcNow - sessionStartTime).TotalSeconds;
+        long duration = SaneSeconds((DateTime.UtcNow - sessionStartTime).TotalSeconds);
 
-        var updates = new Dictionary<string, object>
+        Merge(RootRef.Collection(COLLECTION_SESSIONS).Document(sessionId), new Dictionary<string, object>
         {
             { "end_time",         Timestamp.FromDateTime(DateTime.UtcNow) },
-            { "duration_seconds", (long)durationSeconds },
+            { "duration_seconds", duration },
             { "levels_played",    levelsPlayedThisSession },
             { "ended_by_pause",   fromPause }
-        };
-
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection(COLLECTION_SESSIONS).Document(sessionId)
-          .UpdateAsync(updates);
+        }, "session_end");
     }
 
     private void AddPlayTime(double seconds)
     {
         if (!isReady || seconds <= 0) return;
-        
-        double minutes = seconds / 60.0;
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync("total_play_minutes", FieldValue.Increment(minutes));
+
+        double minutes = SaneSeconds(seconds) / 60.0;
+        if (minutes <= 0) return;
+
+        MergeProfileAndRoot(new Dictionary<string, object>
+        {
+            { "total_play_minutes", FieldValue.Increment(minutes) }
+        }, "play_time");
     }
 
     // ─────────────────────────────────────────────────────────────
     // LEVEL OLAYLARI
     // ─────────────────────────────────────────────────────────────
 
-    public void LogLevelStart(int levelIndex)
+    public void LogLevelStart(int levelIndex, LevelContext ctx = default)
     {
-        if (!isReady) return;
-
-        currentLevelIndex   = levelIndex;
-        levelStartTime      = DateTime.UtcNow;
-        levelActive         = true;
-        CurrentLevelMoves   = 0; // Hamle sayacını sıfırla
+        // Yerel durum SDK'dan bağımsız — init sırasında başlayan level "aktif değil" sanılmasın.
+        currentLevelIndex = levelIndex;
+        levelStartTime    = DateTime.UtcNow;
+        levelActive       = true;
+        ResetAttemptCounters();
         levelsPlayedThisSession++;
 
-        DocumentReference levelRef = GetLevelRef(levelIndex);
+        // Kaçıncı deneme — yerel sayaç, okuma gerektirmez.
+        string attemptKey = PREF_ATTEMPTS + levelIndex;
+        CurrentAttemptNumber = PlayerPrefs.GetInt(attemptKey, 0) + 1;
+        PlayerPrefs.SetInt(attemptKey, CurrentAttemptNumber);
 
-        // İlk kez mi bu level?
-        levelRef.GetSnapshotAsync().ContinueWithOnMainThread(task =>
+        if (!isReady) return;
+
+        var levelData = new Dictionary<string, object>
         {
-            if (!task.IsCompleted || task.IsFaulted) return;
+            { "level_index",         levelIndex },
+            { "level_type",          ctx.levelType },
+            { "attempts",            FieldValue.Increment(1) },
+            { "last_attempt_number", CurrentAttemptNumber },
+            { "tutorial_shown",      ctx.tutorialShown },
+            { "last_played",         Timestamp.FromDateTime(DateTime.UtcNow) }
+        };
 
-            if (!task.Result.Exists)
-            {
-                // Level kaydı yok → oluştur
-                var data = new Dictionary<string, object>
-                {
-                    { "level_index",        levelIndex },
-                    { "attempts",           1 },
-                    { "completions",        0 },
-                    { "fails",              0 },
-                    { "resets",             0 },
-                    { "retries",            0 },
-                    { "quits",              0 },
-                    { "best_time",          0 },
-                    { "best_moves",         0 },
-                    { "total_fail_moves",   0 },
-                    { "total_boosters",     0 },
-                    { "total_time_spent",   0 },
-                    { "first_attempt",      Timestamp.FromDateTime(DateTime.UtcNow) },
-                    { "last_played",        Timestamp.FromDateTime(DateTime.UtcNow) }
-                };
-                levelRef.SetAsync(data);
-            }
-            else
-            {
-                // Var → attempt sayısını artır
-                levelRef.UpdateAsync(new Dictionary<string, object>
-                {
-                    { "attempts",    FieldValue.Increment(1) },
-                    { "last_played", Timestamp.FromDateTime(DateTime.UtcNow) }
-                });
-            }
-        });
+        // first_attempt yalnızca bu cihazda level ilk kez açıldığında yazılır.
+        string seenKey = PREF_LEVEL_SEEN + levelIndex;
+        if (PlayerPrefs.GetInt(seenKey, 0) == 0)
+        {
+            levelData["first_attempt"] = Timestamp.FromDateTime(DateTime.UtcNow);
+            PlayerPrefs.SetInt(seenKey, 1);
+        }
+        PlayerPrefs.Save();
 
-        // Farthest level güncelle
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .GetSnapshotAsync().ContinueWithOnMainThread(task =>
-          {
-              if (!task.IsCompleted || task.IsFaulted) return;
-              long farthest = 0;
-              if (task.Result.Exists && task.Result.TryGetValue("farthest_level", out farthest))
-              {
-                  if (levelIndex > farthest)
-                      db.Collection(COLLECTION_USERS).Document(userId)
-                        .Collection("meta").Document(DOC_PROFILE)
-                        .UpdateAsync("farthest_level", levelIndex);
-              }
-          });
+        Merge(GetLevelRef(levelIndex), levelData, "level_start");
+
+        // En uzak level — Firestore okumadan, yerel maksimumla karşılaştırılır.
+        if (levelIndex > PlayerPrefs.GetInt(PREF_FARTHEST, -1))
+        {
+            PlayerPrefs.SetInt(PREF_FARTHEST, levelIndex);
+            PlayerPrefs.Save();
+
+            MergeProfileAndRoot(new Dictionary<string, object>
+            {
+                { "farthest_level", levelIndex }
+            }, "farthest_level");
+        }
     }
 
-    public void LogLevelComplete(int levelIndex, float durationSeconds, int movesCount = -1)
+    public void LogLevelComplete(int levelIndex, float durationSeconds, LevelContext ctx = default)
     {
-        if (!isReady) return;
         levelActive = false;
+        long safeDuration = SaneSeconds(durationSeconds);
 
-        if (movesCount < 0) movesCount = CurrentLevelMoves;
+        if (!isReady) return;
 
         var updates = new Dictionary<string, object>
         {
-            { "completions",        FieldValue.Increment(1) },
-            { "total_time_spent",   FieldValue.Increment((long)durationSeconds) },
-            { "last_success_moves", movesCount },
-            { "total_win_moves",    FieldValue.Increment(movesCount) },
-            { "last_played",        Timestamp.FromDateTime(DateTime.UtcNow) }
+            { "level_index",      levelIndex },
+            { "completions",      FieldValue.Increment(1) },
+            { "total_time_spent", FieldValue.Increment(safeDuration) },
+            { "total_moves",      FieldValue.Increment(ctx.movesMade) },
+            { "total_rotations",  FieldValue.Increment(ctx.rotationsUsed) },
+            { "last_solve_moves", ctx.movesMade },
+            { "last_played",      Timestamp.FromDateTime(DateTime.UtcNow) }
         };
 
-        // Best time & best moves güncelle
-        DocumentReference levelRef = GetLevelRef(levelIndex);
-        levelRef.GetSnapshotAsync().ContinueWithOnMainThread(task =>
+        // En iyi süre de yerel takip edilir — okuma gerekmez.
+        string bestKey = PREF_BEST_TIME + levelIndex;
+        int previousBest = PlayerPrefs.GetInt(bestKey, 0);
+        if (safeDuration > 0 && (previousBest == 0 || safeDuration < previousBest))
         {
-            if (!task.IsCompleted || task.IsFaulted) return;
+            PlayerPrefs.SetInt(bestKey, (int)safeDuration);
+            PlayerPrefs.Save();
+            updates["best_time"] = safeDuration;
+        }
 
-            long bestTime = 0;
-            long bestMoves = 0;
-            if (task.Result.Exists)
-            {
-                task.Result.TryGetValue("best_time", out bestTime);
-                task.Result.TryGetValue("best_moves", out bestMoves);
-            }
+        Merge(GetLevelRef(levelIndex), updates, "level_complete");
 
-            if (bestTime == 0 || durationSeconds < bestTime)
-                updates["best_time"] = (long)durationSeconds;
-
-            if (bestMoves == 0 || (movesCount > 0 && movesCount < bestMoves))
-                updates["best_moves"] = movesCount;
-
-            levelRef.UpdateAsync(updates);
-        });
-
-        // Root doc'u güncelle
-        UpdateRootDoc(new Dictionary<string, object>
+        MergeProfileAndRoot(new Dictionary<string, object>
         {
-            { "farthest_level", FieldValue.Increment(0) }
-        });
+            { "total_completions", FieldValue.Increment(1) },
+            { "last_level_completed", levelIndex }
+        }, "completion_count");
 
-        AddPlayTime(durationSeconds);
+        AddPlayTime(safeDuration);
     }
 
-    public void LogLevelFail(int levelIndex, float durationSeconds, int movesCount = -1, int failedLayerY = -1)
+    public void LogLevelFail(int levelIndex, float durationSeconds, LevelContext ctx = default,
+                             int failedLayerY = -1)
     {
-        if (!isReady) return;
         levelActive = false;
+        long safeDuration = SaneSeconds(durationSeconds);
 
-        if (movesCount < 0) movesCount = CurrentLevelMoves;
+        if (!isReady) return;
+
         if (failedLayerY < 0 && GridManager.Instance != null) failedLayerY = GridManager.Instance.ActiveLayerY;
         if (failedLayerY < 0) failedLayerY = 0;
 
-        var updates = new Dictionary<string, object>
+        Merge(GetLevelRef(levelIndex), new Dictionary<string, object>
         {
-            { "fails",                             FieldValue.Increment(1) },
-            { "total_time_spent",                  FieldValue.Increment((long)durationSeconds) },
-            { "last_fail_moves",                   movesCount },
-            { "total_fail_moves",                  FieldValue.Increment(movesCount) },
-            { "last_fail_layer",                   failedLayerY },
+            { "level_index",                        levelIndex },
+            { "fails",                              FieldValue.Increment(1) },
+            { "total_time_spent",                   FieldValue.Increment(safeDuration) },
+            { "total_moves",                        FieldValue.Increment(ctx.movesMade) },
+            { "total_rotations",                    FieldValue.Increment(ctx.rotationsUsed) },
+            { "last_fail_moves",                    ctx.movesMade },
+            { "last_fail_matches",                  ctx.matchesMade },
+            { "last_fail_pieces",                   ctx.piecesRemaining },
+            { "last_fail_layer",                    failedLayerY },
+            // Sıfır hamleli fail = tahta anlaşılmadı; yüksek hamleli fail = anlaşıldı ama çözülemedi.
+            { "zero_move_fails",                    FieldValue.Increment(ctx.movesMade == 0 ? 1 : 0) },
             { $"churn_layers.layer_{failedLayerY}", FieldValue.Increment(1) },
-            { "last_played",                       Timestamp.FromDateTime(DateTime.UtcNow) }
-        };
+            { "last_played",                        Timestamp.FromDateTime(DateTime.UtcNow) }
+        }, "level_fail");
 
-        GetLevelRef(levelIndex).UpdateAsync(updates);
-
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync(new Dictionary<string, object>
-          {
-              { "total_fails",      FieldValue.Increment(1) },
-              { "last_churn_level", levelIndex },
-              { "last_churn_layer", failedLayerY },
-              { "last_fail_moves",  movesCount }
-          });
-
-        // Root doc güncelle
-        UpdateRootDoc(new Dictionary<string, object>
+        MergeProfileAndRoot(new Dictionary<string, object>
         {
             { "total_fails",      FieldValue.Increment(1) },
             { "last_churn_level", levelIndex },
-            { "last_churn_layer", failedLayerY }
-        });
+            { "last_churn_layer", failedLayerY },
+            { "last_fail_moves",  ctx.movesMade }
+        }, "fail_count");
 
-        AddPlayTime(durationSeconds);
+        AddPlayTime(safeDuration);
     }
 
-    public void LogLevelRetry(int levelIndex)
+    public void LogLevelRetry(int levelIndex, LevelContext ctx = default)
     {
-        if (!isReady) return;
+        double elapsedSeconds = levelActive ? (DateTime.UtcNow - levelStartTime).TotalSeconds : 0;
+        long safeElapsed = SaneSeconds(elapsedSeconds);
 
-        double elapsedSeconds = 0;
-        if (levelActive)
+        if (isReady)
         {
-            elapsedSeconds = (DateTime.UtcNow - levelStartTime).TotalSeconds;
+            var updates = new Dictionary<string, object>
+            {
+                { "level_index",        levelIndex },
+                { "retries",            FieldValue.Increment(1) },
+                { "last_retry_moves",   ctx.movesMade },
+                { "zero_move_retries",  FieldValue.Increment(ctx.movesMade == 0 ? 1 : 0) },
+                { "last_played",        Timestamp.FromDateTime(DateTime.UtcNow) }
+            };
+            if (safeElapsed > 0) updates["total_time_spent"] = FieldValue.Increment(safeElapsed);
+
+            Merge(GetLevelRef(levelIndex), updates, "level_retry");
+
+            MergeProfileAndRoot(new Dictionary<string, object>
+            {
+                { "total_retries", FieldValue.Increment(1) }
+            }, "retry_count");
+
+            AddPlayTime(safeElapsed);
         }
 
-        var updates = new Dictionary<string, object>
-        {
-            { "retries",           FieldValue.Increment(1) }
-        };
-        if (elapsedSeconds > 0)
-        {
-            updates["total_time_spent"] = FieldValue.Increment((long)elapsedSeconds);
-            AddPlayTime(elapsedSeconds);
-        }
-
-        GetLevelRef(levelIndex).UpdateAsync(updates);
-
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync("total_retries", FieldValue.Increment(1));
-
-        // Yeni attempt başlıyor
+        // Yeni deneme başlıyor
         levelStartTime = DateTime.UtcNow;
         levelActive    = true;
-        CurrentLevelMoves = 0;
+        ResetAttemptCounters();
     }
 
-    public void LogLevelReset(int levelIndex)
+    public void LogLevelReset(int levelIndex, LevelContext ctx = default)
     {
-        if (!isReady) return;
+        double elapsedSeconds = levelActive ? (DateTime.UtcNow - levelStartTime).TotalSeconds : 0;
+        long safeElapsed = SaneSeconds(elapsedSeconds);
 
-        double elapsedSeconds = 0;
-        if (levelActive)
+        if (isReady)
         {
-            elapsedSeconds = (DateTime.UtcNow - levelStartTime).TotalSeconds;
+            var updates = new Dictionary<string, object>
+            {
+                { "level_index",       levelIndex },
+                { "resets",            FieldValue.Increment(1) },
+                { "last_reset_moves",  ctx.movesMade },
+                { "last_reset_matches",ctx.matchesMade },
+                // En değerli ayrım: sıfır hamleyle reset → level anlaşılmıyor.
+                { "zero_move_resets",  FieldValue.Increment(ctx.movesMade == 0 ? 1 : 0) },
+                { "last_played",       Timestamp.FromDateTime(DateTime.UtcNow) }
+            };
+            if (safeElapsed > 0) updates["total_time_spent"] = FieldValue.Increment(safeElapsed);
+
+            Merge(GetLevelRef(levelIndex), updates, "level_reset");
+
+            MergeProfileAndRoot(new Dictionary<string, object>
+            {
+                { "total_resets", FieldValue.Increment(1) }
+            }, "reset_count");
+
+            AddPlayTime(safeElapsed);
         }
-
-        var updates = new Dictionary<string, object>
-        {
-            { "resets",           FieldValue.Increment(1) }
-        };
-        if (elapsedSeconds > 0)
-        {
-            updates["total_time_spent"] = FieldValue.Increment((long)elapsedSeconds);
-            AddPlayTime(elapsedSeconds);
-        }
-
-        GetLevelRef(levelIndex).UpdateAsync(updates);
-
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync("total_resets", FieldValue.Increment(1));
 
         // Reset = tekrar başlıyor
         levelStartTime = DateTime.UtcNow;
         levelActive    = true;
-        CurrentLevelMoves = 0;
+        ResetAttemptCounters();
     }
 
-    public void LogLevelQuit(int levelIndex, float durationSeconds, int movesCount = -1, int quitLayerY = -1)
+    public void LogLevelQuit(int levelIndex, float durationSeconds, LevelContext ctx = default,
+                             int quitLayerY = -1)
     {
-        if (!isReady || levelIndex < 0) return;
+        if (levelIndex < 0) return;
         levelActive = false;
+        long safeDuration = SaneSeconds(durationSeconds);
 
-        if (movesCount < 0) movesCount = CurrentLevelMoves;
+        if (!isReady) return;
+
         if (quitLayerY < 0 && GridManager.Instance != null) quitLayerY = GridManager.Instance.ActiveLayerY;
         if (quitLayerY < 0) quitLayerY = 0;
 
-        GetLevelRef(levelIndex).UpdateAsync(new Dictionary<string, object>
+        Merge(GetLevelRef(levelIndex), new Dictionary<string, object>
         {
-            { "quits",                             FieldValue.Increment(1) },
-            { "total_time_spent",                  FieldValue.Increment((long)durationSeconds) },
-            { "last_quit_moves",                   movesCount },
-            { "last_quit_layer",                   quitLayerY },
-            { $"churn_layers.layer_{quitLayerY}",  FieldValue.Increment(1) }
-        });
+            { "level_index",                      levelIndex },
+            { "quits",                            FieldValue.Increment(1) },
+            { "total_time_spent",                 FieldValue.Increment(safeDuration) },
+            { "last_quit_moves",                  ctx.movesMade },
+            { "last_quit_pieces",                 ctx.piecesRemaining },
+            { "last_quit_layer",                  quitLayerY },
+            { $"churn_layers.layer_{quitLayerY}", FieldValue.Increment(1) },
+            { "last_played",                      Timestamp.FromDateTime(DateTime.UtcNow) }
+        }, "level_quit");
 
-        // Profilde "son çıkılan level" ve churn katmanı
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync(new Dictionary<string, object>
-          {
-              { "last_level_quit",  levelIndex },
-              { "last_churn_layer", quitLayerY }
-          });
+        MergeProfileAndRoot(new Dictionary<string, object>
+        {
+            { "last_level_quit",  levelIndex },
+            { "last_churn_layer", quitLayerY }
+        }, "quit_info");
 
-        AddPlayTime(durationSeconds);
+        AddPlayTime(safeDuration);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -498,32 +543,22 @@ public class FirestoreAnalytics : MonoBehaviour
 
         string cleanBooster = boosterType.Trim().Replace(" ", "_");
 
-        // Level geçmişine kaydet
         if (levelIndex >= 0)
         {
-            GetLevelRef(levelIndex).UpdateAsync(new Dictionary<string, object>
+            Merge(GetLevelRef(levelIndex), new Dictionary<string, object>
             {
-                { "total_boosters",                 FieldValue.Increment(1) },
-                { $"boosters_used.{cleanBooster}",  FieldValue.Increment(1) }
-            });
+                { "level_index",                   levelIndex },
+                { "total_boosters",                FieldValue.Increment(1) },
+                { $"boosters_used.{cleanBooster}", FieldValue.Increment(1) },
+                { "last_played",                   Timestamp.FromDateTime(DateTime.UtcNow) }
+            }, "booster_level");
         }
 
-        // Profil dökümanına kaydet
-        db.Collection(COLLECTION_USERS).Document(userId)
-          .Collection("meta").Document(DOC_PROFILE)
-          .UpdateAsync(new Dictionary<string, object>
-          {
-              { "total_boosters_used",      FieldValue.Increment(1) },
-              { $"boosters.{cleanBooster}", FieldValue.Increment(1) }
-          });
-
-        // Root dökümanı güncelle
-        UpdateRootDoc(new Dictionary<string, object>
+        MergeProfileAndRoot(new Dictionary<string, object>
         {
-            { "total_boosters_used", FieldValue.Increment(1) }
-        });
-
-        Debug.Log($"[Firestore] Booster Kullanıldı: {cleanBooster} (Level {levelIndex + 1}, Katman {layerY})");
+            { "total_boosters_used",      FieldValue.Increment(1) },
+            { $"boosters.{cleanBooster}", FieldValue.Increment(1) }
+        }, "booster_profile");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -532,27 +567,43 @@ public class FirestoreAnalytics : MonoBehaviour
 
     void OnApplicationPause(bool pauseStatus)
     {
+        if (!isReady) return;
+
         if (pauseStatus)
         {
-            // Uygulama arka plana alındı
+            pausedAt = DateTime.UtcNow;
+            levelActiveBeforePause = levelActive;
+
             if (levelActive)
             {
                 float timeOnLevel = (float)(DateTime.UtcNow - levelStartTime).TotalSeconds;
-                LogLevelQuit(currentLevelIndex, timeOnLevel);
+                LogLevelQuit(currentLevelIndex, timeOnLevel, BuildLocalContext());
             }
             EndSession(fromPause: true);
         }
         else
         {
-            // Uygulama ön plana döndü → yeni oturum başlat
-            sessionId        = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_") + UnityEngine.Random.Range(1000, 9999);
-            sessionStartTime = DateTime.UtcNow;
-            levelsPlayedThisSession = 0;
+            double awaySeconds = (DateTime.UtcNow - pausedAt).TotalSeconds;
 
-            // Aktif levelden devam ediyorsa timer'ı sıfırla
-            if (levelActive) levelStartTime = DateTime.UtcNow;
+            // Arka planda geçen süre level süresine yazılmasın
+            if (levelActiveBeforePause)
+            {
+                levelActive    = true;
+                levelStartTime = DateTime.UtcNow;
+            }
 
-            StartSession();
+            if (awaySeconds >= NEW_SESSION_AFTER_SECONDS)
+            {
+                sessionId               = NewSessionId();
+                sessionStartTime        = DateTime.UtcNow;
+                levelsPlayedThisSession = 0;
+                StartSession();
+            }
+            else
+            {
+                // Kısa kesinti — aynı oturum devam eder, arka plan süresi düşülür.
+                sessionStartTime = sessionStartTime.AddSeconds(awaySeconds);
+            }
         }
     }
 
@@ -561,21 +612,35 @@ public class FirestoreAnalytics : MonoBehaviour
         EndSession(fromPause: false);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // YARDIMCI
-    // ─────────────────────────────────────────────────────────────
-
-    private DocumentReference GetLevelRef(int levelIndex)
+    /// <summary>
+    /// Arka plana geçiş gibi, oyun tarafından bağlam gelmeyen anlarda kullanılan
+    /// yedek bağlam — en azından yerel sayaçlar kaydedilsin.
+    /// </summary>
+    private LevelContext BuildLocalContext()
     {
-        return db.Collection(COLLECTION_USERS).Document(userId)
-                 .Collection(COLLECTION_LEVELS).Document(levelIndex.ToString());
+        return new LevelContext
+        {
+            movesMade       = CurrentLevelMoves,
+            rotationsUsed   = CurrentLevelRotations,
+            matchesMade     = CurrentLevelMatches,
+            attemptNumber   = CurrentAttemptNumber,
+            piecesRemaining = -1
+        };
     }
 }
 #else
+/// <summary>
+/// Firebase SDK yokken (veya USE_FIREBASE tanımlı değilken) kullanılan boş sürüm.
+/// Yerel sayaçlar burada da çalışır — oyun mantığı analitiğin varlığına bağlı olmasın.
+/// </summary>
 public class FirestoreAnalytics : MonoBehaviour
 {
     public static FirestoreAnalytics Instance;
-    public int CurrentLevelMoves { get; private set; } = 0;
+
+    public int CurrentLevelMoves     { get; private set; } = 0;
+    public int CurrentLevelRotations { get; private set; } = 0;
+    public int CurrentLevelMatches   { get; private set; } = 0;
+    public int CurrentAttemptNumber  { get; private set; } = 1;
 
     private void Awake()
     {
@@ -583,14 +648,31 @@ public class FirestoreAnalytics : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
     }
+
+    private void ResetAttemptCounters()
+    {
+        CurrentLevelMoves     = 0;
+        CurrentLevelRotations = 0;
+        CurrentLevelMatches   = 0;
+    }
+
     public void Initialize() {}
-    public void IncrementMoveCount() { CurrentLevelMoves++; }
-    public void LogLevelStart(int levelIndex) { CurrentLevelMoves = 0; }
-    public void LogLevelComplete(int levelIndex, float durationSeconds, int movesCount = -1) {}
-    public void LogLevelFail(int levelIndex, float durationSeconds, int movesCount = -1, int failedLayerY = -1) {}
-    public void LogLevelRetry(int levelIndex) { CurrentLevelMoves = 0; }
-    public void LogLevelReset(int levelIndex) { CurrentLevelMoves = 0; }
-    public void LogLevelQuit(int levelIndex, float durationSeconds, int movesCount = -1, int quitLayerY = -1) {}
+    public void IncrementMoveCount()     => CurrentLevelMoves++;
+    public void IncrementRotationCount() => CurrentLevelRotations++;
+    public void IncrementMatchCount(int count = 1) { if (count > 0) CurrentLevelMatches += count; }
+
+    public void LogLevelStart(int levelIndex, LevelContext ctx = default)
+    {
+        ResetAttemptCounters();
+        string key = "fs_attempts_" + levelIndex;
+        CurrentAttemptNumber = PlayerPrefs.GetInt(key, 0) + 1;
+        PlayerPrefs.SetInt(key, CurrentAttemptNumber);
+    }
+    public void LogLevelComplete(int levelIndex, float durationSeconds, LevelContext ctx = default) {}
+    public void LogLevelFail(int levelIndex, float durationSeconds, LevelContext ctx = default, int failedLayerY = -1) {}
+    public void LogLevelRetry(int levelIndex, LevelContext ctx = default) => ResetAttemptCounters();
+    public void LogLevelReset(int levelIndex, LevelContext ctx = default) => ResetAttemptCounters();
+    public void LogLevelQuit(int levelIndex, float durationSeconds, LevelContext ctx = default, int quitLayerY = -1) {}
     public void LogBoosterUsed(string boosterType, int levelIndex = -1, int layerY = -1) {}
 }
 #endif

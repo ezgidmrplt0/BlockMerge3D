@@ -146,7 +146,59 @@ public class GameManager : MonoBehaviour
         UIManager.Instance?.OnLevelStart(currentTargetScore, remainingTime);
 
         // Analitik: level başladı (bkz. FirebaseManager / FirestoreAnalytics).
-        FirebaseManager.Instance?.LogLevelStart(currentLevelIndex);
+        // NOT: attemptNumber LogLevelStart içinde hesaplanıp sayaçlar sıfırlandığı için
+        // bağlam burada level_type + tutorial bilgisiyle kurulur.
+        FirebaseManager.Instance?.LogLevelStart(currentLevelIndex, BuildContext());
+    }
+
+    // ─── Analitik bağlamı ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Olay anındaki oynanış bağlamını toplar. Tek başına "8 kez fail oldu" bilgisi
+    /// bir şey söylemez; sıfır hamleyle mi yoksa sekiz hamleyle mi fail olduğu
+    /// tamamen farklı iki tasarım problemidir (bkz. <see cref="LevelContext"/>).
+    /// </summary>
+    public LevelContext BuildContext()
+    {
+        var fs = FirestoreAnalytics.Instance;
+        var lm = LevelManager.Instance;
+
+        return new LevelContext
+        {
+            levelType       = BuildLevelTypeFlags(),
+            movesMade       = fs != null ? fs.CurrentLevelMoves : 0,
+            rotationsUsed   = fs != null ? fs.CurrentLevelRotations : 0,
+            matchesMade     = fs != null ? fs.CurrentLevelMatches : 0,
+            piecesRemaining = lm != null ? lm.PiecesInHand : -1,
+            attemptNumber   = fs != null ? fs.CurrentAttemptNumber : 1,
+            tutorialShown   = TutorialOverlay.Instance != null && TutorialOverlay.Instance.IsRunning
+        };
+    }
+
+    /// <summary>Levelin mekanik bayrakları — buzlu/prefilled/süreli/çok katmanlı.</summary>
+    private int BuildLevelTypeFlags()
+    {
+        var level = LevelManager.Instance != null ? LevelManager.Instance.currentLevel : null;
+        if (level == null) return LevelTypeFlags.Classic;
+
+        int flags = 0;
+        if (level.timeLimit > 0f) flags |= LevelTypeFlags.Timed;
+
+        if (level.mainShapePrefab != null)
+        {
+            var holder = level.mainShapePrefab.GetComponent<CubeShapeDataHolder>();
+            if (holder != null)
+            {
+                if (holder.frozenCells != null && holder.frozenCells.Count > 0)
+                    flags |= LevelTypeFlags.Ice;
+                if (holder.prefilledCells != null && holder.prefilledCells.Count > 0)
+                    flags |= LevelTypeFlags.Prefilled;
+                if (holder.gridSize.y > 1)
+                    flags |= LevelTypeFlags.MultiLayer;
+            }
+        }
+
+        return flags == 0 ? LevelTypeFlags.Classic : flags;
     }
 
     // ─── Win / Lose ───────────────────────────────────────────────────────────
@@ -167,8 +219,8 @@ public class GameManager : MonoBehaviour
         timerRunning  = false;
 
         // Analitik: level kazanıldı. Geçen süre = toplam - kalan.
-        int winMoves = FirestoreAnalytics.Instance != null ? FirestoreAnalytics.Instance.CurrentLevelMoves : -1;
-        FirebaseManager.Instance?.LogLevelComplete(currentLevelIndex, totalTime - remainingTime, remainingTime, winMoves);
+        FirebaseManager.Instance?.LogLevelComplete(currentLevelIndex, totalTime - remainingTime,
+                                                   remainingTime, BuildContext());
 
         // Parça yerleşim/merge animasyonu devam ediyorsa bitene kadar bekle
         if (blockingAnimations > 0)
@@ -249,9 +301,9 @@ public class GameManager : MonoBehaviour
         timerRunning = false;
 
         // Analitik: level kaybedildi (süre doldu / hamle kalmadı, kaç hamlede ve hangi katmanda).
-        int failMoves = FirestoreAnalytics.Instance != null ? FirestoreAnalytics.Instance.CurrentLevelMoves : -1;
         int failLayer = GridManager.Instance != null ? GridManager.Instance.ActiveLayerY : 0;
-        FirebaseManager.Instance?.LogLevelFail(currentLevelIndex, totalTime - remainingTime, failMoves, failLayer);
+        FirebaseManager.Instance?.LogLevelFail(currentLevelIndex, totalTime - remainingTime,
+                                               BuildContext(), failLayer);
         LevelManager.Instance?.MarkCurrentLevelFailedOrRetried();
 
         UIManager.Instance?.ShowLosePanel(Score, reason);
@@ -319,7 +371,7 @@ public class GameManager : MonoBehaviour
 
         // Analitik: oyuncu bu leveli yeniden denedi (retries++). Ardından LoadCurrentLevel
         // → StartLevel yeni bir attempt (LogLevelStart) olarak da kaydeder.
-        FirebaseManager.Instance?.LogLevelRetry(currentLevelIndex);
+        FirebaseManager.Instance?.LogLevelRetry(currentLevelIndex, BuildContext());
         LevelManager.Instance?.MarkCurrentLevelFailedOrRetried();
         
         // 1. Önce arka planda seviye sıfırlanıp yüklensin (3D tahta sahnede oluşur)

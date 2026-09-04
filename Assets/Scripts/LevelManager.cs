@@ -75,6 +75,23 @@ public class LevelManager : MonoBehaviour
     private PieceCardUI holdCard;
     private GameObject holdPiece;
 
+    /// <summary>Analitik: oyuncunun o an elinde duran parça sayısı (kartlar + hold).
+    /// Fail/quit anında "ne kadar parçası kalmıştı" sorusunu cevaplar.</summary>
+    public int PiecesInHand
+    {
+        get
+        {
+            int count = 0;
+            if (pieceCards != null)
+            {
+                foreach (var card in pieceCards)
+                    if (card != null && card.HasPiece) count++;
+            }
+            if (holdCard != null && holdCard.HasPiece) count++;
+            return count;
+        }
+    }
+
     private GameObject nextPiecePreviewParent;
     private Camera nextPiecePreviewCam;
     private GameObject nextPiecePreview3D;
@@ -966,6 +983,9 @@ public class LevelManager : MonoBehaviour
 
             if (blastResult.clearedLines > 0)
             {
+                // Analitik: "ne kadar yaklaştı" ölçüsü — fail/reset anında yazılır.
+                FirestoreAnalytics.Instance?.IncrementMatchCount(blastResult.clearedLines);
+
                 comboStreak++;
                 int matchScore = (blastResult.clearedLines * 120 + blastResult.clearedCells * 25) * comboStreak;
                 GameManager.Instance?.AddScore(matchScore);

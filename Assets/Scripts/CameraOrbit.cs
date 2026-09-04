@@ -313,6 +313,9 @@ public class CameraOrbit : MonoBehaviour
         targetYaw -= Mathf.Sign(direction) * 90f;
         AudioManager.Instance?.PlayBoardRotateSound();
         TutorialEvents.RaiseBoardRotated();
+
+        // Analitik: tahta döndürme mekaniğinin keşfedilip keşfedilmediğini ölçer.
+        FirestoreAnalytics.Instance?.IncrementRotationCount();
     }
 
     private Vector2 swipeStartPos;

@@ -143,7 +143,14 @@ public class TowerMiniPreview : MonoBehaviour
                 Debug.LogWarning("[TowerMiniPreview] LayerMask.NameToLayer(\"MiniTowerPreview\") -1 döndü, sabit index (6) kullanılıyor.");
             }
             previewCamera.cullingMask = 1 << previewLayer;
-            Debug.Log($"[TowerMiniPreview] previewLayer={previewLayer}, cullingMask={previewCamera.cullingMask}");
+
+            // Kamera derinliği eskiden hiç ayarlanmamıştı (varsayılan 0) — sahnedeki DİĞER tüm
+            // RT kameralarından (kart önizlemeleri -2, sıradaki-parça -3, ana kamera -1) SONRA
+            // render oluyordu. En son render olan RT, mobilde sürücü tarafındaki render-target
+            // yönetiminde en çok "bayat/karışmış içerik" riski taşıyan olan. Diğerlerinden ÖNCE
+            // render etmesi için en düşük depth'e alıyoruz.
+            previewCamera.depth = -10;
+            Debug.Log($"[TowerMiniPreview] previewLayer={previewLayer}, cullingMask={previewCamera.cullingMask}, depth={previewCamera.depth}");
         }
 
         if (renderTexture == null)
@@ -155,8 +162,13 @@ public class TowerMiniPreview : MonoBehaviour
             // "kaybolması/boşluk oluşması" görüntüsüne yol açıyordu — Editor'de (masaüstü
             // GPU, çok daha toleranslı) hiç görünmüyordu, hiyerarşi/obje verisi zaten
             // doğrulandı, temiz.
-            renderTexture = new RenderTexture(256, 256, 24, RenderTextureFormat.ARGB32);
+            // Boyut 256 -> 384: kart önizleme RenderTexture'ları da 256x256 ARGB32 (bkz.
+            // PieceCardUI.Init) — birebir aynı descriptor'a sahip RT'ler mobil sürücülerde
+            // birbirine karışmaya çok daha açık. Benzersiz bir boyut bu ihtimali kapatıyor
+            // (ve ikon biraz daha net görünüyor).
+            renderTexture = new RenderTexture(384, 384, 24, RenderTextureFormat.ARGB32);
             renderTexture.antiAliasing = 1;
+            renderTexture.name = "TowerMiniPreviewRT";
             renderTexture.Create();
         }
 
@@ -265,6 +277,12 @@ public class TowerMiniPreview : MonoBehaviour
 
     private void Update()
     {
+        // NOT: Sürükleme sırasında kamerayı duraklatmayı denemiştim (bozulma sadece o anda
+        // oluşuyor) — ama kamera kapalıyken kule görünmez şekilde dönmeye devam edip parça
+        // bırakılınca açıya zıpladığı için dönüşü de durdurmak gerekiyordu. Kesintisiz dönüş
+        // tercih edildi; bozulmaya karşı RT'nin benzersiz boyutu (384, kart RT'leriyle aynı
+        // descriptor'ı paylaşmıyor) ve kamera depth -10 (diğer tüm RT kameralarından önce
+        // render) düzeltmeleri devrede kalıyor.
         if (miniTowerPivot != null)
         {
             miniTowerPivot.transform.Rotate(Vector3.up, autoRotateSpeed * Time.deltaTime, Space.Self);
@@ -278,24 +296,9 @@ public class TowerMiniPreview : MonoBehaviour
         EnsurePreviewStage();
         EnsureUIElement();
 
-        // RenderTexture uygulama açıldığından beri TEK SEFER oluşturulup ömür boyu tekrar
-        // kullanılıyordu. Bazı mobil GPU sürücülerinde uzun süre aynı render target'a yazılan
-        // buffer'da (özellikle sık sık farklı boyutta/şekilde içerik render edilince) bozulma
-        // birikebiliyor — "eski levelden kalma parça" gibi görünen ama aslında GPU tarafı
-        // bozuk render target içeriği olabilir. Her level değişiminde tazeden yeniden
-        // oluşturmak bu ihtimali kapatıyor.
-        if (renderTexture != null)
-        {
-            previewCamera.targetTexture = null;
-            renderTexture.Release();
-            Destroy(renderTexture);
-            renderTexture = null;
-        }
-        renderTexture = new RenderTexture(256, 256, 24, RenderTextureFormat.ARGB32);
-        renderTexture.antiAliasing = 1;
-        renderTexture.Create();
-        if (previewRawImage != null) previewRawImage.texture = renderTexture;
-        if (!isExpanded) previewCamera.targetTexture = renderTexture;
+        // NOT: Her level değişiminde RenderTexture'ı yeniden oluşturmayı denemiştim (GPU
+        // buffer bozulması teorisi) — sorunu çözmedi, sadece gereksiz RT trafiği ekliyordu,
+        // geri alındı. RT artık EnsurePreviewStage'de bir kere oluşturuluyor.
 
         if (miniTowerPivot != null)
         {

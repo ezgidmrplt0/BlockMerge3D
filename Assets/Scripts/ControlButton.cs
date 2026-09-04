@@ -106,6 +106,12 @@ public class ControlButton : MonoBehaviour
         jokerSpent = true;
         SetSpentVisual(true);
         RefreshBadge();
+
+        // Analitik: jokerin hangi level ve hangi katmanda harcandığı — booster_used
+        // olayı tanımlıydı ama hiçbir yerden çağrılmıyordu, veri toplanmıyordu.
+        int jokerLevel = GameManager.Instance != null ? GameManager.Instance.CurrentLevelNumber - 1 : -1;
+        FirebaseManager.Instance?.LogBoosterUsed("undo_joker", jokerLevel);
+
         LevelManager.Instance?.UndoLastPlace();
     }
 
